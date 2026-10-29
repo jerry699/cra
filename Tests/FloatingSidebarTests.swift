@@ -71,8 +71,8 @@ enum FloatingSidebarTests {
         // Nonzero bounds also check that both paths use shell-local geometry.
         let bounds = CGRect(x: 20, y: 10, width: 1400, height: 880)
         expect(FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 20, y: 100), in: bounds), "left edge reveals")
-        expect(FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 25, y: 100), in: bounds), "5 pt in reveals, as in Arc")
-        expect(!FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 26, y: 100), in: bounds), "6 pt in does not reveal, as in Arc")
+        expect(FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 30, y: 100), in: bounds), "the whole 10 pt margin reveals")
+        expect(!FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 30.1, y: 100), in: bounds), "page content does not reveal")
         expect(FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 16, y: 100), in: bounds), "just outside the window reveals, as in Arc")
         expect(!FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 15.9, y: 100), in: bounds), "further outside does not reveal")
         expect(!FloatingSidebarGeometry.shouldReveal(at: CGPoint(x: 22, y: 9.9), in: bounds), "above the window does not reveal")

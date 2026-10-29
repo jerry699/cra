@@ -3,10 +3,10 @@ import Foundation
 /// Both the shell's tracking area and the floating panel's pointer poll use the
 /// same window-local boundaries.
 enum FloatingSidebarGeometry {
-    /// Arc 1.170, measured with the pointer on a window away from the screen edge (29 Oct):
-    /// the hidden sidebar comes out within 5 pt of the window's left edge (not at 6 or 9 pt)
-    /// and from just outside it (2–4 pt).
-    static let revealInside: CGFloat = 5
+    /// The hidden sidebar comes out over the whole 10 pt margin left of the page and from just
+    /// outside the window (2–4 pt, as in Arc). Arc 1.170's own strip is 5 pt (measured 29 Oct:
+    /// out at 1–5 pt, not at 6 or 9 pt); the full margin is a deliberate choice, easier to hit.
+    static let revealInside: CGFloat = 10
     static let revealOutside: CGFloat = 4
     static let margin: CGFloat = 8
     static let leaveSlack: CGFloat = 24
