@@ -15,6 +15,8 @@ final class CommandBarController {
     /// Text pushed into the field from outside (prefill); bump version to apply.
     var fieldText = ""
     var fieldTextVersion = 0
+    /// Pushed text arrives selected (a prefill); false puts the caret after it.
+    var fieldTextSelected = true
     var allowCompletion = true
     /// Text shown in the field while arrowing through rows (Chrome/Arc fill the
     /// field with the selected row); nil shows what was typed. Bump version to apply.
@@ -26,6 +28,12 @@ final class CommandBarController {
     var highlight: Color = .accentColor.opacity(0.4)
     var focusedSpaceID: UUID?
     var spaceName: (UUID) -> String = { _ in "" }
+    /// Arc's Site Search: Tab on "youtube" scopes the bar to YouTube (a pill before the
+    /// field) until Backspace on an empty field or Escape.
+    private(set) var siteSearch: SiteSearch?
+    /// What was typed when Tab entered the site search; Backspace puts it back.
+    private var siteSearchTyped = ""
+    private var openedPrefill: String?
 
     unowned let engine: SuggestionEngine
     unowned let store: SidebarStore
@@ -38,6 +46,7 @@ final class CommandBarController {
     }
 
     var placeholder: String {
+        if siteSearch != nil { return "Search…" }
         switch mode {
         case .newTab: return "Search or enter URL…"
         case .editURL: return "Edit URL or search…"
@@ -47,8 +56,11 @@ final class CommandBarController {
     func open(mode: CommandBarMode, prefill: String?) {
         engine.resetIndex()
         self.mode = mode
+        siteSearch = nil
+        openedPrefill = prefill
         query = prefill ?? ""
         fieldText = query
+        fieldTextSelected = true
         fieldTextVersion += 1
         allowCompletion = false
         selectedIndex = 0
@@ -60,6 +72,7 @@ final class CommandBarController {
     /// Replace the typed text (scripting / tests).
     func setQuery(_ text: String) {
         fieldText = text
+        fieldTextSelected = true
         fieldTextVersion += 1
         update(query: text, allowCompletion: true)
     }
@@ -67,6 +80,12 @@ final class CommandBarController {
     func update(query newQuery: String, allowCompletion: Bool) {
         query = newQuery
         self.allowCompletion = allowCompletion
+        if let site = siteSearch {
+            result = engine.suggestions(for: newQuery, in: site)
+            selectedIndex = 0
+            previewText = nil
+            return
+        }
         result = engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID)
         if !allowCompletion { result.inlineCompletion = nil }
         selectedIndex = 0
@@ -80,6 +99,7 @@ final class CommandBarController {
 
     /// The search engine answered: list again, keeping the selected row where it still is.
     private func relist() {
+        guard siteSearch == nil else { return }
         let selectedID = result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].id : nil
         result = engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID)
         if !allowCompletion { result.inlineCompletion = nil }
@@ -119,10 +139,40 @@ final class CommandBarController {
         }
     }
 
+    /// Tab on text that starts a site search's host: scope the bar to that site.
+    func enterSiteSearch() -> Bool {
+        guard siteSearch == nil, previewText == nil, let site = result.siteSearch else { return false }
+        siteSearchTyped = query
+        siteSearch = site
+        pushFieldText("")
+        return true
+    }
+
+    /// Backspace on the empty scoped field: back to what was typed, the hint showing again.
+    func leaveSiteSearch() {
+        guard siteSearch != nil else { return }
+        siteSearch = nil
+        pushFieldText(siteSearchTyped)
+    }
+
+    /// Escape in a site search goes back to how the bar opened rather than closing it (Arc).
+    func cancelSiteSearch() {
+        guard siteSearch != nil else { return }
+        open(mode: mode, prefill: openedPrefill)
+    }
+
+    private func pushFieldText(_ text: String) {
+        fieldText = text
+        fieldTextSelected = false
+        fieldTextVersion += 1
+        update(query: text, allowCompletion: false)
+    }
+
     /// Accept the inline completion (Tab / →).
     func acceptCompletion() -> Bool {
         guard let c = result.inlineCompletion else { return false }
         fieldText = c
+        fieldTextSelected = true
         fieldTextVersion += 1
         update(query: c, allowCompletion: false)
         return true
@@ -145,6 +195,7 @@ final class CommandBarController {
     func close() {
         guard isOpen else { return }
         isOpen = false
+        siteSearch = nil
         engine.resetIndex()
         onClose()
     }

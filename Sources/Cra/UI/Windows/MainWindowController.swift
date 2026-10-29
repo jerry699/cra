@@ -139,8 +139,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         tabSwitcher.onHide = { [weak self] in self?.hideTabSwitcherPanel() }
         tabSwitcher.onCommit = { [weak self] id in
             guard let self, id != self.selectedTabID else { return }
+            let space = self.focusedSpaceID
             self.store.selectTab(id, window: self.windowID)
-            self.sidebarUI.keyboardFocusID = id
+            // Arc rings a tab chosen from the keyboard only when it had to change space to show
+            // it; within a space the selection alone marks it (issue #12).
+            if self.focusedSpaceID != space { self.sidebarUI.keyboardFocusID = id }
         }
         tabSwitcher.direction = { [weak app] event in
             switch app?.bindings.action(for: event)?.id {
@@ -282,6 +285,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // views show beyond the palette they observe themselves.
         if shownTheme != space.theme {
             shownTheme = space.theme
+            // A swipe in the floating sidebar changes space under it (issue #12).
+            floatingSidebar?.refreshBackdrop()
             shell.placeholderHost.wantsLayer = true
             shell.placeholderHost.layer?.backgroundColor = (palette.isDark ? NSColor.white.withAlphaComponent(0.04) : NSColor.black.withAlphaComponent(0.03)).cgColor
             shell.isDarkTheme = palette.isDark
@@ -643,7 +648,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         var panels: [NSPanel?] = [overlayPanel]
         if !overlay.toasts.isEmpty { panels.append(toastPanel) }
         if overlay.findVisible { panels.append(findPanel) }
-        let wanted = panels.compactMap { $0 }
+        // A Peek (and its dimming) stays above everything else in the window.
+        let wanted = panels.compactMap { $0 } + peeks.flatMap(\.peekWindows)
         // Already the last children, in order, and showing: re-adding each one rebuilt the
         // window's ordering group, a window server round trip, on every tab switch.
         let children = window.childWindows ?? []
@@ -1162,6 +1168,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
 
     func browserManagerPageClosedTab(_ tabID: UUID) { closeTab(tabID) }
 
+    /// Arc's Peek (Settings ▸ Tabs ▸ Links): a link to another site clicked in a favorite or
+    /// pinned tab, or any Shift-clicked link, opens over the window and the tab stays put.
+    func browserManagerOpensPeek(url: String, fromTab tabID: UUID, pageURL: String, shiftClick: Bool) -> Bool {
+        guard !isIncognito, let target = SiteKey.site(of: url) else { return false }
+        if shiftClick {
+            guard store.settings.peekOnShiftClick else { return false }
+        } else {
+            guard store.settings.peekLinksToOtherSites, store.isPinned(tabID),
+                  let here = SiteKey.site(of: pageURL), here != target else { return false }
+        }
+        app.openPeek(url: url, over: self)
+        return true
+    }
+
+    /// Arc's Peek covers the page area less a margin, inside this window.
+    func peekFrame() -> NSRect {
+        guard let window else { return .zero }
+        // Asked from windowDidResize, before the shell has laid out at the new size.
+        shell.layoutSubtreeIfNeeded()
+        let r = window.convertToScreen(shell.convert(shell.contentContainer.frame, to: nil))
+        return r.insetBy(dx: max(24, (r.width * 0.06).rounded()), dy: max(20, (r.height * 0.05).rounded()))
+    }
+
+    private var peeks: [LittleWindowController] { app.littleWindows.filter { $0.peekParent === self } }
+
     // MARK: Tabs
 
     /// cra://debug?devtoolsjs=…: run script in the current tab's DevTools frontend.
@@ -1376,12 +1407,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             if event.phase == .began || event.phase == .mayBegin { self.swipeAxis = .vertical }
             // The momentum tail of a space swipe belongs to the swipe, not the tab list.
             if !event.momentumPhase.isEmpty { return self.swipeAxis == .horizontal ? nil : event }
-            guard event.window === self.window, event.hasPreciseScrollingDeltas else { return event }
+            // The floating sidebar is in its own panel (FloatingSidebarController): its swipes
+            // come from that window.
+            let host = self.shell.sidebarHost
+            guard event.window === self.window || (event.window != nil && event.window === host.window),
+                  event.hasPreciseScrollingDeltas else { return event }
             switch event.phase {
             case .mayBegin, .began:
-                let p = self.shell.convert(event.locationInWindow, from: nil)
                 // The Library's lists don't page between spaces.
-                let overSidebar = (self.shell.sidebarVisible || self.shell.floatingSidebar) && self.shell.sidebarHost.frame.contains(p)
+                let overSidebar = (self.shell.sidebarVisible || self.shell.floatingSidebar) && event.window === host.window
+                    && host.bounds.contains(host.convert(event.locationInWindow, from: nil))
                     && self.sidebarUI.libraryPage == nil
                 self.swipeAxis = overSidebar ? .undecided : .vertical
                 self.swipeX = 0
@@ -1479,8 +1514,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             var instant = Transaction()
             instant.disablesAnimations = true
             withTransaction(instant) {
-                sidebarUI.spaceSwipe = pages - CGFloat(step)
+                // The space first: the strip and the tint read what's left of the swipe
+                // against the space shown.
                 store.focusSpace(store.spaceOrder[index + step], window: windowID)
+                sidebarUI.spaceSwipe = pages - CGFloat(step)
             }
         }
         sidebarUI.spaceSwipe = 0
@@ -1913,6 +1950,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         browsers.layoutVisible()
         if commandBar.isOpen { positionCommandPanel() }
         floatingSidebar?.reposition()
+        for p in peeks { p.repositionPeek() }
         saveFrame()
     }
 
@@ -2009,6 +2047,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     func tearDown() {
         isTornDown = true
         dismissTransientUI()
+        for p in peeks { p.closeWindow() }
         // A page another window shows behind its blurred stand-in moves there with its history
         // and state; closed with this window, that window loaded it again from scratch.
         for id in Array(browsers.runtimes.keys) {

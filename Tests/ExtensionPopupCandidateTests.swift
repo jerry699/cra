@@ -41,8 +41,13 @@ enum ExtensionPopupCandidateTests {
               "missing browser ownership fails closed")
         check(!ExtensionPopupCandidate.matches(bubble, owner: owner, sourceHost: host, isPageHost: { _ in false }),
               "a non-page parent is rejected")
+        check(!ExtensionPopupCandidate.mayBecomePopup(bubble), "a shown bubble is not hidden ahead of time")
         bubble.orderOut(nil)
         check(!matches(bubble), "a hidden popup is not ready for placement")
+        check(ExtensionPopupCandidate.mayBecomePopup(bubble), "a hidden Chromium bubble is kept transparent until framed")
+        badge.orderOut(nil)
+        check(!ExtensionPopupCandidate.mayBecomePopup(badge), "a hidden non-Chromium window is left alone")
+        badge.orderFront(nil)
         bubble.orderFront(nil)
         bubble.styleMask.insert(.titled)
         check(!matches(bubble), "a separate titled extension window is not an action bubble")

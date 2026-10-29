@@ -301,9 +301,19 @@ final class FavoritesGridView: NSView {
         if countChanged { onHeightChange(false) }
     }
 
-    private var rows: Int { (order.count + 3) / 4 }
+    /// Arc 1.170 (AX frames at sidebar widths 100–347, 29 Oct): four columns while a tile is at
+    /// least as wide as it is tall (47 pt), else two, else one; never three.
+    private static func columns(forWidth w: CGFloat) -> Int {
+        [4, 2].first { (w - CGFloat($0 - 1) * 8) / CGFloat($0) >= 47 } ?? 1
+    }
+
+    private func rows(forWidth w: CGFloat) -> Int {
+        let c = Self.columns(forWidth: w)
+        return (order.count + c - 1) / c
+    }
 
     func height(forWidth w: CGFloat) -> CGFloat {
+        let rows = rows(forWidth: w)
         let grid = rows == 0 ? 0 : CGFloat(rows) * 47 + CGFloat(rows - 1) * 8
         return grid + (order.isEmpty ? 0 : 4) + strip.height
     }
@@ -311,11 +321,13 @@ final class FavoritesGridView: NSView {
     override func layout() {
         super.layout()
         let w = bounds.width
-        let cw = (w - 3 * 8) / 4
+        let n = Self.columns(forWidth: w)
+        let cw = (w - CGFloat(n - 1) * 8) / CGFloat(n)
         for (i, id) in order.enumerated() {
-            let r = i / 4, c = i % 4
+            let r = i / n, c = i % n
             tiles[id]?.frame = NSRect(x: CGFloat(c) * (cw + 8), y: CGFloat(r) * (47 + 8), width: cw, height: 47)
         }
+        let rows = rows(forWidth: w)
         let grid = rows == 0 ? 0 : CGFloat(rows) * 47 + CGFloat(rows - 1) * 8
         strip.frame = NSRect(x: 0, y: grid + (order.isEmpty ? 0 : 4), width: w, height: strip.height)
     }

@@ -125,7 +125,8 @@ final class FloatingSidebarController {
         return p
     }
 
-    private func refreshBackdrop() {
+    /// The space's colours behind the sidebar; the window calls it when the theme changes.
+    func refreshBackdrop() {
         guard panel != nil else { return }
         let pal = palette()
         let t = CraTuning.shared

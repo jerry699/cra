@@ -116,6 +116,13 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     private let shell: LittleShellView
     private var favicon: NSImage?
     private var promoted = false
+    /// Hosts a page's window.open (a sign-in popup); its URL arrives after it shows.
+    private let isPopupHost: Bool
+    /// Arc's Peek: this Little Window sits over a browser window, which a dimming panel
+    /// covers; a click on it, Escape or the close button ends the Peek.
+    let isPeek: Bool
+    private(set) weak var peekParent: MainWindowController?
+    private var dim: PeekDimPanel?
     private var commandPanel: CommandBarPanel!
     private var commandHost: CommandBarView!
     private var commandBarOpenedAt = Date.distantPast
@@ -130,17 +137,22 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
 
     /// `url` nil makes a popup host: the browser adopts the next window.open
     /// CEF hands it (see `CraBrowserDelegate.browser:popupHostForURL:`).
-    init(app: AppDelegate, url: String?) {
+    init(app: AppDelegate, url: String?, peekOver parent: MainWindowController? = nil) {
         self.app = app
-        // Little Windows are normal browsing: they target the last normal window's space.
-        state = LittleWindowState(targetSpaceID: app.store.focusedSpaceID(window: app.store.lastNormalWindowID))
+        isPopupHost = url == nil
+        isPeek = parent != nil
+        peekParent = parent
+        // Little Windows are normal browsing: they target the last normal window's space
+        // (a Peek: the space of the window it covers).
+        state = LittleWindowState(targetSpaceID: parent?.focusedSpaceID ?? app.store.focusedSpaceID(window: app.store.lastNormalWindowID))
         commandBar = CommandBarController(engine: app.engine, store: app.store)
         let size = app.store.prefs.littleWindowSize.map { NSSizeFromString($0) }
             .flatMap { $0 == LittleMetrics.legacyDefaultSize ? nil : $0 }
             .map { NSSize(width: max(LittleMetrics.minSize.width, $0.width), height: max(LittleMetrics.minSize.height, $0.height)) }
             ?? LittleMetrics.defaultSize
         let window = LittleWindow(contentRect: NSRect(origin: .zero, size: size),
-                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                  styleMask: parent != nil ? [.titled, .closable, .fullSizeContentView]
+                                      : [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)
         shell = LittleShellView(frame: window.contentView!.bounds)
         super.init(window: window)
@@ -162,7 +174,14 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
             self.scheduleTooltip(for: h)
         }
         shell.openButtonWidth = { [weak self] in self?.state.openButtonWidth ?? 160 }
-        placeWindow()
+        if parent != nil {
+            // A Peek is part of its window: no minimizing or zooming it on its own.
+            window.isMovableByWindowBackground = false
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+        } else {
+            placeWindow()
+        }
 
         actions.openCommandBar = { [weak self] in self?.openCommandBar() }
         actions.copyURL = { [weak self] in self?.copy(self?.currentURL ?? "") }
@@ -291,7 +310,42 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         shell.needsLayout = true
         shell.layoutSubtreeIfNeeded()
         if let host, host.parent === window { host.alphaValue = 1 }
-        if hasPage { focusPage() } else { openCommandBar() }
+        // A popup host has no URL until Chromium navigates it, but it is a page
+        // all the same: the command bar would cover a sign-in popup.
+        if hasPage || isPopupHost { focusPage() } else { openCommandBar() }
+    }
+
+    // MARK: Peek
+
+    /// The dimming panel and the Peek, in their order above the parent's other children.
+    var peekWindows: [NSWindow] { [dim, window].compactMap { $0 } }
+
+    /// Grows out of the pointer like a Little Window, over the page area of its window.
+    func showAsPeek() {
+        guard let window, let parent = peekParent, let pw = parent.window else { return }
+        let dim = PeekDimPanel(covering: pw) { [weak self] in self?.closeWindow() }
+        self.dim = dim
+        pw.addChildWindow(dim, ordered: .above)
+        dim.orderFront(nil)
+        dim.fadeIn()
+        window.setFrame(parent.peekFrame(), display: false)
+        pw.addChildWindow(window, ordered: .above)
+        show()
+    }
+
+    func repositionPeek() {
+        guard let window, let parent = peekParent, let pw = parent.window else { return }
+        dim?.setFrame(pw.frame, display: true)
+        window.setFrame(parent.peekFrame(), display: true)
+    }
+
+    private func endPeek() {
+        guard isPeek, let dim else { return }
+        self.dim = nil
+        dim.parent?.removeChildWindow(dim)
+        dim.orderOut(nil)
+        if let window, let p = window.parent { p.removeChildWindow(window) }
+        if !promoted, let pw = peekParent?.window, NSApp.isActive { pw.makeKeyAndOrderFront(nil) }
     }
 
     // MARK: Command bar (Arc: clicking the pill or ⌘L opens the command bar in the window)
@@ -502,7 +556,8 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
 
     /// Archive the page to the Library (Arc keeps closed Little Arcs there too).
     func archivePage() {
-        guard hasPage, !promoted else { return }
+        // A Peek is a look at a link, not a page to keep.
+        guard hasPage, !promoted, !isPeek else { return }
         store.archiveLittleWindowPage(url: currentURL, title: browser?.currentTitle ?? state.title)
         if let favicon, let key = FaviconCache.key(for: currentURL) { app.favicons.store(favicon, forKey: key) }
         promoted = true  // archived once; a later close must not archive again
@@ -567,6 +622,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as? NSWindow) === window else { return }
+        endPeek()
         if browser == nil { app.removeLittleWindow(self) }
     }
 
@@ -688,7 +744,7 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
     func browser(_ browser: CraBrowser, didCreateDevToolsView view: NSView) {}
     func browser(_ browser: CraBrowser, didCreateHostWindow window: NSWindow) {
         attachHostWindow(window)
-        if hasPage, self.window?.isKeyWindow == true || window.isKeyWindow { focusPage() }
+        if hasPage || isPopupHost, self.window?.isKeyWindow == true || window.isKeyWindow { focusPage() }
     }
     func browserDidCloseDevTools(_ browser: CraBrowser) {}
     func browser(_ browser: CraBrowser, handleKeyEvent event: NSEvent) -> Bool {
@@ -699,7 +755,14 @@ final class LittleWindowController: NSWindowController, NSWindowDelegate, @preco
         }
         return app.handleReservedKey(event)
     }
-    func browser(_ browser: CraBrowser, handleUnhandledKeyEvent event: NSEvent) -> Bool { app.handleUnhandledKey(event) }
+    func browser(_ browser: CraBrowser, handleUnhandledKeyEvent event: NSEvent) -> Bool {
+        // Arc's "Exit the current context": Escape the page didn't use closes a Peek.
+        if isPeek, event.type == .keyDown, event.keyCode == 53, event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty {
+            closeWindow()
+            return true
+        }
+        return app.handleUnhandledKey(event)
+    }
     func browser(_ browser: CraBrowser, didUpdateDownload download: CraDownloadInfo) { app.main.browserManager(download: download) }
 
     func browser(_ browser: CraBrowser, requestsPermissionForOrigin origin: String, kinds: UInt, completion: @escaping (Bool) -> Void) {
@@ -842,10 +905,12 @@ final class LittleWindow: NSWindow {
 
     /// macOS's corner radius for this window (16 pt on macOS 26, larger than Arc's
     /// 10), read from the frame view's private `_cornerRadius`.
-    var systemCornerRadius: CGFloat {
+    var systemCornerRadius: CGFloat { Self.cornerRadius(of: self) }
+
+    static func cornerRadius(of window: NSWindow) -> CGFloat {
         typealias RadiusIMP = @convention(c) (AnyObject, Selector) -> CGFloat
         let sel = NSSelectorFromString("_cornerRadius")
-        guard let frameView = contentView?.superview, let method = class_getInstanceMethod(type(of: frameView), sel) else { return LittleMetrics.cornerRadius }
+        guard let frameView = window.contentView?.superview, let method = class_getInstanceMethod(type(of: frameView), sel) else { return LittleMetrics.cornerRadius }
         let radius = unsafeBitCast(method_getImplementation(method), to: RadiusIMP.self)(frameView, sel)
         return radius > 0 ? radius : LittleMetrics.cornerRadius
     }
@@ -866,6 +931,45 @@ final class LittleWindow: NSWindow {
             guard let b = standardWindowButton(type), let sv = b.superview else { continue }
             let target = NSPoint(x: 17 + CGFloat(i) * 22 - b.frame.width / 2, y: sv.bounds.height - LittleMetrics.barHeight / 2 - b.frame.height / 2)
             if abs(b.frame.origin.x - target.x) > 0.5 || abs(b.frame.origin.y - target.y) > 0.5 { b.setFrameOrigin(target) }
+        }
+    }
+}
+
+/// The shade over a browser window while a Peek shows on it; a click on it ends the Peek.
+final class PeekDimPanel: NSPanel {
+    private final class Shade: NSView {
+        var onClick: () -> Void = {}
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override func mouseDown(with event: NSEvent) { onClick() }
+        override func rightMouseDown(with event: NSEvent) { onClick() }
+    }
+
+    init(covering parent: NSWindow, onClick: @escaping () -> Void) {
+        super.init(contentRect: parent.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        isMovable = false
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        let shade = Shade(frame: NSRect(origin: .zero, size: parent.frame.size))
+        shade.onClick = onClick
+        shade.wantsLayer = true
+        shade.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.25).cgColor
+        shade.layer?.cornerRadius = LittleWindow.cornerRadius(of: parent)
+        shade.layer?.cornerCurve = .continuous
+        shade.autoresizingMask = [.width, .height]
+        contentView = shade
+        alphaValue = 0
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    func fadeIn() {
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = LittleMetrics.openDuration
+            animator().alphaValue = 1
         }
     }
 }

@@ -50,7 +50,7 @@ final class ExtensionActions {
         HitchMonitor.mark("extension request \(extensionID)")
         do {
             let tab = try await tabTarget(for: browser)
-            let before = visibleWindows()
+            let before = WindowSnapshot()
             placingOwnPopup = true
             triggered = true
             HitchMonitor.mark("extension trigger \(extensionID)")
@@ -70,38 +70,73 @@ final class ExtensionActions {
 
     // MARK: Popup placement
 
-    /// Chrome creates the popup's window hidden, sometimes before the popup page exists, so
-    /// "new" means newly visible.
-    private func visibleWindows() -> Set<ObjectIdentifier> {
-        Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
+    /// The windows before a popup: Chrome creates the popup's window hidden, sometimes before
+    /// the popup page exists, so "new" means newly visible.
+    @MainActor private struct WindowSnapshot {
+        let visible = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
+        let all = Set(NSApp.windows.map(ObjectIdentifier.init))
     }
 
+    /// New bubbles kept transparent until they are framed.
+    private let hiddenBubbles = NSHashTable<NSWindow>.weakObjects()
+
     /// Chrome shows the popup once its page has loaded; watch for the new window and frame it
-    /// under the anchor (ExtensionPopupWindow, Arc's BrowserExtensionWindow).
-    private func placePopup(appearingAfter before: Set<ObjectIdentifier>, anchor: NSPoint, sourceHost: NSWindow? = nil, attempt: Int = 0) {
+    /// under the anchor (ExtensionPopupWindow, Arc's BrowserExtensionWindow). Checked every
+    /// frame: Chrome first shows it under its hidden toolbar, so a bubble created after
+    /// `before` stays transparent until it is in the frame.
+    private func placePopup(appearingAfter before: WindowSnapshot, anchor: NSPoint, sourceHost: NSWindow? = nil,
+                            deadline: Date = Date().addingTimeInterval(3), shownAt: Date? = nil) {
+        for w in NSApp.windows where !before.all.contains(ObjectIdentifier(w)) && w.alphaValue == 1
+                                     && ExtensionPopupCandidate.mayBecomePopup(w) {
+            w.alphaValue = 0
+            hiddenBubbles.add(w)
+        }
         // Sharing badges and tooltips can also become visible during startup. A popup
         // must belong to a Chromium page in the browser containing the resolved anchor.
-        if let popup = NSApp.windows.first(where: { candidate in
-            guard !before.contains(ObjectIdentifier(candidate)),
+        let popup = NSApp.windows.first(where: { candidate in
+            guard !before.visible.contains(ObjectIdentifier(candidate)),
                   let owner = sourceHost?.parent ?? candidate.parent?.parent,
                   owner.frame.contains(anchor) else { return false }
             return ExtensionPopupCandidate.matches(candidate, owner: owner, sourceHost: sourceHost,
                                                    isPageHost: CraCEFRuntime.isPageWindow)
-        }) {
-            HitchMonitor.mark("extension present window=\(popup.windowNumber) frame=\(NSStringFromRect(popup.frame)) parent=\(popup.parent?.windowNumber ?? -1)")
-            placingOwnPopup = false
-            ExtensionPopupWindow.present(popup, anchor: anchor)
-            return
+        })
+        // Hidden windows that showed up as something else (a tooltip) are not kept hidden.
+        for w in hiddenBubbles.allObjects where w.isVisible && w !== popup {
+            w.alphaValue = 1
+            hiddenBubbles.remove(w)
+        }
+        var shownAt = shownAt
+        if let popup {
+            let since = shownAt ?? Date()
+            shownAt = since
+            // At Chrome's minimum (a 25×25 page) the page has not reported its size yet: a hidden
+            // bubble waits a moment for it rather than showing a stub that then grows.
+            let unsized = popup.frame.width <= 25 + 2 * ExtensionPopupWindow.bubbleInset
+            if !unsized || popup.alphaValue > 0 || Date().timeIntervalSince(since) > 0.25 {
+                HitchMonitor.mark("extension present window=\(popup.windowNumber) frame=\(NSStringFromRect(popup.frame)) parent=\(popup.parent?.windowNumber ?? -1)")
+                placingOwnPopup = false
+                ExtensionPopupWindow.present(popup, anchor: anchor)
+                revealHiddenBubbles()
+                return
+            }
         }
         // No popup yet (still loading), or an action without one (onClicked): keep looking for 3 s.
-        guard attempt < 60 else {
+        guard Date() < deadline else {
             HitchMonitor.mark("extension placement-expired source=\(sourceHost?.windowNumber ?? -1)")
             placingOwnPopup = false
+            revealHiddenBubbles()
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            MainActor.assumeIsolated { self?.placePopup(appearingAfter: before, anchor: anchor, sourceHost: sourceHost, attempt: attempt + 1) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.placePopup(appearingAfter: before, anchor: anchor, sourceHost: sourceHost, deadline: deadline, shownAt: shownAt)
+            }
         }
+    }
+
+    private func revealHiddenBubbles() {
+        for w in hiddenBubbles.allObjects { w.alphaValue = 1 }
+        hiddenBubbles.removeAllObjects()
     }
 
     // MARK: Targets
@@ -167,7 +202,7 @@ final class ExtensionActions {
               url.path == "/" + popup.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
               seenPopupTargets.insert(target).inserted, !placingOwnPopup,
               let anchor = defaultAnchor(id) else { return }
-        placePopup(appearingAfter: visibleWindows(), anchor: anchor)
+        placePopup(appearingAfter: WindowSnapshot(), anchor: anchor)
     }
 
     // MARK: Protocol calls

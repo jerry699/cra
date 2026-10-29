@@ -393,6 +393,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return w
     }
 
+    /// Arc's Peek: a Little Window over `parent` that closes when a click lands past it.
+    func openPeek(url: String, over parent: MainWindowController) {
+        for p in littleWindows where p.peekParent === parent { p.closeWindow() }
+        let w = LittleWindowController(app: self, url: url, peekOver: parent)
+        littleWindows.append(w)
+        w.showAsPeek()
+    }
+
     func removeLittleWindow(_ w: LittleWindowController) {
         littleWindows.removeAll { $0 === w }
     }
@@ -420,9 +428,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// cra://commandbar?query=…&mode=edit, cra://action/<id>, cra://open?url=…,
     /// cra://dismiss.
-    /// Arc marks a tab chosen from the keyboard with its yellow/black focus ring.
-    private func markKeyboardFocus() { main.sidebarUI.keyboardFocusID = store.selectedTabID }
-
     func handleInternalURL(_ u: URL) {
         let comps = URLComponents(url: u, resolvingAgainstBaseURL: false)
         func q(_ name: String) -> String? { comps?.queryItems?.first { $0.name == name }?.value }
@@ -526,7 +531,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             if let method = dict["cdp"] {
-                main.currentBrowser?.sendDevToolsMethod(method, params: dict["params"] ?? "{}") { result, error in
+                // target=little: the newest Little Window's (or Peek's) page.
+                let b = dict["target"] == "little" ? littleWindows.last?.browser : main.currentBrowser
+                b?.sendDevToolsMethod(method, params: dict["params"] ?? "{}") { result, error in
                     NSLog("Cra cdp %@ → %@", method, result ?? "error: \(error ?? "?")")
                 }
                 return
@@ -762,8 +769,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
         case "clearToday": store.clearToday()
         case "pictureInPicture": main.currentBrowser?.requestPictureInPicture(automatic: false)
-        case "nextTab": main.cycleTab(1); markKeyboardFocus()
-        case "previousTab": main.cycleTab(-1); markKeyboardFocus()
+        case "nextTab": main.cycleTab(1)
+        case "previousTab": main.cycleTab(-1)
         case "recentTab": main.cycleRecentTabs(1, event: NSApp.currentEvent)
         case "recentTabBackward": main.cycleRecentTabs(-1, event: NSApp.currentEvent)
         case "nextSpace": store.focusSpace(offset: 1)
@@ -780,7 +787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         default:
             if id.hasPrefix("item"), let n = Int(id.dropFirst(4)) {
                 let tabs = store.visibleTabs(in: store.focusedSpaceID)
-                if n - 1 < tabs.count { store.selectTab(tabs[n - 1].id); markKeyboardFocus() }
+                if n - 1 < tabs.count { store.selectTab(tabs[n - 1].id) }
             } else if id.hasPrefix("space"), let n = Int(id.dropFirst(5)) {
                 if n - 1 < store.spaceOrder.count { store.focusSpace(store.spaceOrder[n - 1]) }
             }

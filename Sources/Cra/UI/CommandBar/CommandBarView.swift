@@ -20,6 +20,13 @@ final class CommandBarView: NSView {
     private let leadingIcon = NSImageView()
     private let text: CommandTextField
     private let info = NSImageView()
+    /// Site Search: the scoped site's pill before the field, and "Search YouTube  Tab" at the
+    /// end of the row while the typed text would enter it (Arc 1.170, measured at 2x).
+    private let pill = NSView()
+    private let pillLabel = NSTextField.sidebarLabel(size: 13, weight: .semibold)
+    private let hint = NSTextField.sidebarLabel(size: 13, weight: .semibold)
+    private let keycap = NSView()
+    private let keycapLabel = NSTextField.sidebarLabel(size: 13, weight: .semibold)
     private let divider = NSView()
     private var rows: [CommandBarRowView] = []
     private var syncQueued = false
@@ -44,7 +51,19 @@ final class CommandBarView: NSView {
         info.imageScaling = .scaleNone
         info.contentTintColor = .secondaryLabelColor
         divider.wantsLayer = true
-        for v in [material, tint, leadingIcon, text.field, info, divider] as [NSView] { addSubview(v) }
+        pill.wantsLayer = true
+        pill.layer?.cornerCurve = .continuous
+        pill.layer?.shadowOpacity = 0.3
+        pill.layer?.shadowRadius = 8
+        pill.layer?.shadowOffset = .zero
+        pillLabel.textColor = .white
+        pill.addSubview(pillLabel)
+        keycap.wantsLayer = true
+        keycap.layer?.cornerRadius = 6
+        keycap.layer?.cornerCurve = .continuous
+        keycapLabel.stringValue = "Tab"
+        keycap.addSubview(keycapLabel)
+        for v in [material, tint, leadingIcon, text.field, info, pill, hint, keycap, divider] as [NSView] { addSubview(v) }
         layer?.addSublayer(border)
         border.zPosition = 10
         sync()
@@ -86,13 +105,30 @@ final class CommandBarView: NSView {
         tint.layer?.backgroundColor = (dark ? NSColor.black.withAlphaComponent(0.74) : NSColor.white.withAlphaComponent(0.7)).cgColor
         border.strokeColor = NSColor.labelColor.withAlphaComponent(dark ? 0.12 : 0.08).cgColor
         divider.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.08).cgColor
-        info.isHidden = !c.query.isEmpty
+        let site = c.siteSearch
+        info.isHidden = !c.query.isEmpty || site != nil
         divider.isHidden = items.isEmpty
+        pill.isHidden = site == nil
+        if let site {
+            let color = NSColor(hex: site.color)
+            pill.layer?.backgroundColor = color.cgColor
+            pill.layer?.shadowColor = color.cgColor
+            pillLabel.stringValue = site.name
+        }
+        let offered = site == nil && c.previewText == nil ? c.result.siteSearch : nil
+        hint.isHidden = offered == nil
+        keycap.isHidden = offered == nil
+        if let offered {
+            hint.stringValue = "Search \(offered.name)"
+            hint.textColor = NSColor.labelColor.withAlphaComponent(0.33)
+            keycapLabel.textColor = NSColor.labelColor.withAlphaComponent(0.67)
+            keycap.layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.04).cgColor
+        }
 
         // Follows the row the arrows moved to; otherwise the completing top match.
         let previewing = c.previewText != nil && items.indices.contains(c.selectedIndex)
         let row = previewing ? items[c.selectedIndex] : items.first
-        if let s = row, let key = s.faviconKey, s.id != "typed", let img = favicons.image(forKey: key),
+        if site == nil, let s = row, let key = s.faviconKey, s.id != "typed", let img = favicons.image(forKey: key),
            previewing || c.result.inlineCompletion != nil || c.mode == .editURL {
             leadingIcon.imageScaling = .scaleProportionallyUpOrDown
             leadingIcon.image = img
@@ -121,7 +157,7 @@ final class CommandBarView: NSView {
             rows.append(r)
             addSubview(r)
         }
-        let highlight = NSColor(c.highlight)
+        let highlight = site.map { NSColor(hex: $0.color) } ?? NSColor(c.highlight)
         for (i, r) in rows.enumerated() {
             guard i < items.count else { r.isHidden = true; continue }
             r.isHidden = false
@@ -153,7 +189,25 @@ final class CommandBarView: NSView {
             info.frame = NSRect(x: right - 18, y: (fh - 18) / 2, width: 18, height: 18)
             right -= 18 + 14
         }
-        let x: CGFloat = 22 + 22 + 14
+        if !keycap.isHidden {
+            // Key cap 23 tall, 4 pt around "Tab", 10 pt after the hint.
+            let kw = ceil(keycapLabel.attributedStringValue.size().width), kh = keycapLabel.intrinsicContentSize.height
+            keycap.frame = NSRect(x: right - kw - 8, y: (fh - 23) / 2, width: kw + 8, height: 23)
+            keycapLabel.frame = NSRect(x: 4 - SidebarText.inset, y: (23 - kh) / 2, width: kw + 2 * SidebarText.inset, height: kh)
+            right = keycap.frame.minX - 10
+            let hw = ceil(hint.attributedStringValue.size().width), hh = hint.intrinsicContentSize.height
+            hint.frame = NSRect(x: right - hw - SidebarText.inset, y: (fh - hh) / 2, width: hw + 2 * SidebarText.inset, height: hh)
+            right -= hw + 14
+        }
+        var x: CGFloat = 22 + 22 + 14
+        if !pill.isHidden {
+            // 23 tall, fully round, 10.5 pt around the name; the field starts 11 pt after it.
+            let lw = ceil(pillLabel.attributedStringValue.size().width), lh = pillLabel.intrinsicContentSize.height
+            pill.frame = NSRect(x: x, y: (fh - 23) / 2, width: lw + 21, height: 23)
+            pill.layer?.cornerRadius = 11.5
+            pillLabel.frame = NSRect(x: 10.5 - SidebarText.inset, y: (23 - lh) / 2, width: lw + 2 * SidebarText.inset, height: lh)
+            x = pill.frame.maxX + 11
+        }
         text.field.frame = NSRect(x: x - 1.5, y: (fh - 30) / 2 + 2, width: max(0, right - x), height: 30)
         divider.frame = NSRect(x: 16, y: fh, width: max(0, b.width - 32), height: 1)
         var y: CGFloat = fh + 10

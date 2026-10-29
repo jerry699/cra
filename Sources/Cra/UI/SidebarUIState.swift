@@ -40,8 +40,8 @@ final class SidebarUIState {
     /// Library per window and reopens it on the page last shown).
     var libraryPage: LibraryPage?
     @ObservationIgnored var lastLibraryPage: LibraryPage = .downloads
-    /// Tab chosen from the keyboard; Arc draws its yellow/black dashed ring
-    /// around it until the mouse picks another tab.
+    /// Tab chosen from the keyboard in another space (the tab switcher); Arc draws its
+    /// yellow/black dashed ring around it until the mouse picks another tab.
     var keyboardFocusID: UUID?
     /// The pointer is over a draggable sidebar row or tile. The window is
     /// movable by its background; the window controller turns that off while

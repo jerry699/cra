@@ -70,3 +70,20 @@ extension AppSettings {
         linkRoutes.first { $0.matches(url) }?.destination ?? defaultLinkDestination
     }
 }
+
+/// Arc's Peek opens links "to other sites": the registrable domain differs, so a link from
+/// mail.google.com to accounts.google.com stays in the tab. Cra has no public suffix list;
+/// a generic second-level label under a country code (co.uk, com.au) counts as suffix.
+enum SiteKey {
+    private static let secondLevel: Set<Substring> = ["co", "com", "net", "org", "gov", "edu", "ac", "ne", "or", "go", "gv"]
+
+    static func site(of url: String) -> String? {
+        guard let u = URL(string: url), let scheme = u.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = u.host?.lowercased(), !host.isEmpty else { return nil }
+        let labels = host.split(separator: ".")
+        if labels.count <= 2 || host.allSatisfy({ $0.isNumber || $0 == "." }) || host.contains(":") { return host }
+        let n = labels.count
+        let keep = labels[n - 1].count == 2 && secondLevel.contains(labels[n - 2]) ? 3 : 2
+        return labels.suffix(keep).joined(separator: ".")
+    }
+}

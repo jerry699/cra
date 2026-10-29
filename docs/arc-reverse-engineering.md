@@ -69,6 +69,22 @@ Legend: [O] observed in shipped artifact or data file, [I] inference, [U] unknow
   veryRecentTabOrDocumentBoost, derankCurrentItemURL, dedupByTitleAndHostList (figma, notion, github, zoom...).
 - [O] Type-travel triggers e.g. "Go to Sidebar Item 3" / "3. tab" / "3. item".
 - [U] Weights of the ranking model (a CoreML tensor, CommandBarRankingTensor) are not recoverable statically.
+- [O] Site Search (29 Oct, Little Arc driven by keys posted to its pid, 2x captures): Arc seeds 19 sites into
+  Chromium's `keywords` table as active (Drive, Gmail, Maps, Calendar, Docs, Dropbox, Amazon, GitHub, Figma, X,
+  twitter.com, YouTube, Wikipedia, Reddit, SoundCloud, Asana, LinkedIn, Apple Music, Spotify; URLs in the binary
+  next to `rankCommandBar`); Chromium's auto-added engines stay inactive and never offer it. Text that starts an
+  active keyword's host shows "Search <name>" (13 pt semibold, white 0.33) and a "Tab" cap (23 pt, white 0.04 fill,
+  22 pt from the edge) on the input row: "twit" offers X even while completing twitch.tv, "gm" offers nothing
+  (Gmail's keyword is mail.google.com). Tab (not Space: the space trigger flag is off) puts a 73×23 pt round pill
+  in the site's colour (hard-coded, e.g. YouTube #FF0000, GitHub #743FC7; glow in the same colour) before the
+  field, placeholder "Search…", rows reduced to the typed search tinted with that colour. Backspace on the empty
+  field drops the pill and puts back what was typed; Escape returns to how the bar opened. Cra: SiteSearch.all.
+- [O] Sidebar glyphs (29 Oct, 1x and 2x captures, fitted pixel by pixel): the tab row's hover ✕ is two 2 pt
+  round-capped strokes 4.25 pt out from a centre on a whole point, white 0.6 over the hover fill; at 1x it is
+  perfectly symmetric (176/142/85), which no SF Symbol size reproduces (xmark 13.5 bold is closest at 2x but
+  lands between pixels at 1x). Cra strokes it with a CAShapeLayer (SidebarSymbols.closeMark); an NSImage drawn
+  the same way rendered thinner and off-centre at 1x. New Tab's plus fits SF plus 14.5 medium at both scales,
+  in the label's colour. The New Space plus is a custom square-ended glyph (14 pt, 2 pt stroke).
 
 ## Key bindings (StorableKeyBindings.json + strings)
 - [O] Action = {identifier, name}; binding = {keyEquivalent, deviceIndependentModifierFlags}, priority, typeTravelTriggers;
@@ -163,8 +179,11 @@ Other measured details: window buttons are muted grey discs (bg −10 %) until t
 reaches the sidebar's title row; favicons 16 pt centred 25.75 pt from the window edge; space
 header 14 pt medium with no top padding above it; favorites tiles 72 × 47 with 8 pt margins
 and gaps; the yellow/black dashed ring (2 pt, systemYellow, 6/6 black dashes) is Arc's
-keyboard-focus indicator, shown on a tab chosen without the mouse (it appeared on every
-tab selected through AppleScript, never on clicked ones). Host subtitles under pinned
+keyboard-focus indicator, shown on a tab chosen without the mouse, never on clicked ones.
+Re-measured 29 Oct (issue #12, ScreenCaptureKit frames every ~60 ms): an AppleScript select
+of a tab in another space switched the space and drew the ring ~0.4 s later, still there
+2.5 s on; a select within the shown space drew none. Cra rings only a tab switcher pick
+that changed space; next/previous tab and ⌘1–9 stay in the space and show no ring. Host subtitles under pinned
 tabs appear only when the tab left the pinned host (Phantom at /signin shows none); the
 "Ahrefs / ahrefs.com" row in Arc stays unexplained (same host, same URL, loaded).
 
@@ -1566,3 +1585,19 @@ GitHub issue #4: opening in window B a tab that window A shows left A with no ta
   (`PaneCardView.elsewhereSnapshot`, the tab switcher's thumbnail) and takes the page back when it becomes key or
   main. Windows restored at launch leave the page to the window in use, else the first one. Verified on a renamed
   test bundle with two windows on the same tab: page and blur swap each time the other window becomes main.
+
+### Favorites grid columns and Peek (Arc 1.170, 29 Oct 2026, issue #12)
+- [O live] Favorites columns by sidebar width (4 favorites; `sidebarWidth` set in StorableWindows.json with Arc
+  quit, tile frames read from the AX list under `sidebarFavoritesCollectionView`): 347/300/260/230 → 4 columns
+  (tiles 76/…/55/47 × 47), 227/225/220/212/205/200/170/140 → 2 columns (101/100/98/94/90/88/73/58), 100 → 1
+  (84). Rule: 4 columns while a tile is at least 47 pt wide (as wide as tall), else 2, else 1; 8 pt margins and
+  gaps. Never 3 (at 200 three 56 pt tiles would fit). Cra: `FavoritesGridView.columns(forWidth:)`.
+- [O static] Peek is a Little Arc presented modally (`littleWindowViewController`, `presentModally`,
+  `modalState`, `peekedModalControlsAlternateOrderEnabled`). Links ▸ "Open a Peek window when clicking on links to
+  other sites" (note: "This only affects Favorites and Pinned tabs"; key `modalEnabled`) and "Open a Peek window
+  when clicking on links with Shift held" (`shiftClickModalEntryPointEnabled`); "Exit the current context. Such
+  as closing a Peek window"; "Undo prompt for re-opening a closed Peek". Not seen live (needs a real click).
+- Cra: a Little Window docked over the page area (6 %/5 % inset), a 25 % black shade over the browser window
+  that closes it on click, Escape the page didn't use closes it, "Open in <space>" makes it a tab. Same site =
+  registrable domain (`SiteKey`). Verified on a test bundle with a CDP click in a favorite: Peek opened, the tab
+  stayed, promote and ⌘W worked.

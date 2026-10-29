@@ -44,6 +44,8 @@ struct SuggestionResult {
     var items: [Suggestion] = []
     /// Host (or more) to complete the typed text to, e.g. "github.com".
     var inlineCompletion: String?
+    /// The site Tab scopes the bar to ("Search YouTube  Tab").
+    var siteSearch: SiteSearch?
     var query: String = ""
 }
 
@@ -112,6 +114,17 @@ final class SuggestionEngine {
         }
         result.items = Array(items.prefix(Self.maxRows))
         result.inlineCompletion = completion?.text
+        result.siteSearch = SiteSearch.match(q, completion: completion?.text)
+        return result
+    }
+
+    /// The bar scoped to a site (after Tab): one row, the typed text searched there.
+    func suggestions(for rawQuery: String, in site: SiteSearch) -> SuggestionResult {
+        let query = rawQuery.trimmingCharacters(in: .whitespaces)
+        var result = SuggestionResult(query: query)
+        guard !query.isEmpty else { return result }
+        result.items = [Suggestion(id: "typed", kind: .search, title: query, subtitle: "Search \(site.name)", url: site.searchURL(query),
+                                   faviconKey: nil, symbol: "magnifyingglass", trailing: nil, score: 1000)]
         return result
     }
 
@@ -466,6 +479,55 @@ final class SuggestionEngine {
     static func relative(_ date: Date) -> String {
         relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
+}
+
+/// Arc's Site Search: the sites it seeds into Chromium's keyword table (active, not
+/// auto-added), with the pill colour each one gets in the bar.
+struct SiteSearch: Equatable {
+    let name: String
+    /// Chromium's keyword: what the typed text has to start.
+    let host: String
+    let url: String
+    let color: String
+
+    func searchURL(_ query: String) -> String {
+        let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
+            .replacingOccurrences(of: "&", with: "%26") ?? query
+        return url.replacingOccurrences(of: "%s", with: q)
+    }
+
+    /// "twit" offers X (twitter.com) though it completes to twitch.tv; the completed host
+    /// wins when it is a site search itself.
+    static func match(_ q: String, completion: String?) -> SiteSearch? {
+        var t = q
+        if t.hasPrefix("www.") { t.removeFirst(4) }
+        guard !t.isEmpty, !t.contains(" "), !t.contains("/") else { return nil }
+        if let completion, let site = all.first(where: { $0.host == completion && $0.host.hasPrefix(t) }) { return site }
+        return all.first { $0.host.hasPrefix(t) }
+    }
+
+    /// Arc 1.170's list, in its order; colours measured off its pills.
+    static let all: [SiteSearch] = [
+        SiteSearch(name: "Google Drive", host: "drive.google.com", url: "https://drive.google.com/drive/search?q=%s", color: "#0F9D58"),
+        SiteSearch(name: "Gmail", host: "mail.google.com", url: "https://mail.google.com/mail/u/0/#search/%s", color: "#D44638"),
+        SiteSearch(name: "Google Maps", host: "maps.google.com", url: "https://www.google.com/maps/search/%s", color: "#FBBC05"),
+        SiteSearch(name: "Google Calendar", host: "calendar.google.com", url: "https://calendar.google.com/calendar/u/0/r/search?q=%s", color: "#9C27B0"),
+        SiteSearch(name: "Google Docs", host: "docs.google.com", url: "https://docs.google.com/document/u/0/?q=%s", color: "#4285F4"),
+        SiteSearch(name: "Dropbox", host: "dropbox.com", url: "https://www.dropbox.com/search/personal?&query=%s", color: "#007EE5"),
+        SiteSearch(name: "Amazon", host: "amazon.com", url: "https://www.amazon.com/s?k=%s", color: "#FF9900"),
+        SiteSearch(name: "GitHub", host: "github.com", url: "https://github.com/search?q=%s", color: "#743FC7"),
+        SiteSearch(name: "Figma", host: "figma.com", url: "https://www.figma.com/files/search?q=%s", color: "#F24E1E"),
+        SiteSearch(name: "X", host: "x.com", url: "https://x.com/search?q=%s", color: "#000000"),
+        SiteSearch(name: "X", host: "twitter.com", url: "https://x.com/search?q=%s", color: "#000000"),
+        SiteSearch(name: "YouTube", host: "youtube.com", url: "https://www.youtube.com/results?search_query=%s", color: "#FF0000"),
+        SiteSearch(name: "Wikipedia", host: "wikipedia.org", url: "https://wikipedia.org/w/index.php?search=%s", color: "#FFA500"),
+        SiteSearch(name: "Reddit", host: "reddit.com", url: "https://www.reddit.com/search/?q=%s", color: "#FF4500"),
+        SiteSearch(name: "SoundCloud", host: "soundcloud.com", url: "https://soundcloud.com/search?q=%s", color: "#F85216"),
+        SiteSearch(name: "Asana", host: "asana.com", url: "https://app.asana.com/0/search?q=%s", color: "#F06A6A"),
+        SiteSearch(name: "LinkedIn", host: "linkedin.com", url: "https://linkedin.com/search/results/all/?keywords=%s", color: "#0B66C2"),
+        SiteSearch(name: "Apple Music", host: "music.apple.com", url: "https://music.apple.com/us/search?term=%s", color: "#FA2A44"),
+        SiteSearch(name: "Spotify", host: "spotify.com", url: "https://open.spotify.com/search/%s", color: "#1DB954"),
+    ]
 }
 
 enum PopularDomains {

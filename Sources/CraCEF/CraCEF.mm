@@ -56,6 +56,12 @@ static bool g_useMockKeychain = false;
 static NSString* g_extensionsDirectory = nil;
 static BOOL g_chromeHosting = NO;
 static NSMutableArray<CraBrowser*>* g_pendingCreation = nil;
+
+/// Settings for every page Cra makes. Chrome style draws its own status bubble flush at the
+/// page's bottom left, under Cra's own (StatusBubbleView): one link showed in two bubbles.
+static void CraPageSettings(CefBrowserSettings& settings) {
+    settings.chrome_status_bubble = STATE_DISABLED;
+}
 static void (^g_relaunchHandler)(NSArray<NSString*>*) = nil;
 static BOOL g_alreadyRunning = NO;
 static NSHashTable<CraBrowser*>* g_allBrowsers = nil;
@@ -906,10 +912,17 @@ public:
         CEF_REQUIRE_UI_THREAD();
         CraBrowser* o = owner_;
         if (!o || !o.delegate) return true;
+        // A target=_blank link the user clicked (Shift-clicked: a new window) may open in a
+        // Peek; window.open with features (a sign-in popup) is CEF_WOD_NEW_POPUP and stays one.
+        if (user_gesture && (target_disposition == CEF_WOD_NEW_FOREGROUND_TAB || target_disposition == CEF_WOD_NEW_WINDOW)
+            && [o.delegate respondsToSelector:@selector(browser:opensPeekForURL:shiftClick:)]
+            && [o.delegate browser:o opensPeekForURL:NSStringFromCef(target_url)
+                        shiftClick:target_disposition == CEF_WOD_NEW_WINDOW]) return true;
         BOOL background = (target_disposition == CEF_WOD_NEW_BACKGROUND_TAB);
         CraBrowser* host = [o.delegate browser:o popupHostForURL:NSStringFromCef(target_url) inBackground:background];
         if (!host) return true;  // blocked
         client = [host cefClient];
+        CraPageSettings(settings);
         if (g_chromeHosting) return false;  // Views path: CraChromeViewDelegate hosts the popup view
         NSView* view = host.containerView;
         NSRect b = view.bounds;
@@ -1118,10 +1131,24 @@ public:
         return blocker_;
     }
 
+    bool OnBeforeBrowse(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
+                        bool user_gesture, bool is_redirect) override {
+        CraBrowser* o = owner_;
+        if (!o || !user_gesture || is_redirect || !frame->IsMain()) return false;
+        cef_transition_type_t tt = request->GetTransitionType();
+        if ((tt & TT_SOURCE_MASK) != TT_LINK || (tt & TT_FORWARD_BACK_FLAG)) return false;
+        if (![o.delegate respondsToSelector:@selector(browser:opensPeekForURL:shiftClick:)]) return false;
+        return [o.delegate browser:o opensPeekForURL:NSStringFromCef(request->GetURL()) shiftClick:NO];
+    }
+
     bool OnOpenURLFromTab(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, const CefString& target_url,
                           WindowOpenDisposition target_disposition, bool user_gesture) override {
         CraBrowser* o = owner_;
         if (!o) return false;
+        // Shift-click (Chrome: a new window).
+        if (user_gesture && target_disposition == CEF_WOD_NEW_WINDOW
+            && [o.delegate respondsToSelector:@selector(browser:opensPeekForURL:shiftClick:)]
+            && [o.delegate browser:o opensPeekForURL:NSStringFromCef(target_url) shiftClick:YES]) return true;
         BOOL background = (target_disposition == CEF_WOD_NEW_BACKGROUND_TAB);
         [o.delegate browser:o requestsNewTabWithURL:NSStringFromCef(target_url) inBackground:background];
         return true;
@@ -1506,6 +1533,7 @@ class CraDevToolsObserver : public CefDevToolsMessageObserver {
     if (!_isIncognito && !ProfileReady(_profilePath, self)) return;
     if (g_chromeHosting) {
         CefBrowserSettings settings;
+        CraPageSettings(settings);
         CefRefPtr<CefBrowserView> view = CefBrowserView::CreateBrowserView(
             _client, CefStringFromNS(_pendingURL ?: @"about:blank"), settings, nullptr,
             [self requestContext], new CraChromeViewDelegate(self));
@@ -1518,6 +1546,7 @@ class CraDevToolsObserver : public CefDevToolsMessageObserver {
                           CefRect(0, 0, (int)MAX(b.size.width, 1), (int)MAX(b.size.height, 1)));
     if (g_useChromeStyle) windowInfo.runtime_style = CEF_RUNTIME_STYLE_CHROME;
     CefBrowserSettings settings;
+    CraPageSettings(settings);
     CefBrowserHost::CreateBrowser(windowInfo, _client, CefStringFromNS(_pendingURL ?: @"about:blank"), settings,
                                   nullptr, [self requestContext]);
 }

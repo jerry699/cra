@@ -20,6 +20,10 @@ struct TabsPane: View {
             // Arc." with an "Air Traffic Control…" button.
             SettingsFormRow(label: "Links:") {
                 SettingsCheckbox(title: "Links from other apps open in a Little Window", isOn: $store.settings.openExternalLinksInLittleWindow)
+                SettingsCheckbox(title: "Open a Peek window when clicking on links to other sites", isOn: $store.settings.peekLinksToOtherSites)
+                Text("Only links in Favorites and Pinned tabs.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                SettingsCheckbox(title: "Open a Peek window when clicking on links with Shift held", isOn: $store.settings.peekOnShiftClick)
                 HStack(spacing: 8) {
                     Button("Air Traffic Control…") { showsAirTrafficControl = true }
                     Text(routesSummary).font(.system(size: 11)).foregroundStyle(.secondary)

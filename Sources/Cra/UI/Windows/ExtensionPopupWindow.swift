@@ -181,7 +181,15 @@ final class ExtensionPopupWindow: NSWindow {
         observers = []
         if let bubble {
             removeChildWindow(bubble)
-            if closingBubble { bubble.close() }
+            // Not right away: the key change that got here can come from inside Chrome ordering
+            // its bubble out (it hides a popup before closing it), and closing the NSWindow under
+            // that trips a CHECK in Chrome (crash 29 Oct, right after wake). A bubble Chrome has
+            // hidden or closed meanwhile is Chrome's to finish.
+            if closingBubble {
+                DispatchQueue.main.async { [weak bubble] in
+                    if let bubble, bubble.isVisible { bubble.close() }
+                }
+            }
         }
         bubble = nil
         parent?.removeChildWindow(self)

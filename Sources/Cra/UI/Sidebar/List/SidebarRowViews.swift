@@ -41,6 +41,21 @@ enum SidebarSymbols {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: size, weight: weight))
     }
+
+    /// The tab row's ✕ (or − for a pinned tab that stays): Arc strokes two 2 pt round-capped lines
+    /// 4.25 pt out from a centre on a whole point, crisp at 1x. No SF Symbol size matches it, and an
+    /// NSImage drawn for it came out thinner and off-centre at 1x, so the button strokes this itself.
+    static func closeMark(minus: Bool = false, centre c: CGPoint) -> CGPath {
+        let d: CGFloat = 4.25
+        let p = CGMutablePath()
+        if minus {
+            p.move(to: CGPoint(x: c.x - d, y: c.y)); p.addLine(to: CGPoint(x: c.x + d, y: c.y))
+        } else {
+            p.move(to: CGPoint(x: c.x - d, y: c.y - d)); p.addLine(to: CGPoint(x: c.x + d, y: c.y + d))
+            p.move(to: CGPoint(x: c.x - d, y: c.y + d)); p.addLine(to: CGPoint(x: c.x + d, y: c.y - d))
+        }
+        return p
+    }
 }
 
 enum SidebarText {
@@ -66,6 +81,9 @@ final class SidebarGlyphButton: NSView {
     var action: () -> Void
     let size: NSSize
     private let glyph = NSImageView()
+    /// Stroked instead of the image (SidebarSymbols.closeMark).
+    private var mark: CAShapeLayer?
+    private var markMinus = false
     private var tip: ArcTooltipAnchorView?
     private var hovering = false { didSet { refresh() } }
     var colors: SidebarColors { didSet { if colors != oldValue { refresh() } } }
@@ -98,7 +116,36 @@ final class SidebarGlyphButton: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     func setSymbol(_ symbol: String, iconSize: CGFloat, weight: NSFont.Weight = .medium, help: String) {
-        glyph.image = SidebarSymbols.image(symbol, size: iconSize, weight: weight)
+        setGlyph(SidebarSymbols.image(symbol, size: iconSize, weight: weight), help: help)
+    }
+
+    func setGlyph(_ image: NSImage?, help: String) {
+        glyph.image = image
+        glyph.isHidden = false
+        mark?.isHidden = true
+        setHelp(help)
+    }
+
+    /// Shows the tab row's ✕ / − (SidebarSymbols.closeMark) in place of the image.
+    func setCloseMark(minus: Bool, help: String) {
+        if mark == nil {
+            let m = CAShapeLayer()
+            m.fillColor = nil
+            m.lineWidth = 2
+            m.lineCap = .round
+            m.actions = ["path": NSNull(), "strokeColor": NSNull(), "hidden": NSNull()]
+            layer?.addSublayer(m)
+            mark = m
+        }
+        markMinus = minus
+        glyph.isHidden = true
+        mark?.isHidden = false
+        needsLayout = true
+        refresh()
+        setHelp(help)
+    }
+
+    private func setHelp(_ help: String) {
         if let tip { (tip.text, tip.keys) = ArcTooltipLabel.split(help) } else if !help.isEmpty { tip = ArcTooltipAnchorView.attach(to: self, help: help) }
     }
 
@@ -107,14 +154,32 @@ final class SidebarGlyphButton: NSView {
     private func refresh() {
         let tint: NSColor
         if colors.isDark {
-            tint = enabled ? NSColor.white.withAlphaComponent(0.55) : colors.textTertiary.withAlphaComponent(colors.textTertiary.alphaComponent * 0.55)
+            // Arc's row ✕ is a touch brighter than its other glyphs (white 0.6 over the hover fill, 1x).
+            tint = enabled ? NSColor.white.withAlphaComponent(mark != nil ? 0.6 : 0.55) : colors.textTertiary.withAlphaComponent(colors.textTertiary.alphaComponent * 0.55)
         } else if let active {
             tint = NSColor.black.withAlphaComponent(enabled && active ? 0.59 : 0.24)
         } else {
             tint = enabled ? colors.glyph : colors.textTertiary.withAlphaComponent(colors.textTertiary.alphaComponent * 0.55)
         }
         glyph.contentTintColor = tint
+        mark?.strokeColor = tint.cgColor
         layer?.backgroundColor = (hovering && enabled ? colors.hoverFill : .clear).cgColor
+    }
+
+    override func layout() {
+        super.layout()
+        guard let mark else { return }
+        mark.frame = bounds
+        // The centre on a whole point of the window: a dragged sidebar width is fractional.
+        let mid = convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)
+        let centre = convert(CGPoint(x: mid.x.rounded(), y: mid.y.rounded()), from: nil)
+        mark.path = SidebarSymbols.closeMark(minus: markMinus, centre: centre)
+        mark.contentsScale = window?.backingScaleFactor ?? 2
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        mark?.contentsScale = window?.backingScaleFactor ?? 2
     }
 
     override var mouseDownCanMoveWindow: Bool { false }
@@ -133,7 +198,15 @@ final class SidebarGlyphButton: NSView {
 
     // Rows hide their buttons rather than remove them; a button shown again under the pointer is hovered.
     override func viewDidHide() { hovering = false }
-    override func viewDidUnhide() { viewDidMoveToWindow() }
+    override func viewDidUnhide() {
+        viewDidMoveToWindow()
+        if mark != nil { needsLayout = true }   // the row may have scrolled while hidden
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        if mark != nil { needsLayout = true }
+    }
 
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
@@ -591,7 +664,11 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         guard let self, let id = self.model?.id else { return }
         self.list?.actions.resetPinnedTab(id)
     }
-    private lazy var closeButton = SidebarGlyphButton(symbol: "xmark", size: Self.closeSize, iconSize: 13, help: "", colors: colors) {}
+    private lazy var closeButton: SidebarGlyphButton = {
+        let b = SidebarGlyphButton(symbol: "xmark", size: Self.closeSize, iconSize: 13, help: "", colors: colors) {}
+        b.setCloseMark(minus: false, help: "")
+        return b
+    }()
     private static let closeSize: CGFloat = 22
     private var closeKind = ""
 
@@ -614,13 +691,13 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
                 closeKind = kind
                 switch kind {
                 case "keep":
-                    closeButton.setSymbol("minus", iconSize: 13, help: "Close and Keep Pinned (⌘W)")
+                    closeButton.setCloseMark(minus: true, help: "Close and Keep Pinned (⌘W)")
                     closeButton.action = { [weak self] in self?.list?.closeTabs([id]) }
                 case "archivePinned":
-                    closeButton.setSymbol("xmark", iconSize: 13, help: "Archive this tab")
+                    closeButton.setCloseMark(minus: false, help: "Archive this tab")
                     closeButton.action = { [weak self] in self?.list?.store.archiveTab(id, reason: .manual) }
                 default:
-                    closeButton.setSymbol("xmark", iconSize: 13, help: m.closeGroup > 1 ? "Close \(m.closeGroup) Tabs (⌘W)" : "Archive (⌘W)")
+                    closeButton.setCloseMark(minus: false, help: m.closeGroup > 1 ? "Close \(m.closeGroup) Tabs (⌘W)" : "Archive (⌘W)")
                     closeButton.action = { [weak self] in
                         guard let list = self?.list else { return }
                         list.closeTabs(list.closeGroup(for: id))
@@ -1229,7 +1306,8 @@ final class NewTabRowView: SidebarRowView {
 
     override init(key: SpaceListView.RowKey, list: SpaceListView, colors: SidebarColors) {
         super.init(key: key, list: list, colors: colors)
-        plus.image = SidebarSymbols.image("plus", size: 13, weight: .medium)
+        // Arc's plus, fitted pixel by pixel at 1x and 2x.
+        plus.image = SidebarSymbols.image("plus", size: 14.5, weight: .medium)
         plus.imageScaling = .scaleNone
         label.stringValue = "New Tab"
         addSubview(plus)

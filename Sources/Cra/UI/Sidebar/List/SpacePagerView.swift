@@ -3,9 +3,10 @@ import SwiftUI
 
 /// Dia's paging container in AppKit: every space's column (favorites, header, tab list) sits
 /// side by side on a strip, the strip follows a swipe 1:1, then a spring settles it on a page.
-/// The page index places the strip by frame; the rest of the travel is a translation of the
-/// pager's sublayers, which Core Animation moves on its own. A swipe or a settle never lays out,
-/// diffs or redraws a row.
+/// The strip only ever moves by frame. AppKit draws just the views it knows are inside the pager,
+/// so a column brought in or kept on screen by a layer translation alone showed blank: the next
+/// space while the fingers moved, the last one while a space change sprang (issue #12). Neither
+/// the swipe nor the settle lays out or diffs a row.
 @MainActor
 final class SpacePagerView: NSView {
     private let store: SidebarStore
@@ -14,16 +15,30 @@ final class SpacePagerView: NSView {
     private let favicons: FaviconCache
     private let strip = NSView()
     private var columns: [UUID: NSView] = [:]
-    /// The page the strip's frame was placed at, and the width it was placed with.
+    /// The page the strip was placed at, and the width it was placed with.
     private var placedIndex = 0
     private var placedWidth: CGFloat = 0
     private var placedSwipe: CGFloat = 0
-    /// The translation (points) the model layer holds; the presentation may still be springing.
-    private var offset: CGFloat = 0
     /// Release speed for the next settle, relative to the distance left (Dia's spring).
     private var pendingVelocity: Double = 0
     private var ownSettle: Int?
-    private static let settleKey = "settle"
+    private var spring: Spring?
+    private var link: CADisplayLink?
+
+    /// Dia's zero-bounce spring (CASpringAnimation perceptualDuration 0.4, bounce 0): critically
+    /// damped, so the offset from the page is (x0 + (v0 + ω·x0)·t)·e^(−ω·t).
+    private struct Spring {
+        let index: Int
+        let start: CFTimeInterval
+        let x0: CGFloat
+        let v0: CGFloat
+        static let omega: CGFloat = 2 * .pi / 0.4
+
+        func offset(at time: CFTimeInterval) -> CGFloat {
+            let t = CGFloat(max(0, time - start))
+            return (x0 + (v0 + Self.omega * x0) * t) * exp(-Self.omega * t)
+        }
+    }
 
     init(store: SidebarStore, ui: SidebarUIState, actions: SidebarActions, favicons: FaviconCache) {
         self.store = store
@@ -66,10 +81,22 @@ final class SpacePagerView: NSView {
             return
         }
         if placedSwipe == 0 { SpaceListView.endHover(for: ui) }
-        // Under the fingers the strip follows at once, without a layout pass.
-        layer?.removeAnimation(forKey: Self.settleKey)
-        setOffset(-swipe * placedWidth)
+        // Under the fingers the strip follows at once, without a layout pass. The swipe counts
+        // from the space shown, which a release can change before this view lays out.
+        let index = store.pagedSpaces(window: ui.windowID).map(\.id).firstIndex(of: store.focusedSpaceID(window: ui.windowID)) ?? placedIndex
+        stopSpring()
+        place(index: index, offset: -swipe * placedWidth)
         placedSwipe = swipe
+    }
+
+    /// The strip at `index`'s page, `offset` points to the right of it.
+    private func place(index: Int, offset: CGFloat) {
+        let x = -CGFloat(index) * placedWidth + offset
+        guard strip.frame.minX != x else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        strip.setFrameOrigin(NSPoint(x: x, y: 0))
+        CATransaction.commit()
     }
 
     private func column(for id: UUID) -> NSView {
@@ -90,10 +117,11 @@ final class SpacePagerView: NSView {
             columns[id] = nil
         }
         // Where the strip shows now, in pages (mid-spring if one runs).
-        let shown = presentedPosition()
+        let shown = placedWidth > 0 ? -strip.frame.minX / placedWidth : nil
+        let swipe = ui.spaceSwipe
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        strip.frame = NSRect(x: -CGFloat(index) * width, y: 0, width: CGFloat(max(1, ids.count)) * width, height: height)
+        strip.setFrameSize(NSSize(width: CGFloat(max(1, ids.count)) * width, height: height))
         for (i, id) in ids.enumerated() {
             let f = NSRect(x: CGFloat(i) * width, y: 0, width: width, height: height)
             let c = column(for: id)
@@ -101,56 +129,70 @@ final class SpacePagerView: NSView {
         }
         CATransaction.commit()
 
-        let swipe = ui.spaceSwipe
-        defer {
-            placedIndex = index
-            placedWidth = width
-            placedSwipe = swipe
-        }
+        let moved = index != placedIndex || placedSwipe != 0
+        placedIndex = index
+        placedWidth = width
+        placedSwipe = swipe
         if swipe != 0 {
             // Fingers on the trackpad: follow them exactly.
-            layer?.removeAnimation(forKey: Self.settleKey)
-            setOffset(-swipe * width)
-        } else if index != placedIndex || placedSwipe != 0, let shown, abs(shown - CGFloat(index)) > 0.002, width > 0 {
-            settle(from: -(shown - CGFloat(index)) * width)
-        } else if layer?.animation(forKey: Self.settleKey) == nil {
-            setOffset(0)
+            stopSpring()
+            place(index: index, offset: -swipe * width)
+        } else if moved, let shown, abs(shown - CGFloat(index)) > 0.002, width > 0 {
+            settle(index: index, from: -(shown - CGFloat(index)) * width)
+        } else if let spring, spring.index == index {
+            place(index: index, offset: spring.offset(at: CACurrentMediaTime()))
+        } else {
+            stopSpring()
+            place(index: index, offset: 0)
         }
-    }
-
-    private func presentedPosition() -> CGFloat? {
-        guard placedWidth > 0 else { return nil }
-        let tx = (layer?.presentation()?.value(forKeyPath: "sublayerTransform.translation.x") as? CGFloat) ?? offset
-        return CGFloat(placedIndex) - tx / placedWidth
-    }
-
-    private func setOffset(_ x: CGFloat) {
-        offset = x
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer?.sublayerTransform = CATransform3DMakeTranslation(x, 0, 0)
-        CATransaction.commit()
     }
 
     /// Dia settles pages with a zero-bounce spring that picks up the release speed.
-    private func settle(from x: CGFloat) {
-        let spring = CASpringAnimation(perceptualDuration: 0.4, bounce: 0)
-        spring.keyPath = "sublayerTransform.translation.x"
-        spring.fromValue = x
-        spring.toValue = 0
-        spring.initialVelocity = pendingVelocity
-        spring.duration = spring.settlingDuration
+    private func settle(index: Int, from x: CGFloat) {
+        // CASpringAnimation's initialVelocity: the distance to travel per second.
+        spring = Spring(index: index, start: CACurrentMediaTime(), x0: x, v0: -CGFloat(pendingVelocity) * x)
         pendingVelocity = 0
-        let generation = ui.beginSpaceSettle()
-        ownSettle = generation
-        CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            guard let self else { return }
-            if self.ownSettle == generation { self.ui.endSpaceSettle(generation) }
-            SpaceListView.refreshHover(for: self.ui)
+        place(index: index, offset: x)
+        ownSettle = ui.beginSpaceSettle()
+        guard window != nil else { finishSpring(); return }
+        if link == nil {
+            let l = displayLink(target: self, selector: #selector(step))
+            l.add(to: .main, forMode: .common)
+            link = l
         }
-        setOffset(0)
-        layer?.add(spring, forKey: Self.settleKey)
-        CATransaction.commit()
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        guard let spring else { stopSpring(); return }
+        let time = link.targetTimestamp
+        let x = spring.offset(at: time)
+        let speed = abs(x - spring.offset(at: time - 0.01)) * 100
+        if abs(x) < 0.25 && speed < 5 {
+            finishSpring()
+        } else {
+            place(index: spring.index, offset: x)
+        }
+    }
+
+    private func finishSpring() {
+        let index = spring?.index ?? placedIndex
+        stopSpring()
+        place(index: index, offset: 0)
+        if let generation = ownSettle {
+            ownSettle = nil
+            ui.endSpaceSettle(generation)
+        }
+        SpaceListView.refreshHover(for: ui)
+    }
+
+    private func stopSpring() {
+        spring = nil
+        link?.invalidate()
+        link = nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil, spring != nil { finishSpring() }
     }
 }

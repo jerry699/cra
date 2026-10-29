@@ -51,9 +51,11 @@ final class CommandTextField {
             field.stringValue = controller.fieldText
             coord.lastTyped = controller.fieldText
             coord.suppressChange = false
+            let selected = controller.fieldTextSelected
             DispatchQueue.main.async {
                 field.window?.makeFirstResponder(field)
-                field.currentEditor()?.selectAll(nil)
+                guard let editor = field.currentEditor() else { return }
+                if selected { editor.selectAll(nil) } else { editor.selectedRange = NSRange(location: (field.stringValue as NSString).length, length: 0) }
             }
         }
         if coord.appliedPreview != controller.previewVersion {
@@ -130,7 +132,10 @@ final class CommandTextField {
                 controller.commit(forceNewTab: cmd)
                 return true
             case #selector(NSResponder.cancelOperation(_:)):
-                controller.close(); return true
+                if controller.siteSearch != nil { controller.cancelSiteSearch() } else { controller.close() }
+                return true
+            case #selector(NSResponder.insertTab(_:)) where controller.enterSiteSearch():
+                return true
             case #selector(NSResponder.insertTab(_:)), #selector(NSResponder.moveRight(_:)), #selector(NSResponder.moveToEndOfLine(_:)):
                 if pendingCompletion != nil, textView.selectedRange.length > 0 {
                     let text = textView.string
@@ -142,6 +147,10 @@ final class CommandTextField {
                 }
                 return selector == #selector(NSResponder.insertTab(_:))
             case #selector(NSResponder.deleteBackward(_:)):
+                if controller.siteSearch != nil, textView.string.isEmpty {
+                    controller.leaveSiteSearch()
+                    return true
+                }
                 if pendingCompletion != nil, textView.selectedRange.length > 0 {
                     // Remove the suggestion, keep what was typed.
                     let typed = lastTyped

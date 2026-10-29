@@ -433,6 +433,12 @@ struct AppSettings: Codable, Equatable {
     /// Air Traffic Control routes, checked in order (LinkRouting.swift). Starts with Arc's
     /// Google Meet route.
     var linkRoutes: [LinkRoute] = [.googleMeet]
+    /// Arc's "Open a Peek window when clicking on links to other sites" (modalEnabled): only
+    /// links clicked in favorites and pinned tabs.
+    var peekLinksToOtherSites: Bool = true
+    /// Arc's "Open a Peek window when clicking on links with Shift held"
+    /// (shiftClickModalEntryPointEnabled).
+    var peekOnShiftClick: Bool = true
     /// Arc: "Enable Picture in Picture when you leave a video tab".
     var autoPictureInPicture: Bool = true
     /// Dia's onboarding privacy choice "Block third-party ads and trackers": requests
@@ -549,6 +555,8 @@ extension AppSettings {
         }
         // Settings from before Air Traffic Control get Arc's Google Meet route once.
         linkRoutes = c.contains(.linkRoutes) ? (try? c.decode([LinkRoute].self, forKey: .linkRoutes)) ?? [] : [.googleMeet]
+        peekLinksToOtherSites = try c.decodeIfPresent(Bool.self, forKey: .peekLinksToOtherSites) ?? true
+        peekOnShiftClick = try c.decodeIfPresent(Bool.self, forKey: .peekOnShiftClick) ?? true
         hapticFeedbackOnReorder = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedbackOnReorder) ?? true
         warnBeforeQuitting = try c.decodeIfPresent(Bool.self, forKey: .warnBeforeQuitting) ?? false
         autoArchiveEnabled = try c.decodeIfPresent(Bool.self, forKey: .autoArchiveEnabled) ?? true

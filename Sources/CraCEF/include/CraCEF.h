@@ -81,6 +81,10 @@ typedef NS_ENUM(NSInteger, CraDownloadState) {
 - (void)browser:(CraBrowser *)browser didFindMatches:(NSInteger)count activeMatch:(NSInteger)activeMatch;
 /// The page started or stopped using the camera or microphone.
 - (void)browser:(CraBrowser *)browser didChangeMediaCapture:(BOOL)capturing;
+/// Arc's Peek: a link the user clicked (`shiftClick` NO: before it navigates the page or
+/// opens as a target=_blank tab) or Shift-clicked (YES, instead of a new window). Return
+/// YES to show it in a Peek; the page then stays where it is.
+- (BOOL)browser:(CraBrowser *)browser opensPeekForURL:(NSString *)url shiftClick:(BOOL)shiftClick;
 @end
 
 @interface CraBrowser : NSObject

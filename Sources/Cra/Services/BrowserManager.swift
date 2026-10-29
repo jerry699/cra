@@ -50,6 +50,9 @@ protocol BrowserManagerDelegate: AnyObject {
     func browserManagerFocusedBrowser(_ tabID: UUID)
     /// The page closed itself (window.close()).
     func browserManagerPageClosedTab(_ tabID: UUID)
+    /// Arc's Peek: a link the user clicked (or Shift-clicked) in `tabID`, whose page is at
+    /// `pageURL`. Return true when it opens in a Peek instead.
+    func browserManagerOpensPeek(url: String, fromTab tabID: UUID, pageURL: String, shiftClick: Bool) -> Bool
 }
 
 /// Creates, shows, hides and tears down CEF browsers inside a container view.
@@ -527,6 +530,11 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         let host = makePopupHost(for: tab.id)
         if !background { show(tab.id, focus: true) }
         return host
+    }
+
+    func browser(_ browser: CraBrowser, opensPeekForURL url: String, shiftClick: Bool) -> Bool {
+        guard let id = tabID(of: browser), !browser.isIncognito else { return false }
+        return delegate?.browserManagerOpensPeek(url: url, fromTab: id, pageURL: browser.currentURL, shiftClick: shiftClick) ?? false
     }
 
     func devToolsHostView(for browser: CraBrowser) -> NSView? {
