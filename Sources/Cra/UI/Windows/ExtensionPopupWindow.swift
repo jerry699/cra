@@ -132,7 +132,7 @@ final class ExtensionPopupWindow: NSWindow {
         let size = NSSize(width: bubble.frame.width - 2 * inset, height: bubble.frame.height - 2 * inset + Self.titleBarHeight)
         // Right edge on the anchor whatever width the page reports (Bitwarden grows after it loads).
         var topLeft = NSPoint(x: anchor.x - size.width + offset.x, y: anchor.y + offset.y)
-        if let screen = (bubble.screen ?? NSScreen.main)?.visibleFrame {
+        if let screen = (Self.screen(at: anchor) ?? bubble.screen ?? NSScreen.main)?.visibleFrame {
             topLeft.x = min(max(topLeft.x, screen.minX + 4), screen.maxX - size.width - 4)
             topLeft.y = min(max(topLeft.y, screen.minY + size.height + 4), screen.maxY)
         }
@@ -158,6 +158,12 @@ final class ExtensionPopupWindow: NSWindow {
     static func placement(anchor: NSPoint, width: CGFloat) -> NSPoint {
         let offset = savedOffset ?? .zero
         return NSPoint(x: anchor.x - width + offset.x, y: anchor.y + offset.y)
+    }
+
+    /// The display the anchor (the button) is on. Chrome's bubble starts out by its hidden
+    /// toolbar, which can be on another display than the browser window.
+    static func screen(at anchor: NSPoint) -> NSScreen? {
+        NSScreen.screens.first { $0.frame.insetBy(dx: -1, dy: -1).contains(anchor) }
     }
 
     private static var savedOffset: NSPoint? {
@@ -314,7 +320,7 @@ final class ExtensionPageWindow: NSWindow, NSWindowDelegate, @preconcurrency Cra
     private func frame(for page: NSSize) -> NSRect {
         let h = page.height + ExtensionPopupWindow.titleBarHeight
         var tl = NSPoint(x: topRight.x - page.width, y: topRight.y)
-        if let screen = (screen ?? NSScreen.main)?.visibleFrame {
+        if let screen = (ExtensionPopupWindow.screen(at: topRight) ?? screen ?? NSScreen.main)?.visibleFrame {
             tl.x = min(max(tl.x, screen.minX + 4), screen.maxX - page.width - 4)
             tl.y = min(max(tl.y, screen.minY + h + 4), screen.maxY)
         }

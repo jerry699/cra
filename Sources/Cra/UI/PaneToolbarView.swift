@@ -51,7 +51,7 @@ final class PaneToolbarView: NSView {
     private let placeholderLabel = NSTextField.sidebarLabel(size: 13)
     private let hairline = NSView()
     private let devDivider = NSView()
-    private var press: NSEvent?
+    private var press = WindowDragGesture()
 
     init(paneTabID: UUID?, store: SidebarStore, ui: SidebarUIState, actions: SidebarActions) {
         self.paneTabID = paneTabID
@@ -142,6 +142,12 @@ final class PaneToolbarView: NSView {
         m.closeTint = m.kind == .emptyPane ? NSColor(palette.textSecondary) : m.fgDim
         m.dividerColor = light ? NSColor.black.withAlphaComponent(0.15) : NSColor.white.withAlphaComponent(0.22)
         return m
+    }
+
+    /// A pinned extension's button (screen rect), for popups opened from the menu bar or a shortcut.
+    func extensionButtonFrameOnScreen(_ id: String) -> NSRect? {
+        guard let b = buttons["ext:" + id], !b.isHiddenOrHasHiddenAncestor, let window else { return nil }
+        return window.convertToScreen(b.convert(b.bounds, to: nil))
     }
 
     // MARK: Views
@@ -339,18 +345,10 @@ final class PaneToolbarView: NSView {
     // A click anywhere on the bar edits the URL (a pane's click also focuses it); a drag moves
     // the window, as on Arc's toolbar.
     override var mouseDownCanMoveWindow: Bool { false }
-    override func mouseDown(with event: NSEvent) { press = event }
-    override func mouseDragged(with event: NSEvent) {
-        guard let p = press else { return }
-        if hypot(event.locationInWindow.x - p.locationInWindow.x, event.locationInWindow.y - p.locationInWindow.y) > 3 {
-            press = nil
-            window?.performDrag(with: p)
-        }
-    }
+    override func mouseDown(with event: NSEvent) { press.begin(event) }
+    override func mouseDragged(with event: NSEvent) { press.drag(event) }
     override func mouseUp(with event: NSEvent) {
-        guard press != nil else { return }
-        press = nil
-        editURL()
+        if press.finish() { editURL() }
     }
 }
 
@@ -450,6 +448,7 @@ final class ToolbarGlyphButton: NSView {
 /// monospace after a lock in developer mode), or the nav-bar status in its place.
 final class ToolbarURLButton: NSView {
     var action: () -> Void = {}
+    private var press = WindowDragGesture()
     private let content = NSView()
     private let icon = NSImageView()
     private let label = NSTextField.sidebarLabel(size: 13)
@@ -541,8 +540,10 @@ final class ToolbarURLButton: NSView {
 
     override func mouseEntered(with event: NSEvent) { hovering = true }
     override func mouseExited(with event: NSEvent) { hovering = false }
-    override func mouseDown(with event: NSEvent) {}
+    // Part of the bar: a click edits the URL, a drag moves the window like the rest of it.
+    override func mouseDown(with event: NSEvent) { press.begin(event) }
+    override func mouseDragged(with event: NSEvent) { press.drag(event) }
     override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)) { action() }
+        if press.finish(), bounds.contains(convert(event.locationInWindow, from: nil)) { action() }
     }
 }

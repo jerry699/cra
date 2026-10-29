@@ -25,9 +25,9 @@ final class ExtensionActions {
         }
     }
 
-    /// Where a popup Cra did not ask for hangs (screen top-right point), nil to leave it where
-    /// Chrome put it.
-    private var defaultAnchor: () -> NSPoint? = { nil }
+    /// Where a popup Cra did not ask for hangs (screen top-right point) for an extension ID, nil
+    /// to leave it where Chrome put it.
+    private var defaultAnchor: (String) -> NSPoint? = { _ in nil }
     /// True while `run` waits for its own popup.
     private var placingOwnPopup = false
 
@@ -35,7 +35,7 @@ final class ExtensionActions {
     /// ⌘⇧X) or chrome.action.openPopup() (1Password's inline menu). Arc hosts every popup
     /// under its toolbar (ArcCore hands it over in browser:didOpenExtensionPopup:webContents:);
     /// Cra watches for popup pages being created and moves those under `anchor` too.
-    func watchPopups(anchor: @escaping () -> NSPoint?) {
+    func watchPopups(anchor: @escaping (String) -> NSPoint?) {
         defaultAnchor = anchor
         guard isAvailable else { return }
         Task { _ = try? await call("Target.setDiscoverTargets", ["discover": true]) }
@@ -46,10 +46,12 @@ final class ExtensionActions {
     @discardableResult
     func run(_ extensionID: String, on browser: CraBrowser, anchor: NSPoint) async -> Bool {
         guard isAvailable else { return false }
+        var triggered = false
         do {
             let tab = try await tabTarget(for: browser)
             let before = visibleWindows()
             placingOwnPopup = true
+            triggered = true
             _ = try await call("Extensions.triggerAction", ["id": extensionID, "targetId": tab])
             placePopup(appearingAfter: before, anchor: anchor)
             return true
@@ -57,7 +59,9 @@ final class ExtensionActions {
             placingOwnPopup = false
             NSLog("Cra: extension action %@ failed: %@", extensionID, String(describing: error))
             tabTargets[ObjectIdentifier(browser)] = nil
-            return false
+            // The action may still run after its reply timed out; a fallback page would be a
+            // second popup.
+            return triggered && error is ExtensionProtocolTimeout
         }
     }
 
@@ -149,34 +153,42 @@ final class ExtensionActions {
               let popup = ExtensionStore.shared.entries.first(where: { $0.extensionID == id })?.popupPath,
               url.path == "/" + popup.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
               seenPopupTargets.insert(target).inserted, !placingOwnPopup,
-              let anchor = defaultAnchor() else { return }
+              let anchor = defaultAnchor(id) else { return }
         placePopup(appearingAfter: visibleWindows(), anchor: anchor)
     }
 
     // MARK: Protocol calls
 
+    // Chromium can leave a request unanswered (its target went away meanwhile). Without a
+    // deadline `placingOwnPopup` stayed set and no later shortcut popup was placed.
     private func call(_ method: String, _ params: [String: Any] = [:], session: String? = nil) async throws -> [String: Any] {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: params), as: UTF8.self)
         return try await withCheckedThrowingContinuation { cont in
-            CraCEFRuntime.sendBrowserDevToolsMethod(method, params: json, sessionID: session) { result, error in
-                if let result, let obj = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any] {
-                    cont.resume(returning: obj)
-                } else {
-                    cont.resume(throwing: Failure.protocolError(error ?? "bad reply to \(method)"))
+            let reply = ExtensionProtocolReply<[String: Any]>(method: method, timeout: 5, onLateReply: { result in
+                // An attach that answers after its caller gave up still leaves a session open.
+                if method == "Target.attachToTarget", case let .success(object) = result,
+                   let session = object["sessionId"] as? String {
+                    CraCEFRuntime.sendBrowserDevToolsMethod("Target.detachFromTarget", params: #"{"sessionId":"\#(session)"}"#,
+                                                            sessionID: nil) { _, _ in }
                 }
+            }) { cont.resume(with: $0) }
+            CraCEFRuntime.sendBrowserDevToolsMethod(method, params: json, sessionID: session) { result, error in
+                MainActor.assumeIsolated { reply.resolve(Self.result(result, error: error, method: method)) }
             }
         }
     }
 
     private func pageCall(_ browser: CraBrowser, _ method: String) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { cont in
+            let reply = ExtensionProtocolReply<[String: Any]>(method: method, timeout: 5) { cont.resume(with: $0) }
             browser.sendDevToolsMethod(method, params: "{}") { result, error in
-                if let result, let obj = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any] {
-                    cont.resume(returning: obj)
-                } else {
-                    cont.resume(throwing: Failure.protocolError(error ?? "bad reply to \(method)"))
-                }
+                MainActor.assumeIsolated { reply.resolve(Self.result(result, error: error, method: method)) }
             }
         }
+    }
+
+    private nonisolated static func result(_ result: String?, error: String?, method: String) -> Result<[String: Any], Error> {
+        if let result, let obj = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any] { return .success(obj) }
+        return .failure(Failure.protocolError(error ?? "bad reply to \(method)"))
     }
 }

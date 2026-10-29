@@ -236,11 +236,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         sidebarActions.runExtension = { [weak self] id in self?.runExtensionAction(id, buttonRightX: Self.extensionButtonRightX()) }
         sidebarActions.showExtensionsMenu = { [weak self] in self?.showToolbarExtensionsMenu() }
         // Popups from an extension's shortcut or chrome.action.openPopup() hang where the
-        // menu bar's do: under the toolbar at the card's right end of the window in use.
-        ExtensionActions.shared.watchPopups { [weak app] in
-            guard let main = app?.main, let window = main.window, let key = NSApp.keyWindow, key === window || key.parent === window,
-                  let bar = main.toolbarBottomOnScreen() else { return nil }
-            return NSPoint(x: bar.cardMaxX - 8, y: bar.y)
+        // menu bar's do: under the extension's toolbar button, else at the card's right end.
+        // Arc puts every popup in one place, whatever opened it.
+        ExtensionActions.shared.watchPopups { [weak app] id in
+            guard let main = app?.main, let window = main.window, let key = NSApp.keyWindow, key === window || key.parent === window else { return nil }
+            return main.extensionPopupAnchor(id)
         }
         sidebarActions.performAction = { [weak self] id in
             if id.hasPrefix("muteTab:"), let uuid = UUID(uuidString: String(id.dropFirst(8))) {
@@ -1513,13 +1513,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return rect.maxY - CraMetrics.titleAreaHeight - 2 - 36
     }
 
+    /// Under the extension's pinned toolbar button when the toolbar shows one, else under the
+    /// toolbar at the card's right end.
+    fileprivate func extensionPopupAnchor(_ id: String) -> NSPoint? {
+        guard let bar = toolbarBottomOnScreen() else { return nil }
+        if store.settings.showToolbar, let button = (shell.focusedCard?.toolbarHost as? PaneToolbarView)?.extensionButtonFrameOnScreen(id) {
+            return NSPoint(x: button.maxX, y: bar.y)
+        }
+        return NSPoint(x: bar.cardMaxX - 8, y: bar.y)
+    }
+
     /// Runs an extension's toolbar action on the focused page, like Arc's toolbar buttons and
     /// Dia's Extensions menu. The popup hangs under the toolbar, its right edge at `buttonRightX`
-    /// (screen x; nil = the card's right end, for the menu bar).
+    /// (screen x of the clicked button; nil = the extension's toolbar button or the card's right end).
     func runExtensionAction(_ id: String, buttonRightX: CGFloat? = nil) {
         guard let bar = toolbarBottomOnScreen() else { openExtensionPopupPage(id, anchor: nil); return }
-        let y = buttonRightX != nil ? (urlBarBottomOnScreen() ?? bar.y) : bar.y
-        let anchor = NSPoint(x: buttonRightX ?? bar.cardMaxX - 8, y: y)
+        let anchor = buttonRightX.map { NSPoint(x: $0, y: urlBarBottomOnScreen() ?? bar.y) }
+            ?? extensionPopupAnchor(id) ?? NSPoint(x: bar.cardMaxX - 8, y: bar.y)
         guard let browser = currentBrowser else { openExtensionPopupPage(id, anchor: anchor); return }
         Task {
             if await !ExtensionActions.shared.run(id, on: browser, anchor: anchor) { self.openExtensionPopupPage(id, anchor: anchor) }

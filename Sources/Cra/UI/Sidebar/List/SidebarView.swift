@@ -310,25 +310,19 @@ final class SidebarTopBarView: NSView {
     }
 
     // A double click on the empty strip does the title bar's double-click action; a drag moves
-    // the window.
+    // the window (from the floating sidebar too, without tearing its panel off).
     override var mouseDownCanMoveWindow: Bool { false }
-    private var press: NSEvent?
+    private var press = WindowDragGesture()
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2, convert(event.locationInWindow, from: nil).y < CraMetrics.titleAreaHeight {
-            press = nil
+            _ = press.finish()
             actions.titleBarDoubleClick()
             return
         }
-        press = event
+        press.begin(event)
     }
-    override func mouseDragged(with event: NSEvent) {
-        guard let p = press else { return }
-        if hypot(event.locationInWindow.x - p.locationInWindow.x, event.locationInWindow.y - p.locationInWindow.y) > 3 {
-            press = nil
-            window?.performDrag(with: p)
-        }
-    }
-    override func mouseUp(with event: NSEvent) { press = nil }
+    override func mouseDragged(with event: NSEvent) { press.drag(event) }
+    override func mouseUp(with event: NSEvent) { _ = press.finish() }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
