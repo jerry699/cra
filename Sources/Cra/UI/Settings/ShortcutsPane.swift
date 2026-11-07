@@ -61,7 +61,7 @@ struct ShortcutsPane: View {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         return Self.sections.compactMap { section, title in
             let acts = bindings.actions(in: section).filter { a in
-                (q.isEmpty || a.name.lowercased().contains(q))
+                (q.isEmpty || a.name.lowercased().contains(q) || L10n.tr(a.name).lowercased().contains(q))
                     && (!customizedOnly || bindings.isOverridden(a.id))
                     && (!conflictingOnly || !conflicts(of: a).isEmpty)
             }
@@ -78,7 +78,7 @@ struct ShortcutsPane: View {
         ScrollView(.vertical) {
             LazyVStack(spacing: 0) {
                 ForEach(visible, id: \.title) { group in
-                    Text(group.title)
+                    Text(L10n.tr(group.title))
                         .font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                         .padding(.leading, 10)
                         .frame(maxWidth: .infinity, minHeight: Self.rowHeight, alignment: .bottomLeading)
@@ -101,7 +101,7 @@ struct ShortcutsPane: View {
         let selected = a.id == selectedID
         return Button { selectedID = a.id } label: {
             HStack(spacing: 8) {
-                Text(a.name).font(.system(size: 13)).foregroundStyle(selected ? Color.white : Color.primary)
+                Text(L10n.actionName(id: a.id, fallback: a.name)).font(.system(size: 13)).foregroundStyle(selected ? Color.white : Color.primary)
                 Spacer(minLength: 8)
                 Text(a.shortcuts.map(\.display).joined(separator: "  "))
                     .font(.system(size: 13)).foregroundStyle(selected ? Color.white : Color.secondary)
@@ -120,11 +120,11 @@ struct ShortcutsPane: View {
         if let a = selectedID.flatMap({ bindings.action($0) }) {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
-                    Text(a.name).font(.system(size: 22, weight: .bold))
+                    Text(L10n.actionName(id: a.id, fallback: a.name)).font(.system(size: 22, weight: .bold))
                     Spacer()
                     Menu {
-                        Button("Reset to Default") { bindings.resetShortcuts(for: a.id) }.disabled(!bindings.isOverridden(a.id))
-                        Button("Remove Shortcut") { bindings.setShortcuts([], for: a.id) }.disabled(a.shortcuts.isEmpty)
+                        Button(L10n.tr("Reset to Default")) { bindings.resetShortcuts(for: a.id) }.disabled(!bindings.isOverridden(a.id))
+                        Button(L10n.tr("Remove Shortcut")) { bindings.setShortcuts([], for: a.id) }.disabled(a.shortcuts.isEmpty)
                     } label: {
                         Image(systemName: "gearshape.fill").font(.system(size: 16)).foregroundStyle(.secondary)
                     }
@@ -136,8 +136,8 @@ struct ShortcutsPane: View {
                 ShortcutRecorder(action: a)
                 let c = conflicts(of: a)
                 if !c.isEmpty {
-                    Text((c.count == 1 ? "This shortcut conflicts with another shortcut: " : "This shortcut conflicts with other shortcuts: ")
-                         + c.map(\.name).joined(separator: ", "))
+                    Text(L10n.tr(c.count == 1 ? "This shortcut conflicts with another shortcut: " : "This shortcut conflicts with other shortcuts: ")
+                         + c.map { L10n.tr($0.name) }.joined(separator: ", "))
                         .font(.system(size: 11)).foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -145,8 +145,8 @@ struct ShortcutsPane: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Perform common actions in Cra faster and from anywhere.")
-                Text("Select an action to customize its keyboard shortcut.")
+                Text(L10n.tr("Perform common actions in Cra faster and from anywhere."))
+                Text(L10n.tr("Select an action to customize its keyboard shortcut."))
             }
             .font(.system(size: 15)).foregroundStyle(.secondary)
             .padding(.top, 14)
@@ -237,11 +237,11 @@ struct SettingsSearchField: NSViewRepresentable {
 /// One-line descriptions for the detail column (Dia: "Create a new tab.").
 enum ShortcutDescriptions {
     static func text(for a: KeyAction) -> String {
-        if let t = table[a.id] { return t }
-        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
-        if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
-        if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return "Move the current tab, or a Little Window's page, to the \(n). space and switch to it." }
-        return a.name + "."
+        if let t = table[a.id] { return L10n.tr(t) }
+        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return L10n.tr("Switch to the %d. tab in the sidebar.", Int(String(n)) ?? 0) }
+        if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return L10n.tr("Switch to the %d. space.", Int(String(n)) ?? 0) }
+        if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return L10n.tr("Move the current tab, or a Little Window's page, to the %d. space and switch to it.", Int(String(n)) ?? 0) }
+        return L10n.tr(a.name + ".")
     }
 
     private static let table: [String: String] = [

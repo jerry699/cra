@@ -485,7 +485,7 @@ enum MenuItems {
     @discardableResult
     static func add(_ menu: NSMenu, _ title: String, enabled: Bool = true, on: Bool? = nil, image: NSImage? = nil, _ run: @escaping () -> Void) -> NSMenuItem {
         let a = Action(run)
-        let item = NSMenuItem(title: title, action: #selector(Action.fire), keyEquivalent: "")
+        let item = NSMenuItem(title: L10n.tr(title), action: #selector(Action.fire), keyEquivalent: "")
         item.target = a
         item.representedObject = a
         item.isEnabled = enabled
@@ -500,7 +500,8 @@ enum MenuItems {
     @discardableResult
     static func add(_ menu: NSMenu, action id: String, title: String? = nil, enabled: Bool = true, on: Bool? = nil,
                     _ run: @escaping () -> Void) -> NSMenuItem {
-        let item = add(menu, title ?? KeyBindingRegistry.shared.action(id)?.name ?? id, enabled: enabled, on: on, run)
+        let fallback = KeyBindingRegistry.shared.action(id)?.name ?? id
+        let item = add(menu, title ?? L10n.actionName(id: id, fallback: fallback), enabled: enabled, on: on, run)
         item.showShortcut(of: id)
         return item
     }
@@ -508,7 +509,7 @@ enum MenuItems {
     static func submenu(_ menu: NSMenu, _ title: String) -> NSMenu {
         let sub = NSMenu()
         sub.autoenablesItems = false
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: L10n.tr(title), action: nil, keyEquivalent: "")
         item.submenu = sub
         menu.addItem(item)
         return sub

@@ -40,6 +40,18 @@ struct GeneralPane: View {
                                                                set: { error = system.setLaunchAtLogin($0) }))
                         .toggleStyle(.switch).labelsHidden()
                 }
+                SettingsCardDivider()
+                SettingsCardRow {
+                    Text("Language").font(.system(size: 13))
+                } trailing: {
+                    Picker("Language", selection: Binding(get: { L10n.language },
+                                                          set: { L10n.setLanguage($0) })) {
+                        ForEach(L10n.available, id: \.code) { code, name in
+                            Text(name).tag(code)
+                        }
+                    }
+                    .labelsHidden().fixedSize()
+                }
             }
             if !system.isDefaultBrowser {
                 SettingsFootnote("Cra works best as your default browser.")
