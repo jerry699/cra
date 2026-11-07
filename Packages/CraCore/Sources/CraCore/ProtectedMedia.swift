@@ -57,6 +57,10 @@ public struct ProtectedMediaSites: Equatable, Sendable {
         "joyn.de", "joyn.at", "joyn.ch",
         "rakuten.tv",
         "skyshowtime.com", "nowtv.com", "wowtv.de", "showmax.com",
+        // Bilibili's player is H.264 in Chromium, which a stock CEF build has no codec for;
+        // WebKit plays it through the system's codecs. Kept on the local Intel branch only:
+        // a codecs CEF build (scripts/build-cef.sh) plays it in Chromium, extensions included.
+        "bilibili.com",
         // Prime Video where Amazon itself serves it (the US, and Amazon's stores that keep it under
         // /gp/video); the rest of Amazon (shopping, Login with Amazon) stays in Chromium.
     ] + amazonStores.map { "\($0)/gp/video" } + [
@@ -76,7 +80,7 @@ public struct ProtectedMediaSites: Equatable, Sendable {
         "music.apple.com": "Apple Music", "listen.tidal.com": "Tidal", "www.deezer.com": "Deezer",
         "crunchyroll.com": "Crunchyroll", "hotstar.com": "Hotstar", "jiohotstar.com": "JioHotstar", "v.qq.com": "Tencent Video",
         "joyn.de": "Joyn", "joyn.at": "Joyn", "joyn.ch": "Joyn", "rakuten.tv": "Rakuten TV", "skyshowtime.com": "SkyShowtime",
-        "nowtv.com": "NOW", "wowtv.de": "WOW", "showmax.com": "Showmax",
+        "nowtv.com": "NOW", "wowtv.de": "WOW", "showmax.com": "Showmax", "bilibili.com": "Bilibili",
     ].merging(amazonStores.flatMap { [("\($0)/gp/video", "Prime Video"), ("music.\($0)", "Amazon Music")] }) { a, _ in a }
 
     /// Off: every page is Chromium's, as before.
