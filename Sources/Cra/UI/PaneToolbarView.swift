@@ -254,7 +254,7 @@ final class PaneToolbarView: NSView {
                        tint: NSColor? = nil, animated: Bool = false, history: BackForwardMenu.Direction? = nil,
                        action: @escaping (PaneToolbarView) -> Void) -> ToolbarGlyphButton {
         let b = button(key) { ToolbarGlyphButton() }
-        b.configure(symbol: symbol, image: nil, help: help, enabled: enabled, width: width, iconSize: iconSize, tint: tint ?? model.fgDim,
+        b.configure(symbol: symbol, image: nil, help: L10n.tr(help), enabled: enabled, width: width, iconSize: iconSize, tint: tint ?? model.fgDim,
                     hover: model.hover, animated: animated)
         b.action = { [weak self] in if let self { action(self) } }
         b.secondaryAction = history.map { direction in

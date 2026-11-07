@@ -78,6 +78,21 @@ struct GeneralPane: View {
                 SettingsToggleRow("Open Cra at login",
                                   detail: "Cra opens by itself when you log in to your Mac.",
                                   isOn: Binding(get: { system.launchesAtLogin }, set: { error = system.setLaunchAtLogin($0) }))
+                SettingsCardDivider()
+                SettingsCardRow {
+                    Text("Language").font(.system(size: 13))
+                } trailing: {
+                    Picker("Language", selection: Binding(get: { L10n.language },
+                                                          set: { L10n.setLanguage($0) })) {
+                        ForEach(L10n.available, id: \.code) { code, name in
+                            Text(name).tag(code)
+                        }
+                    }
+                    .labelsHidden().fixedSize()
+                }
+            }
+            if !system.isDefaultBrowser {
+                SettingsFootnote("Cra works best as your default browser.")
             }
             if let error { SettingsFootnote(error).foregroundStyle(.red) }
             TabsPane().settingsNested().padding(.top, 20)

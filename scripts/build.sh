@@ -110,6 +110,7 @@ cp resources/Cra.sdef "$APP/Contents/Resources/Cra.sdef"
 [ -d resources/licenses ] && cp -R resources/licenses "$APP/Contents/Resources/licenses"
 [ -d resources/fonts ] && cp -R resources/fonts "$APP/Contents/Resources/fonts"
 cp -R resources/live-folder-plugins "$APP/Contents/Resources/live-folder-plugins"
+[ -d resources/zh-Hans.lproj ] && cp -R resources/zh-Hans.lproj "$APP/Contents/Resources/zh-Hans.lproj"
 
 if [ "$ENGINE" = chromium ]; then
   FW_NAME="Cra Framework"
