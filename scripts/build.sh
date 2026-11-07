@@ -44,6 +44,7 @@ echo -n "APPL????" > "$APP/Contents/PkgInfo"
 [ -d resources/blocklist ] && cp -R resources/blocklist "$APP/Contents/Resources/blocklist"
 [ -d resources/browsers ] && cp -R resources/browsers "$APP/Contents/Resources/browsers"
 [ -d resources/app-icons ] && cp -R resources/app-icons "$APP/Contents/Resources/app-icons"
+[ -d resources/zh-Hans.lproj ] && cp -R resources/zh-Hans.lproj "$APP/Contents/Resources/zh-Hans.lproj"
 
 FRAMEWORK_SRC="$ROOT/vendor/cef/Release/Chromium Embedded Framework.framework"
 cp -R "$FRAMEWORK_SRC" "$APP/Contents/Frameworks/"

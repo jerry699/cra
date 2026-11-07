@@ -1479,7 +1479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func item(_ id: String) -> NSMenuItem {
         guard let a = bindings.action(id) else { return NSMenuItem() }
-        let m = NSMenuItem(title: a.name, action: #selector(menuAction(_:)), keyEquivalent: "")
+        let m = NSMenuItem(title: L10n.actionName(id: a.id, fallback: a.name), action: #selector(menuAction(_:)), keyEquivalent: "")
         m.representedObject = a.id
         m.target = self
         m.showShortcut(of: id)
@@ -1487,7 +1487,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func std(_ title: String, _ sel: Selector, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
-        let m = NSMenuItem(title: title, action: sel, keyEquivalent: key)
+        let m = NSMenuItem(title: L10n.tr(title), action: sel, keyEquivalent: key)
         m.keyEquivalentModifierMask = mods
         return m
     }
@@ -1496,7 +1496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let menubar = NSMenu()
 
         let appMenu = NSMenu(title: "Cra")
-        appMenu.addItem(withTitle: "About Cra", action: #selector(showAbout), keyEquivalent: "").target = self
+        appMenu.addItem(withTitle: L10n.tr("About Cra"), action: #selector(showAbout), keyEquivalent: "").target = self
         appMenu.addItem(.separator())
         appMenu.addItem(item("settings"))
         let setDefault = item("setDefaultBrowser")
@@ -1543,7 +1543,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let view = NSMenu(title: "View")
         // Arc: View ▸ Appearance ▸ "Websites, Easels, and Notes will use:" Automatic / Light / Dark.
         let appearance = NSMenu(title: "Appearance")
-        appearance.addItem(withTitle: "Websites will use:", action: nil, keyEquivalent: "").isEnabled = false
+        appearance.addItem(withTitle: L10n.tr("Websites will use:"), action: nil, keyEquivalent: "").isEnabled = false
         for a in WebsiteAppearance.allCases {
             let m = item("appearance" + a.title)
             m.title = a.title
@@ -1618,7 +1618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         help.addItem(item("essentialShortcuts"))
         for (title, url) in [("Cra Help", "https://crabrowser.app/help"), ("Release Notes", "https://crabrowser.app/release-notes"),
                              ("Report an Issue…", "https://github.com/VictorKildahl/cra/issues"), ("Support Cra…", "https://crabrowser.app/support")] {
-            let link = NSMenuItem(title: title, action: #selector(openHelpLink(_:)), keyEquivalent: "")
+            let link = NSMenuItem(title: L10n.tr(title), action: #selector(openHelpLink(_:)), keyEquivalent: "")
             link.target = self
             link.representedObject = SiteLinks.tagged(url, from: .helpMenu)
             help.addItem(link)
@@ -1663,7 +1663,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
 private extension NSMenu {
     func addItem(submenu: NSMenu, title: String) {
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: L10n.tr(title), action: nil, keyEquivalent: "")
         item.submenu = submenu
         addItem(item)
     }
