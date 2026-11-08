@@ -429,7 +429,7 @@ private struct ColorWheel: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size.width, inner = size - 14, c = size / 2
-            let angle = hue * 2 * .pi, r = strength * (inner / 2 - 18)
+            let angle = hue * 2 * .pi, r = CGFloat(strength) * (inner / 2 - 18)
             let handle = CGPoint(x: c + cos(angle) * r, y: c - sin(angle) * r)
             ZStack {
                 // Arc's frame: brushed metal, dark at the top left and right, light at the bottom.
