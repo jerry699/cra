@@ -80,6 +80,9 @@ struct MaxPane: View {
         // Coming back from System Settings brings Cra to the front, which reads the status again;
         // a model still downloading gets there without that.
         .task {
+            CraLog.note(String(format: "Max pane: provider=%@, baseURL=%d chars, model=%d chars, key=%d chars, configured=%d",
+                               MaxRemote.provider.rawValue, MaxRemote.baseURL.count, MaxRemote.model.count,
+                               MaxRemote.key()?.count ?? 0, MaxRemote.isConfigured ? 1 : 0))
             while !Task.isCancelled {
                 service.refresh()
                 try? await Task.sleep(for: .seconds(3))

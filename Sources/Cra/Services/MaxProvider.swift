@@ -65,6 +65,7 @@ enum MaxRemote {
     }
 
     static func setProvider(_ provider: Provider) {
+        CraLog.note(String(format: "Max: provider set to %@", provider.rawValue))
         // Switching presets fills the fields they imply, but keeps a Custom answer.
         if let preset = provider.preset, provider != .custom {
             UserDefaults.standard.set(preset.baseURL, forKey: "maxBaseURL")
@@ -73,8 +74,14 @@ enum MaxRemote {
         UserDefaults.standard.set(provider.rawValue, forKey: "maxProvider")
     }
 
-    static func setBaseURL(_ url: String) { UserDefaults.standard.set(url, forKey: "maxBaseURL") }
-    static func setModel(_ model: String) { UserDefaults.standard.set(model, forKey: "maxModel") }
+    static func setBaseURL(_ url: String) {
+        CraLog.note(String(format: "Max: base URL set (%d chars)", url.count))
+        UserDefaults.standard.set(url, forKey: "maxBaseURL")
+    }
+    static func setModel(_ model: String) {
+        CraLog.note(String(format: "Max: model set (%d chars)", model.count))
+        UserDefaults.standard.set(model, forKey: "maxModel")
+    }
 
     // MARK: The Keychain item
 
@@ -93,6 +100,7 @@ enum MaxRemote {
     }
 
     static func setKey(_ key: String) {
+        CraLog.note(String(format: "Max: API key set (%d chars)", key.count))
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                     kSecAttrAccount as String: "API Key"]
         let update: [String: Any] = [kSecValueData as String: Data(key.utf8)]
