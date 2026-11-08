@@ -21,10 +21,11 @@ MIN_OS="$(plist LSMinimumSystemVersion)"
 URL="${CRA_UPDATE_URL:-https://github.com/VictorKildahl/cra/releases/download/v$VERSION/$(basename "$ZIP")}"
 
 SIGN=vendor/sparkle/bin/sign_update
+ACCOUNT="${SPARKLE_ACCOUNT:-cra}"
 if [ -n "${SPARKLE_PRIVATE_KEY:-}" ]; then
   ENCLOSURE="$(printf '%s' "$SPARKLE_PRIVATE_KEY" | "$SIGN" --ed-key-file - "$ZIP")"
 else
-  ENCLOSURE="$("$SIGN" --account cra "$ZIP")"
+  ENCLOSURE="$("$SIGN" --account "$ACCOUNT" "$ZIP")"
 fi
 
 DESCRIPTION=""
