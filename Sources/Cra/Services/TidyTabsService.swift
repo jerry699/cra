@@ -106,9 +106,16 @@ final class TidyTabsService {
 
     /// The Tidy button: ask the model about the space's loose Today tabs and apply its answer.
     func tidy(_ sid: UUID, store: SidebarStore) {
-        guard modelAvailable, !store.tidyingSpaces.contains(sid) else { return }
+        guard modelAvailable, !store.tidyingSpaces.contains(sid) else {
+            CraLog.note(String(format: "Tidy Tabs: declined (modelAvailable=%d, tidying=%d)",
+                               modelAvailable ? 1 : 0, store.tidyingSpaces.contains(sid) ? 1 : 0))
+            return
+        }
         let loose = Array(store.looseTodayTabs(sid).prefix(TidyTabs.maximumTabs))
-        guard !loose.isEmpty else { return }
+        guard !loose.isEmpty else {
+            CraLog.note("Tidy Tabs: declined (no loose Today tabs)")
+            return
+        }
         let tabs = loose.map { item in
             TidyTabs.Tab(title: item.displayTitle, host: item.tab.flatMap { URL(string: $0.url)?.host() } ?? "")
         }

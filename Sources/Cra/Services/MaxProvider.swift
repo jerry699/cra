@@ -122,6 +122,16 @@ enum MaxRemote {
 
     // MARK: The call
 
+    /// The providers Max serves are typically domestic (DeepSeek, Qwen, GLM, LongCat) and
+    /// unreachable or blocked from proxy exits, while the user's system proxy exists for
+    /// browsing: Max connects directly, never through it.
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 30
+        config.connectionProxyDictionary = [:]
+        return URLSession(configuration: config)
+    }()
+
     /// One chat completion. `json` asks for a JSON object reply (Tidy Tabs' groups); the title
     /// and download renames want plain text. Nil on any failure, which the callers treat the
     /// way they treat a silent model: no tidy this round.
@@ -141,7 +151,7 @@ enum MaxRemote {
 
         let started = Date()
         let (replyData, response, error): (Data?, URLResponse?, Error?) = await withCheckedContinuation { continuation in
-            URLSession.shared.dataTask(with: request) { data, response, error in
+            session.dataTask(with: request) { data, response, error in
                 continuation.resume(returning: (data, response, error))
             }.resume()
         }

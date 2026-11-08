@@ -1018,7 +1018,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             // tidy: the divider's Tidy on the window's space, without hovering it; undoTidy: ⌘Z's.
-            if dict["tidy"] != nil { TidyTabsService.shared.tidy(store.focusedSpace(window: main.windowID).id, store: store); return }
+            if dict["tidy"] != nil {
+                CraLog.note("debug hook tidy=1 received")
+                let sid = store.focusedSpace(window: main.windowID).id
+                CraLog.note(String(format: "debug hook: focused space %@, modelAvailable=%d, canTidy=%d, loose=%d",
+                                   sid.uuidString, TidyTabsService.shared.modelAvailable ? 1 : 0,
+                                   store.canTidy(sid) ? 1 : 0, store.looseTodayTabs(sid).count))
+                TidyTabsService.shared.tidy(sid, store: store)
+                return
+            }
             if dict["undoTidy"] != nil { _ = store.undoTidy(); return }
             // applescript=<source>: an AppleScript run inside Cra (raw «class …» codes address its own
             // dictionary), its result or error logged; no other app, so no Automation prompt.
