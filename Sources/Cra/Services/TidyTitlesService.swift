@@ -64,7 +64,7 @@ final class TidyTitlesService {
     private static func ask(_ prompt: String) async -> String? {
         if let fake = fakeAnswer(prompt) { return fake }
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), SystemLanguageModel.default.availability == .available {
             do {
                 let session = LanguageModelSession(instructions: TidyTitles.instructions)
                 let r = try await session.respond(to: prompt, generating: TidyTitleAnswer.self, options: GenerationOptions(sampling: .greedy))
@@ -75,7 +75,8 @@ final class TidyTitlesService {
             }
         }
         #endif
-        return nil
+        // The user's own provider answers in plain text; CraCore's clean() does the parsing.
+        return await MaxRemote.ask(instructions: TidyTitles.instructions, prompt: prompt, json: false)
     }
 
     /// CRA_TIDY_FAKE_MODEL=1: the title up to its first separator, so a test copy renames without

@@ -25,6 +25,10 @@ final class TidyTabsService {
         /// macOS 15 or earlier: no FoundationModels.
         case needsNewerMacOS
         case unavailable
+        /// Apple Intelligence can't run here, but the user configured their own
+        /// OpenAI-compatible provider (Settings ▸ Max): tab titles and site names
+        /// go to that provider.
+        case remote
 
         /// What Settings ▸ Max says under its features.
         var explanation: String {
@@ -35,6 +39,7 @@ final class TidyTabsService {
             case .ineligible: return "Max features run on Apple Intelligence, which needs a Mac with Apple silicon."
             case .needsNewerMacOS: return "Max features run on Apple Intelligence, which needs macOS 26 or later."
             case .unavailable: return "Apple Intelligence isn’t available right now."
+            case .remote: return "Max features run on your own provider (\(MaxRemote.provider.label)). Tab titles and site names are sent to it."
             }
         }
 
@@ -45,7 +50,7 @@ final class TidyTabsService {
     /// Read again when Cra comes to the front and while Settings shows it, so turning Apple
     /// Intelligence on in System Settings shows the button without a relaunch.
     private(set) var status: Status = .needsNewerMacOS
-    var modelAvailable: Bool { status == .available }
+    var modelAvailable: Bool { status == .available || status == .remote }
 
     @ObservationIgnored private var activation: NSObjectProtocol?
 
@@ -82,6 +87,8 @@ final class TidyTabsService {
             }
         }
         #endif
+        // Apple Intelligence can't run here; the user's own provider stands in.
+        if MaxRemote.isConfigured { return .remote }
         return .needsNewerMacOS
     }
 
@@ -132,7 +139,7 @@ final class TidyTabsService {
     private static func ask(_ prompt: String) async -> [TidyTabs.Proposal]? {
         if fakeModel { return await fakeAnswer(prompt) }
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), SystemLanguageModel.default.availability == .available {
             do {
                 let session = LanguageModelSession(instructions: TidyTabs.instructions)
                 let answer = try await session.respond(to: prompt, generating: TidyAnswer.self,
@@ -144,7 +151,26 @@ final class TidyTabsService {
             }
         }
         #endif
-        return nil
+        // The user's own provider: same instructions, JSON reply parsed here
+        // (the structured generation above is Apple's API alone).
+        return await remoteAnswer(prompt)
+    }
+
+    /// Tidy Tabs over the user's OpenAI-compatible provider. The reply must be a JSON object
+    /// {"groups": [{"name": "...", "tabs": [1, 2]}]}; anything else counts as no answer and
+    /// CraCore's plan() never sees it.
+    private static func remoteAnswer(_ prompt: String) async -> [TidyTabs.Proposal]? {
+        guard MaxRemote.isConfigured else { return nil }
+        let instructions = TidyTabs.instructions
+            + "\n\nReply with a JSON object only: {\"groups\": [{\"name\": the group's name, \"tabs\": [the ids of its tabs]}]}."
+        guard let content = await MaxRemote.ask(instructions: instructions, prompt: prompt, json: true) else { return nil }
+        struct RemoteGroup: Decodable { let name: String; let tabs: [Int] }
+        struct RemoteAnswer: Decodable { let groups: [RemoteGroup] }
+        guard let data = content.data(using: .utf8), let answer = try? JSONDecoder().decode(RemoteAnswer.self, from: data) else {
+            CraLog.note("Tidy Tabs: the provider's reply was not the expected JSON")
+            return nil
+        }
+        return answer.groups.map { TidyTabs.Proposal(name: $0.name, tabs: $0.tabs) }
     }
 
     // MARK: Test model

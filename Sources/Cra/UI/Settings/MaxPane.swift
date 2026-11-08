@@ -11,8 +11,50 @@ struct MaxPane: View {
 
     var body: some View {
         @Bindable var store = store
-        let available = service.status == .available
+        let available = service.status == .available || service.status == .remote
         SettingsCardPane {
+            MaxCard {
+                SettingsCardRow {
+                    Text("Model provider").font(.system(size: 13))
+                } trailing: {
+                    Picker("Model provider", selection: Binding(get: { MaxRemote.provider },
+                                                                set: { MaxRemote.setProvider($0); service.refresh() })) {
+                        Text("Apple Intelligence").tag(MaxRemote.Provider.off)
+                        Text("DeepSeek").tag(MaxRemote.Provider.deepseek)
+                        Text("Qwen").tag(MaxRemote.Provider.qwen)
+                        Text("GLM").tag(MaxRemote.Provider.glm)
+                        Text("Custom").tag(MaxRemote.Provider.custom)
+                    }
+                    .labelsHidden().fixedSize()
+                }
+                if MaxRemote.provider != .off {
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        Text("API address").font(.system(size: 13))
+                    } trailing: {
+                        TextField("https://…", text: Binding(get: { MaxRemote.baseURL },
+                                                             set: { MaxRemote.setBaseURL($0); service.refresh() }))
+                            .textFieldStyle(.roundedBorder).frame(width: 230)
+                    }
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        Text("API key").font(.system(size: 13))
+                    } trailing: {
+                        SecureField("sk-…", text: Binding(get: { MaxRemote.key() ?? "" },
+                                                          set: { MaxRemote.setKey($0); service.refresh() }))
+                            .textFieldStyle(.roundedBorder).frame(width: 230)
+                    }
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        Text("Model").font(.system(size: 13))
+                    } trailing: {
+                        TextField("model", text: Binding(get: { MaxRemote.model },
+                                                         set: { MaxRemote.setModel($0); service.refresh() }))
+                            .textFieldStyle(.roundedBorder).frame(width: 230)
+                    }
+                }
+            }
+            .padding(.bottom, 14)
             MaxCard {
                 MaxFeatureRow(title: "Tidy Tabs", isOn: $store.settings.tidyTabs, enabled: available) {
                     TidyTabsPicture()
