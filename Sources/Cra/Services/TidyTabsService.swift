@@ -173,10 +173,21 @@ final class TidyTabsService {
             // handle of a run started since.
             defer { if !Task.isCancelled { tidyRuns[sid] = nil } }
             // Two stages over the local 2B (topic names, then assignments); one call elsewhere.
+            // Local first; when the local run can't produce a plan (memory, heat, a model that
+            // won't load), the user's own provider stands in — the user asked for that order.
             let proposals: [TidyTabs.Proposal]?
             if local {
-                proposals = await MaxLocal.tidyTabs(tabs: tabs, existingGroups: groups) { stage in
+                store.setTidyStage(sid, .namingGroups)
+                let localPlan = await MaxLocal.tidyTabs(tabs: tabs, existingGroups: groups) { stage in
                     store.setTidyStage(sid, stage)
+                }
+                if let localPlan {
+                    proposals = localPlan
+                } else {
+                    // The local run produced nothing (memory, heat, an unloadable model):
+                    // the user's own provider stands in, as they asked.
+                    store.setTidying(sid, true, stage: nil)
+                    proposals = await Self.ask(prompt)
                 }
             } else {
                 proposals = await Self.ask(prompt)
