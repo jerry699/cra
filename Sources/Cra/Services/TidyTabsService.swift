@@ -29,6 +29,9 @@ final class TidyTabsService {
         /// OpenAI-compatible provider (Settings ▸ Max): tab titles and site names
         /// go to that provider.
         case remote
+        /// Apple Intelligence can't run here, so Max features use the local model
+        /// (Settings ▸ Max ▸ Local model): Tidy Tab Titles always, Tidy Tabs with the 2B.
+        case local
 
         /// What Settings ▸ Max says under its features.
         var explanation: String {
@@ -40,6 +43,9 @@ final class TidyTabsService {
             case .needsNewerMacOS: return "Max features run on Apple Intelligence, which needs macOS 26 or later."
             case .unavailable: return "Apple Intelligence isn’t available right now."
             case .remote: return "Max features run on your own provider (\(MaxRemote.provider.label)). Tab titles and site names are sent to it."
+            case .local: return MaxLocal.canTidyTabs
+                ? "Tidy Tab Titles and Tidy Tabs run on the local model on this Mac. Nothing is sent anywhere."
+                : "Tidy Tab Titles runs on the local model on this Mac. Nothing is sent anywhere."
             }
         }
 
@@ -52,7 +58,19 @@ final class TidyTabsService {
     private(set) var status: Status = .needsNewerMacOS
     var modelAvailable: Bool { status == .available || status == .remote }
 
+    /// Whether Tidy Tabs can run here: Apple Intelligence, the user's provider, or the local 2B.
+    var tabsAvailable: Bool {
+        modelAvailable || (status == .local && MaxLocal.canTidyTabs)
+    }
+
     @ObservationIgnored private var activation: NSObjectProtocol?
+    /// Tidy's work per space, so a second press on the broom cancels it; the store comes along so
+    /// a memory warning can cancel every run without one.
+    private struct Run {
+        let task: Task<Void, Never>
+        let store: SidebarStore
+    }
+    @ObservationIgnored private var tidyRuns: [UUID: Run] = [:]
 
     private init() {
         refresh()
@@ -87,7 +105,9 @@ final class TidyTabsService {
             }
         }
         #endif
-        // Apple Intelligence can't run here; the user's own provider stands in.
+        // Apple Intelligence can't run here: the local model (if the user turned it on and the
+        // file is in place) runs Tidy Titles, then the user's own provider stands in.
+        if MaxLocal.isReady { return .local }
         if MaxRemote.isConfigured { return .remote }
         return .needsNewerMacOS
     }
@@ -101,15 +121,38 @@ final class TidyTabsService {
 
     /// Whether the divider may show Tidy for this space now.
     func offers(_ sid: UUID, store: SidebarStore) -> Bool {
-        modelAvailable && store.settings.tidyTabs && store.canTidy(sid)
+        pauseReason == nil && tabsAvailable && store.settings.tidyTabs && store.canTidy(sid)
+    }
+
+    /// Why Tidy Tabs is paused for now, in the divider's words. Only the local model can pause:
+    /// Apple Intelligence and a provider run elsewhere and heat nothing here.
+    var pauseReason: String? {
+        guard status == .local, tabsAvailable else { return nil }
+        return LocalRuntime.shared.tabsPauseReason
     }
 
     /// The Tidy button: ask the model about the space's loose Today tabs and apply its answer.
+    /// Pressed again while it works, it cancels: the local 2B takes a minute or more per stage.
     func tidy(_ sid: UUID, store: SidebarStore) {
-        guard modelAvailable, !store.tidyingSpaces.contains(sid) else {
-            CraLog.note(String(format: "Tidy Tabs: declined (modelAvailable=%d, tidying=%d)",
-                               modelAvailable ? 1 : 0, store.tidyingSpaces.contains(sid) ? 1 : 0))
+        if store.tidyingSpaces.contains(sid) {
+            cancelTidy(sid, store: store)
             return
+        }
+        guard tabsAvailable else {
+            CraLog.note("Tidy Tabs: declined (tabsAvailable=0)")
+            return
+        }
+        // The local model is the only path that heats this Mac or maps 2 GB: hold Tabs while the
+        // chassis is hot, memory is tight, or the model plus its headroom would not fit.
+        if status == .local {
+            let reason = LocalRuntime.shared.tabsPauseReason
+                ?? (MaxLocal.modelURL.map { !LocalRuntime.shared.canLoadModel(at: $0) } == true
+                    ? "Not enough free memory" : nil)
+            if let reason {
+                CraLog.note("Tidy Tabs: declined (\(reason))")
+                store.setTidyNotice(sid, reason)
+                return
+            }
         }
         let loose = Array(store.looseTodayTabs(sid).prefix(TidyTabs.maximumTabs))
         guard !loose.isEmpty else {
@@ -122,10 +165,24 @@ final class TidyTabsService {
         let groups = store.tabGroups(in: sid).map { $0.title ?? "" }
         let ids = loose.map(\.id)
         let prompt = TidyTabs.prompt(tabs: tabs, existingGroups: groups)
-        store.setTidying(sid, true)
+        let local = status == .local
+        store.setTidying(sid, true, stage: local ? .namingGroups : nil)
         let started = Date()
-        Task { @MainActor in
-            let proposals = await Self.ask(prompt)
+        let task = Task { @MainActor in
+            // A cancelled run was already removed by cancelTidy; clearing here could wipe the
+            // handle of a run started since.
+            defer { if !Task.isCancelled { tidyRuns[sid] = nil } }
+            // Two stages over the local 2B (topic names, then assignments); one call elsewhere.
+            let proposals: [TidyTabs.Proposal]?
+            if local {
+                proposals = await MaxLocal.tidyTabs(tabs: tabs, existingGroups: groups) { stage in
+                    store.setTidyStage(sid, stage)
+                }
+            } else {
+                proposals = await Self.ask(prompt)
+            }
+            // Cancelled: cancelTidy has already put the divider back and nothing should land.
+            guard !Task.isCancelled else { return }
             // Counts and time only: tab titles stay out of the log (it goes into diagnostics).
             CraLog.note(String(format: "Tidy Tabs: %d tabs, %d groups proposed in %.1f s", tabs.count, proposals?.count ?? -1,
                                Date().timeIntervalSince(started)))
@@ -140,6 +197,22 @@ final class TidyTabsService {
             // The list slides the tabs under their new headers (SpaceListView.placeViews).
             store.applyTidy(TidyTabs.plan(proposals, tabCount: tabs.count, existingGroups: groups), tabIDs: ids, in: sid)
         }
+        tidyRuns[sid] = Run(task: task, store: store)
+    }
+
+    /// The broom pressed while Tidy works: the wait ends, the helper exits, nothing is applied.
+    func cancelTidy(_ sid: UUID, store: SidebarStore) {
+        guard store.tidyingSpaces.contains(sid) else { return }
+        CraLog.note("Tidy Tabs: cancelled")
+        tidyRuns.removeValue(forKey: sid)?.task.cancel()
+        store.setTidying(sid, false)
+        // The helper answers one request at a time; ending it ends the read that waits on it.
+        LocalInference.shared.cancelCurrent()
+    }
+
+    /// Every run ends: a memory warning takes the model process with it.
+    func cancelAll() {
+        for (sid, run) in Array(tidyRuns) { cancelTidy(sid, store: run.store) }
     }
 
     /// The model's groups, nil when it couldn't answer.

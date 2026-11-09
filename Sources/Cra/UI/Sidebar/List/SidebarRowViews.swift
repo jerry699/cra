@@ -2239,18 +2239,47 @@ struct ClipboardPaste: Equatable {
     }
 }
 
-/// Tidy on the divider: off, offered (shown on hover), or sorting (shown, squiggling).
+/// Tidy on the divider: off, offered (shown on hover), sorting (shown, squiggling), with the
+/// stage the local 2B is on when it has reported one, or paused with the reason ("Mac is warm").
 enum DividerTidy: Equatable {
-    case none, offered, running
+    case none, offered, running(TidyStage?), paused(String)
+
+    var isRunning: Bool {
+        if case .running = self { return true }
+        return false
+    }
+
+    var stage: TidyStage? {
+        if case .running(let stage) = self { return stage }
+        return nil
+    }
+
+    /// What the divider says in Clear's place, and therefore whether the broom shows.
+    var statusText: String? {
+        switch self {
+        case .running(let stage): return stage?.label
+        case .paused(let reason): return reason
+        case .none, .offered: return nil
+        }
+    }
+
+    var showsButton: Bool {
+        switch self {
+        case .running, .offered: return true
+        case .none, .paused: return false
+        }
+    }
 }
 
 /// The line between pinned and Today; "Clear" shows on hover, and "Tidy" before it once Tidy Tabs
 /// can sort Today (Arc 1.171: UnpinnedSectionHeaderCellView with SidebarTidyButton, a
-/// SquiggleDivider while it works).
+/// SquiggleDivider while it works). While it works the broom says "Cancel" and the stage the
+/// local model is on shows in Clear's place, so a minute-long run never looks stuck.
 final class DividerRowView: SidebarRowView {
     private let line = NSView()
     private var clear: ClearButton?
     private var tidyButton: TidyButton?
+    private var status: NSTextField?
     private let squiggle = SquiggleLayer()
     private var hasToday = false
     private var tidy = DividerTidy.none
@@ -2269,12 +2298,13 @@ final class DividerRowView: SidebarRowView {
     override func mouseDown(with event: NSEvent) { super.mouseDown(with: event) }
 
     func apply(hasToday: Bool, tidy: DividerTidy) {
-        let wasRunning = self.tidy == .running
+        let wasRunning = self.tidy.isRunning
         self.hasToday = hasToday
         self.tidy = tidy
-        if (tidy == .running) != wasRunning {
-            squiggle.setRunning(tidy == .running, animated: window != nil)
-            tidyButton?.setSweeping(tidy == .running)
+        if tidy.isRunning != wasRunning {
+            squiggle.setRunning(tidy.isRunning, animated: window != nil)
+            tidyButton?.setSweeping(tidy.isRunning)
+            tidyButton?.setCancelling(tidy.isRunning)
         }
         refresh()
     }
@@ -2291,8 +2321,11 @@ final class DividerRowView: SidebarRowView {
         squiggle.strokeColor = colors.separator.cgColor
         // The squiggle stands in for the line while Tidy works.
         line.alphaValue = hasToday && !squiggle.isShowing ? 1 : 0
-        let show = (isHovered || tidy == .running) && hasToday
-        if show, clear == nil, let list {
+        let show = (isHovered || tidy.isRunning) && hasToday
+        // While Tidy runs the stage takes Clear's place, and a pause's reason does the same; Clear
+        // comes back with the answer, or after the notice has gone.
+        let hasStatus = tidy.statusText != nil
+        if show && !tidy.isRunning && !hasStatus, clear == nil, let list {
             let b = ClearButton(colors: colors) { [weak list] in
                 guard let list else { return }
                 list.store.clearToday(list.spaceID)
@@ -2301,11 +2334,11 @@ final class DividerRowView: SidebarRowView {
             addSubview(b)
             clear = b
             b.animator().alphaValue = 1
-        } else if !show, let b = clear {
+        } else if (!show || tidy.isRunning || hasStatus), let b = clear {
             clear = nil
             fadeOut(b)
         }
-        let showTidy = show && tidy != .none
+        let showTidy = show && tidy.showsButton
         if showTidy, tidyButton == nil, let list {
             let b = TidyButton(colors: colors) { [weak list] in
                 guard let list else { return }
@@ -2314,15 +2347,37 @@ final class DividerRowView: SidebarRowView {
             b.alphaValue = 0
             addSubview(b)
             tidyButton = b
-            b.setSweeping(tidy == .running)
+            b.setSweeping(tidy.isRunning)
+            b.setCancelling(tidy.isRunning)
             b.animator().alphaValue = 1
         } else if !showTidy, let b = tidyButton {
             tidyButton = nil
             fadeOut(b)
         }
+        refreshStatus()
         clear?.colors = colors
         tidyButton?.colors = colors
         needsLayout = true
+    }
+
+    /// "Naming groups…" or "Sorting tabs…" in Clear's place while the local 2B works, or why it
+    /// is paused ("Mac is warm — Tidy paused").
+    private func refreshStatus() {
+        guard let text = tidy.statusText, hasToday, isHovered || tidy.isRunning else {
+            if let s = status { status = nil; fadeOut(s) }
+            return
+        }
+        let label: NSTextField
+        if let s = status {
+            label = s
+        } else {
+            label = NSTextField.sidebarLabel(size: 11, weight: .regular)
+            addSubview(label)
+            status = label
+        }
+        label.stringValue = text
+        label.textColor = colors.textSecondary
+        label.sizeToFit()
     }
 
     private func fadeOut(_ v: NSView) {
@@ -2336,18 +2391,26 @@ final class DividerRowView: SidebarRowView {
         super.layout()
         // Arc 1.171 at 1x (GitHub #139): the line runs 18 pt in from both edges; "Clear" ends 20 pt in.
         var right = bounds.width - 18
+        var anchor: CGFloat?
         if let clear {
             let s = clear.fittingSize
             clear.frame = NSRect(x: bounds.width - 20 - s.width, y: (bounds.height - s.height) / 2, width: s.width, height: s.height)
-            right = clear.frame.minX - 8
-            if let tidy = tidyButton {
-                // Arc 1.171, 2x capture of a 347 pt sidebar: the hairline 11 pt before "Clear", the
-                // line 9.5 pt before the broom.
-                let t = tidy.fittingSize
-                tidy.frame = NSRect(x: clear.frame.minX - TidyButton.trailingGap - t.width, y: (bounds.height - t.height) / 2,
-                                    width: t.width, height: t.height)
-                right = tidy.frame.minX + TidyButton.broomInkInset - 9.5
-            }
+            anchor = clear.frame.minX
+        }
+        if let status {
+            let s = status.frame.size
+            status.frame = NSRect(x: bounds.width - 20 - s.width, y: (bounds.height - s.height) / 2, width: s.width, height: s.height)
+            anchor = status.frame.minX
+        }
+        if let tidyButton, let anchor {
+            // Arc 1.171, 2x capture of a 347 pt sidebar: the hairline 11 pt before "Clear", the
+            // line 9.5 pt before the broom.
+            let t = tidyButton.fittingSize
+            tidyButton.frame = NSRect(x: anchor - TidyButton.trailingGap - t.width, y: (bounds.height - t.height) / 2,
+                                      width: t.width, height: t.height)
+            right = tidyButton.frame.minX + TidyButton.broomInkInset - 9.5
+        } else if let anchor {
+            right = anchor - 8
         }
         let y = (bounds.height - 1) / 2
         line.frame = NSRect(x: 18, y: y, width: max(0, right - 18), height: 1)
@@ -2513,6 +2576,8 @@ final class TidyButton: NSView {
     private let action: () -> Void
     private var hovering = false { didSet { tint() } }
     private var sweeping = false
+    private var cancelling = false
+    private var tip: ArcTooltipAnchorView?
     var colors: SidebarColors { didSet { if colors != oldValue { tint() } } }
 
     init(colors: SidebarColors, action: @escaping () -> Void) {
@@ -2533,7 +2598,7 @@ final class TidyButton: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel("Tidy")
-        _ = ArcTooltipAnchorView.attach(to: self, help: "Organize Today Tabs")
+        tip = ArcTooltipAnchorView.attach(to: self, help: "Organize Today Tabs")
         tint()
     }
 
@@ -2578,8 +2643,8 @@ final class TidyButton: NSView {
         tint()
         if on {
             let a = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-            let tip = -31 * CGFloat.pi / 180, past = 7 * CGFloat.pi / 180
-            a.values = [0, tip, tip, past, 0]
+            let tilt = -31 * CGFloat.pi / 180, past = 7 * CGFloat.pi / 180
+            a.values = [0, tilt, tilt, past, 0]
             a.keyTimes = [0, 0.22, 0.39, 0.72, 1]
             a.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .linear),
                                  CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeInEaseOut)]
@@ -2599,6 +2664,19 @@ final class TidyButton: NSView {
         }
     }
 
+    /// While Tidy works the button cancels it: the local 2B can take a minute per stage.
+    func setCancelling(_ on: Bool) {
+        guard on != cancelling else { return }
+        cancelling = on
+        label.stringValue = on ? "Cancel" : "Tidy"
+        label.sizeToFit()
+        frame.size = fittingSize
+        needsLayout = true
+        setAccessibilityLabel(on ? "Cancel Tidy" : "Tidy")
+        tip?.text = on ? "Cancel Tidy" : "Organize Today Tabs"
+        tint()
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for t in trackingAreas where t.owner === self { removeTrackingArea(t) }
@@ -2611,10 +2689,10 @@ final class TidyButton: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { frame.contains(point) ? self : nil }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
-        if bounds.contains(convert(event.locationInWindow, from: nil)), !sweeping { action() }
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { action() }
     }
     override func accessibilityPerformPress() -> Bool {
-        if !sweeping { action() }
+        action()
         return true
     }
 }

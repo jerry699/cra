@@ -24,12 +24,21 @@ let cefLinkerFlags: [String] = [
 // scripts/build.sh copies Sparkle.framework into Cra.app/Contents/Frameworks.
 let sparkleRoot = "\(Context.packageDirectory)/vendor/sparkle"
 
+// llama.cpp's static libraries, built for the host CPU (x86_64 + AVX2/FMA on Intel) by
+// scripts/build-llama.sh with the same macOS 14 deployment target as the app (Accelerate,
+// Metal off): the local model process. scripts/build.sh puts the helper in
+// Cra.app/Contents/MacOS.
+let llamaRoot = "\(Context.packageDirectory)/vendor/llama.cpp"
+let llamaBuild = "\(llamaRoot)/build"
+
 let package = Package(
     name: "Cra",
     platforms: [.macOS(.v14)],
     products: [
         .executable(name: "Cra", targets: ["Cra"]),
         .executable(name: "CraHelper", targets: ["CraHelper"]),
+        // Started by Cra for Tidy Tab Titles on a Mac without Apple Intelligence.
+        .executable(name: "CraInferenceHelper", targets: ["CraInferenceHelper"]),
         // Loaded by the Dock, not by Cra; scripts/build.sh wraps it in
         // Cra.app/Contents/PlugIns/CraDockTile.docktileplugin.
         .library(name: "CraDockTile", type: .dynamic, targets: ["CraDockTile"]),
@@ -61,6 +70,26 @@ let package = Package(
                 .linkedLibrary("cef_dll_wrapper"),
                 .linkedFramework("AppKit"),
                 .linkedFramework("IOSurface"),
+            ]
+        ),
+        // Local model process: llama.cpp's static libraries, no network, exits when idle.
+        .executableTarget(
+            name: "CraInferenceHelper",
+            path: "Sources/CraInferenceHelper",
+            cxxSettings: [.unsafeFlags([
+                "-I", "\(llamaRoot)/include",
+                "-I", "\(llamaRoot)/ggml/include",
+                "-O2",
+            ])],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L\(llamaBuild)/src",
+                    "-L\(llamaBuild)/ggml/src",
+                    "-L\(llamaBuild)/ggml/src/ggml-blas",
+                    "-lllama", "-lggml", "-lggml-cpu", "-lggml-blas", "-lggml-base",
+                    "-framework", "Accelerate", "-framework", "Foundation",
+                ]),
+                .linkedLibrary("c++"),
             ]
         ),
         // Dock tile plug-in: keeps the icon picked in Settings after Cra quits.

@@ -15,6 +15,10 @@ public enum TidyTitles {
     For a site's home page, dashboard or inbox, use the site's name.
     """
 
+    /// The local GGUF (TidyTitles on MaxLocal) writes plain text like the user's own provider;
+    /// the 2B follows "one to four words" only after being told not to translate or explain.
+    public static let localInstructions = instructions + "\nReply with only the new title."
+
     /// Pairs Arc's own renames made (Victor's Arc, 4 Nov 2026): the model copies their style.
     public static let examples: [(page: String, site: String, title: String)] = [
         ("IT Career Paths - IT General - Confluence", "atlassian.net", "IT Career Paths"),

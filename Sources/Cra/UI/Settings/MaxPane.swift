@@ -8,10 +8,35 @@ import SwiftUI
 struct MaxPane: View {
     @Environment(SidebarStore.self) private var store
     private var service: TidyTabsService { TidyTabsService.shared }
+    private var downloader: ModelDownloader { .shared }
+    @State private var pending: PendingModelAction?
+
+    /// A download or delete the user confirmed in an alert.
+    private struct PendingModelAction: Identifiable {
+        enum Kind { case download, delete }
+        let model: LocalModel
+        let kind: Kind
+        var id: String { "\(kind)-\(model.id)" }
+        var title: String {
+            kind == .download ? "Download \(model.name)?" : "Delete \(model.name)?"
+        }
+        func message(source: String) -> String {
+            switch kind {
+            case .download:
+                return "\(MaxPane.bytes(model.bytes)) from \(source). It runs on this Mac; nothing is sent anywhere."
+            case .delete:
+                return "The \(MaxPane.bytes(model.bytes)) file is removed. Tidy turns off until a model is downloaded again."
+            }
+        }
+    }
 
     var body: some View {
         @Bindable var store = store
         let available = service.status == .available || service.status == .remote
+        // The local model always runs Tidy Tab Titles; its Tabs need the 2B.
+        let titlesAvailable = available || service.status == .local
+        let tabsAvailable = available || (service.status == .local && MaxLocal.canTidyTabs)
+        let sourceLabel = ModelDownloader.preferredSource.label
         SettingsCardPane {
             MaxCard {
                 SettingsCardRow {
@@ -56,13 +81,57 @@ struct MaxPane: View {
             }
             .padding(.bottom, 14)
             MaxCard {
-                MaxFeatureRow(title: "Tidy Tabs", isOn: $store.settings.tidyTabs, enabled: available) {
+                SettingsCardRow {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Local model").font(.system(size: 13))
+                        Text(MaxLocal.isInstalled
+                             ? "Runs Tidy on this Mac; nothing is sent anywhere."
+                             : "Download one to run Tidy on this Mac; nothing is sent anywhere.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } trailing: {
+                    Toggle("Local model", isOn: Binding(get: { MaxLocal.isEnabled },
+                                                        set: { MaxLocal.setEnabled($0); service.refresh() }))
+                        .toggleStyle(.switch).labelsHidden().disabled(!MaxLocal.isInstalled)
+                }
+                ForEach(ModelCatalog.all) { model in
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.name).font(.system(size: 13))
+                            Text(localModelNote(model))
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } trailing: {
+                        localModelAction(model)
+                    }
+                }
+                SettingsCardRow {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Download from").font(.system(size: 13))
+                        Text("Both sites serve the same file; Cra checks its SHA256 before using it.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                } trailing: {
+                    Picker("Download from", selection: Binding(get: { ModelDownloader.preferredSource },
+                                                               set: { ModelDownloader.preferredSource = $0 })) {
+                        ForEach(ModelSource.allCases) { Text($0.label).tag($0) }
+                    }
+                    .labelsHidden().fixedSize()
+                }
+            }
+            .padding(.bottom, 14)
+            MaxCard {
+                MaxFeatureRow(title: "Tidy Tabs", isOn: $store.settings.tidyTabs, enabled: tabsAvailable) {
                     TidyTabsPicture()
                 } description: {
                     Text("Press the \(Image(nsImage: BroomGlyph.image).renderingMode(.template)) icon to let your Sidebar organize itself whenever you have six or more Today Tabs.")
                 }
                 SettingsCardDivider()
-                MaxFeatureRow(title: "Tidy Tab Titles", isOn: $store.settings.tidyTabTitles, enabled: available) {
+                MaxFeatureRow(title: "Tidy Tab Titles", isOn: $store.settings.tidyTabTitles, enabled: titlesAvailable) {
                     TidyTabTitlesPicture()
                 } description: {
                     Text("Have your tabs automatically renamed with tidier, shorter titles when you Pin them.")
@@ -77,8 +146,23 @@ struct MaxPane: View {
             MaxFooter(status: service.status) { service.openSystemSettings() }
                 .padding(.top, 14)
         }
+        .alert(pending?.title ?? "", isPresented: Binding(get: { pending != nil },
+                                                          set: { if !$0 { pending = nil } }), presenting: pending) { action in
+            switch action.kind {
+            case .download:
+                Button("Download") { downloader.start(action.model) }
+            case .delete:
+                Button("Delete", role: .destructive) {
+                    downloader.delete(action.model)
+                    service.refresh()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { action in
+            Text(action.message(source: sourceLabel))
+        }
         // Coming back from System Settings brings Cra to the front, which reads the status again;
-        // a model still downloading gets there without that.
+        // a finished download gets there without that.
         .task {
             CraLog.note(String(format: "Max pane: provider=%@, baseURL=%d chars, model=%d chars, key=%d chars, configured=%d",
                                MaxRemote.provider.rawValue, MaxRemote.baseURL.count, MaxRemote.model.count,
@@ -88,6 +172,48 @@ struct MaxPane: View {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
+    }
+
+    private func localModelNote(_ model: LocalModel) -> String {
+        let features = model.capabilities.contains(.tabs)
+            ? "Tidy Tab Titles and Tidy Tabs" : "Tidy Tab Titles"
+        var note = "\(MaxPane.bytes(model.bytes)) · \(features)"
+        if model == MaxLocal.recommendedModel { note += " · recommended for this Mac" }
+        if MaxLocal.isInstalled(model) { note += " · installed" }
+        return note
+    }
+
+    @ViewBuilder
+    private func localModelAction(_ model: LocalModel) -> some View {
+        if downloader.isBusy && downloader.modelID == model.id {
+            HStack(spacing: 8) {
+                Text(downloader.phase == .verifying
+                     ? "Checking…"
+                     : "\(Int(downloader.fraction * 100))% · \(MaxPane.bytes(downloader.received)) of \(MaxPane.bytes(downloader.total))")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Button("Cancel") { downloader.cancel() }
+                    .buttonStyle(.link)
+            }
+        } else if MaxLocal.isInstalled(model) {
+            Button("Delete…") { pending = PendingModelAction(model: model, kind: .delete) }
+                .buttonStyle(.link)
+                .disabled(downloader.isBusy)
+        } else {
+            VStack(alignment: .trailing, spacing: 2) {
+                Button("Download") { pending = PendingModelAction(model: model, kind: .download) }
+                    .disabled(downloader.isBusy)
+                if case .failed(let message) = downloader.phase, downloader.modelID == model.id {
+                    Text(message)
+                        .font(.system(size: 10)).foregroundStyle(.red)
+                        .frame(maxWidth: 200, alignment: .trailing)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private static func bytes(_ count: Int64) -> String {
+        String(format: "%.1f GB", Double(count) / Double(1 << 30))
     }
 }
 

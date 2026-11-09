@@ -5,3 +5,6 @@ vendor/
 *.xcworkspace
 .DS_Store
 .swiftpm/
+build/
+.claude/
+vendor/

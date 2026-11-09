@@ -346,8 +346,21 @@ final class SpaceListView: NSView, NSDraggingSource {
         }
         let pinnedCount = out.count
         let todayKids = store.item(space.todayContainerID)?.children ?? []
-        let tidy: DividerTidy = blank ? .none : store.tidyingSpaces.contains(spaceID) ? .running
-            : TidyTabsService.shared.offers(spaceID, store: store) ? .offered : .none
+        // A pause only means something where Tidy would otherwise show: the feature on, enough
+        // loose tabs today.
+        let canTidy = !blank && store.settings.tidyTabs && store.canTidy(spaceID)
+        let tidy: DividerTidy
+        if blank {
+            tidy = .none
+        } else if store.tidyingSpaces.contains(spaceID) {
+            tidy = .running(store.tidyStages[spaceID])
+        } else if canTidy, let notice = store.tidyNotices[spaceID] {
+            tidy = .paused(notice)
+        } else if canTidy, let pause = TidyTabsService.shared.pauseReason {
+            tidy = .paused(pause)
+        } else {
+            tidy = TidyTabsService.shared.offers(spaceID, store: store) ? .offered : .none
+        }
         out.append(Row(key: .divider, content: .divider(hasToday: !todayKids.isEmpty && !blank, tidy: tidy)))
         let atTop = store.settings.newTabButtonAtTop
         if atTop && showsNewTab { out.append(Row(key: .newTab, content: .newTab(active: placeholder))) }

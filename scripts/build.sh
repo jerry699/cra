@@ -54,6 +54,8 @@ APP="$STAGE/Cra.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 cp "$BIN/Cra" "$APP/Contents/MacOS/Cra"
+# Started on demand for local Tidy Tab Titles; exits after 60 s idle.
+cp "$BIN/CraInferenceHelper" "$APP/Contents/MacOS/CraInferenceHelper"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" resources/Info.plist > "$APP/Contents/Info.plist"
 # Only release builds (scripts/release.sh) check the update feed; a dev build would
 # otherwise replace itself with the latest release. Intel copies have their own feed,
@@ -121,6 +123,9 @@ done
 # "Developer ID Application: …" identity for a distributable build with the
 # hardened runtime, timestamps and the CEF entitlements. scripts/release.sh
 # then notarizes the result.
+# FinderInfo and a file provider's xattrs (a vendor/ tree under ~/Documents picks
+# them up on extraction) make codesign reject a framework; they mean nothing here.
+xattr -cr "$APP"
 IDENTITY="${CRA_SIGN_IDENTITY:--}"
 sign() {  # sign <path> [entitlements]
   local target="$1" ent="${2:-}"
@@ -140,6 +145,7 @@ sign "$SPARKLE/Versions/B/Autoupdate"
 sign "$SPARKLE/Versions/B/Updater.app"
 sign "$SPARKLE"
 for h in "$APP"/Contents/Frameworks/*.app; do sign "$h" "$ROOT/resources/CraHelper.entitlements"; done
+sign "$APP/Contents/MacOS/CraInferenceHelper"
 sign "$DOCK_TILE"
 # Passkeys need entitlements only a provisioning profile can grant: the Touch ID
 # keychain group ("<app id>.webauthn", scripts/cef-patches) and, once Apple approves

@@ -1028,6 +1028,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 return
             }
             if dict["undoTidy"] != nil { _ = store.undoTidy(); return }
+            // thermal=serious, pressure=warning: hold a state the Mac isn't in, through the same
+            // handler the system's notifications reach, for the local model's pause tests.
+            if let state = dict["thermal"] { LocalRuntime.shared.simulate(thermal: state); return }
+            if let level = dict["pressure"] { LocalRuntime.shared.simulate(pressure: level); return }
+            // downloadModel=<id>, cancelModelDownload=1, deleteModel=<id>: the Max pane's local
+            // model buttons without a click, for the app-level download test.
+            if let id = dict["downloadModel"] {
+                if let model = ModelCatalog.model(id: id) { ModelDownloader.shared.start(model) }
+                return
+            }
+            if dict["cancelModelDownload"] != nil { ModelDownloader.shared.cancel(); return }
+            if let id = dict["deleteModel"] {
+                if let model = ModelCatalog.model(id: id) {
+                    ModelDownloader.shared.delete(model)
+                    TidyTabsService.shared.refresh()
+                }
+                return
+            }
             // applescript=<source>: an AppleScript run inside Cra (raw «class …» codes address its own
             // dictionary), its result or error logged; no other app, so no Automation prompt.
             // Off the main thread, as a script from another app would be: commands that wait for a

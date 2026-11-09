@@ -1,6 +1,28 @@
 import Foundation
 import Observation
 
+/// Where Tidy Tabs stands, for the divider's label: the local 2B names the groups first, then
+/// sorts every tab into one. Apple Intelligence and a remote provider answer in one call, so
+/// they have no stage to show.
+enum TidyStage: Equatable {
+    case namingGroups
+    case sortingTabs
+
+    var label: String {
+        switch self {
+        case .namingGroups: return "Naming groups…"
+        case .sortingTabs: return "Sorting tabs…"
+        }
+    }
+
+    var step: String {
+        switch self {
+        case .namingGroups: return "Step 1 of 2"
+        case .sortingTabs: return "Step 2 of 2"
+        }
+    }
+}
+
 /// The single source of truth for spaces, tabs, folders, favorites, the
 /// archive and window preferences. Mutations here are what Arc's
 /// SidebarDataStore mutations do; persistence mirrors its Storable*.json files.
@@ -2006,6 +2028,12 @@ final class SidebarStore {
 
     /// Spaces whose Today tabs the model is sorting: the divider draws its squiggle meanwhile.
     private(set) var tidyingSpaces: Set<UUID> = []
+    /// How far Tidy has got in a space, for the divider's label. The local 2B answers in two
+    /// stages (group names, then which tab goes where), a minute or more each on a slow Mac.
+    private(set) var tidyStages: [UUID: TidyStage] = [:]
+    /// A Tidy that declined to start, in the divider's words for a few seconds ("Low memory —
+    /// Tidy paused"): the broom is hidden, so this is the only way the reason reaches the user.
+    private(set) var tidyNotices: [UUID: String] = [:]
     /// Per space, Today's tabs when Tidy last ran: Tidy waits for a new loose tab (TidyTabs.offers).
     /// Not saved, like Arc's.
     private(set) var tidiedTabs: [UUID: Set<UUID>] = [:]
@@ -2030,8 +2058,29 @@ final class SidebarStore {
                                looseTabs: looseTodayTabs(sid).map(\.id), tidied: tidiedTabs[sid])
     }
 
-    func setTidying(_ sid: UUID, _ on: Bool) {
-        if on { tidyingSpaces.insert(sid) } else { tidyingSpaces.remove(sid) }
+    func setTidying(_ sid: UUID, _ on: Bool, stage: TidyStage? = nil) {
+        if on {
+            tidyingSpaces.insert(sid)
+            tidyStages[sid] = stage
+        } else {
+            tidyingSpaces.remove(sid)
+            tidyStages[sid] = nil
+        }
+    }
+
+    func setTidyStage(_ sid: UUID, _ stage: TidyStage) {
+        guard tidyingSpaces.contains(sid) else { return }
+        tidyStages[sid] = stage
+    }
+
+    /// Shows why Tidy declined for a few seconds; a newer notice in the space replaces it.
+    func setTidyNotice(_ sid: UUID, _ text: String?, seconds: TimeInterval = 6) {
+        tidyNotices[sid] = text
+        guard let text else { return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(seconds))
+            if self?.tidyNotices[sid] == text { self?.tidyNotices[sid] = nil }
+        }
     }
 
     /// Sorts `tabIDs` (the loose tabs the model saw, in prompt order) as the plan says: new groups
