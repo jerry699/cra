@@ -6,6 +6,14 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 APP="${1:-build/Cra.app}"
 [ -d "$APP" ] || { echo "No app at $APP. Run scripts/build.sh first." >&2; exit 1; }
+# A file provider under ~/Documents re-tags the bundle after signing (FinderInfo and
+# fpfs xattrs), and codesign reports that as detritus. Package from a clean copy outside
+# the repo; it also keeps the built bundle untouched.
+STAGE="$(mktemp -d /tmp/cra-package.XXXXXX)"
+trap 'rm -rf "$STAGE"' EXIT
+ditto "$APP" "$STAGE/Cra.app"
+APP="$STAGE/Cra.app"
+xattr -cr "$APP"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 IDENTITY="${CRA_SIGN_IDENTITY:--}"
 DIST="build/dist"

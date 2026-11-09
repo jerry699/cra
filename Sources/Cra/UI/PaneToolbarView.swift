@@ -247,7 +247,7 @@ final class PaneToolbarView: NSView {
     private func glyph(_ key: String, _ symbol: String, help: String, enabled: Bool = true, width: CGFloat = 26, iconSize: CGFloat = 13,
                        tint: NSColor? = nil, animated: Bool = false, action: @escaping (PaneToolbarView) -> Void) -> ToolbarGlyphButton {
         let b = button(key) { ToolbarGlyphButton() }
-        b.configure(symbol: symbol, image: nil, help: help, enabled: enabled, width: width, iconSize: iconSize, tint: tint ?? model.fgDim,
+        b.configure(symbol: symbol, image: nil, help: L10n.tr(help), enabled: enabled, width: width, iconSize: iconSize, tint: tint ?? model.fgDim,
                     hover: model.hover, animated: animated)
         b.action = { [weak self] in if let self { action(self) } }
         return b

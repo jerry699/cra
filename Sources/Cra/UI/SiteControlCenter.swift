@@ -140,7 +140,7 @@ final class SiteControlCenterView: NSView {
             y += card.frame.height + 15
         } else {
             // Extensions: a 4-column grid of tiles, then "+".
-            let ext = SiteSectionView(title: "Extensions", hoverText: "Manage", colors: colors, onHeaderClick: actions.manageExtensions)
+            let ext = SiteSectionView(title: L10n.tr("Extensions"), hoverText: L10n.tr("Manage"), colors: colors, onHeaderClick: actions.manageExtensions)
             extensionTiles = [:]
             var tiles: [NSView] = orderedExtensions.map { e in
                 let tile = SiteExtensionTile(entry: e, pinned: extensions.isPinned(e.extensionID, inProfile: profile), colors: colors,
@@ -168,14 +168,14 @@ final class SiteControlCenterView: NSView {
             y += extH + 15
         }
         // Settings: three switch rows.
-        let settings = SiteSectionView(title: "Settings", hoverText: nil, colors: colors, onHeaderClick: {})
+        let settings = SiteSectionView(title: L10n.tr("Settings"), hoverText: nil, colors: colors, onHeaderClick: {})
         let developer = store.settings.isDeveloperMode(url: url)
         let store = store, url = url
         var rowsSpec: [(String, String, String, Bool, () -> Void)] = [
-            ("hammer.fill", "Developer Mode", developer ? "On" : "Off", developer, { store.settings.toggleDeveloperMode(url: url) }),
-            ("shield.fill", "Block Ads & Trackers", store.settings.blockAdsAndTrackers ? "On" : "Off",
+            ("hammer.fill", L10n.tr("Developer Mode"), L10n.tr(developer ? "On" : "Off"), developer, { store.settings.toggleDeveloperMode(url: url) }),
+            ("shield.fill", L10n.tr("Block Ads & Trackers"), L10n.tr(store.settings.blockAdsAndTrackers ? "On" : "Off"),
              store.settings.blockAdsAndTrackers, { store.settings.blockAdsAndTrackers.toggle() }),
-            ("gearshape.fill", "Automatic Picture-In-Picture", store.settings.autoPictureInPicture ? "Allowed" : "Disabled",
+            ("gearshape.fill", L10n.tr("Automatic Picture-In-Picture"), L10n.tr(store.settings.autoPictureInPicture ? "Allowed" : "Disabled"),
              store.settings.autoPictureInPicture, { store.settings.autoPictureInPicture.toggle() }),
         ]
         // Chromium's blocker doesn't see a WebKit page: no switch that does nothing there.
@@ -183,7 +183,7 @@ final class SiteControlCenterView: NSView {
         // A page that plays DRM, or one in WebKit: which engine plays this site (docs/protected-media.md).
         if let on = safariEngine {
             let choose = actions.chooseSafariEngine
-            rowsSpec.append(("safari", "Safari’s Engine", on ? "On" : "Off", on, { choose(!on) }))
+            rowsSpec.append(("safari", L10n.tr("Safari’s Engine"), L10n.tr(on ? "On" : "Off"), on, { choose(!on) }))
         }
         for (i, r) in rowsSpec.enumerated() {
             let row = SiteSettingRow(symbol: r.0, title: r.1, subtitle: r.2, active: r.3, colors: colors, action: r.4)

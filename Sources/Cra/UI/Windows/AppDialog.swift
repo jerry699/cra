@@ -163,13 +163,13 @@ private struct AppDialogView: View {
                 .padding(.top, dialog.icon == .application ? -1 : 0)
                 .accessibilityHidden(true)
             }
-            Text(dialog.title)
+            Text(L10n.tr(dialog.title))
                 .font(.system(size: 17.5, weight: .semibold))
                 .foregroundStyle(.white)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, dialog.icon == .none ? 0 : dialog.icon == .application ? 18 : 17.5)
             if !dialog.message.isEmpty {
-                Text(dialog.message)
+                Text(L10n.tr(dialog.message))
                     .font(.system(size: 14))
                     .lineSpacing(0.7)
                     .foregroundStyle(DialogTheme.body)
@@ -189,7 +189,7 @@ private struct AppDialogView: View {
                     .padding(.top, 18)
             }
             if let title = dialog.suppressionTitle {
-                Toggle(title, isOn: $dialog.isSuppressed)
+                Toggle(L10n.tr(title), isOn: $dialog.isSuppressed)
                     .toggleStyle(.checkbox)
                     .font(.system(size: 13))
                     .foregroundStyle(DialogTheme.body)
@@ -203,7 +203,7 @@ private struct AppDialogView: View {
     private func buttons(_ order: [Int]) -> some View {
         ForEach(order, id: \.self) { index in
             let action = dialog.actions.buttons[index]
-            DialogButton(title: action.title, key: dialog.actions.key(at: index),
+            DialogButton(title: L10n.tr(action.title), key: dialog.actions.key(at: index),
                          enabled: dialog.actions.isEnabled(at: index, input: dialog.input, requiresInput: dialog.requiresInput),
                          style: style(action.role)) { dialog.select(index) }
         }

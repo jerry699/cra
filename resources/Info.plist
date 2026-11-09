@@ -49,9 +49,9 @@
 	<!-- Software updates: Sparkle with Arc's settings (8-hour checks, background downloads).
 	     scripts/build.sh drops SUFeedURL outside release builds. -->
 	<key>SUFeedURL</key>
-	<string>https://github.com/VictorKildahl/cra/releases/latest/download/appcast.xml</string>
+	<string>https://github.com/jerry699/cra/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>/ZvLn/gEyw0MSGRKJif47YTqQPI1WhxGYbF/nOBHu7E=</string>
+	<string>oZpp71CM8USFfFAPTn8nq+wi+B6FArb6NhNZ0SIiNLM=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUAutomaticallyUpdate</key>

@@ -31,6 +31,8 @@ APP="$STAGE/Cra.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 cp "$BIN/Cra" "$APP/Contents/MacOS/Cra"
+# Started on demand for local Tidy Tab Titles; exits after 60 s idle.
+cp "$BIN/CraInferenceHelper" "$APP/Contents/MacOS/CraInferenceHelper"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" resources/Info.plist > "$APP/Contents/Info.plist"
 # Only release builds (scripts/release.sh) check the update feed; a dev build would
 # otherwise replace itself with the latest release.
@@ -48,6 +50,7 @@ cp resources/Cra.sdef "$APP/Contents/Resources/Cra.sdef"
 [ -d resources/app-icons ] && cp -R resources/app-icons "$APP/Contents/Resources/app-icons"
 [ -d resources/licenses ] && cp -R resources/licenses "$APP/Contents/Resources/licenses"
 [ -d resources/fonts ] && cp -R resources/fonts "$APP/Contents/Resources/fonts"
+[ -d resources/zh-Hans.lproj ] && cp -R resources/zh-Hans.lproj "$APP/Contents/Resources/zh-Hans.lproj"
 
 FRAMEWORK_SRC="$ROOT/vendor/cef/Release/Chromium Embedded Framework.framework"
 cp -R "$FRAMEWORK_SRC" "$APP/Contents/Frameworks/"
@@ -87,6 +90,9 @@ sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" resources/DockT
 # "Developer ID Application: …" identity for a distributable build with the
 # hardened runtime, timestamps and the CEF entitlements. scripts/release.sh
 # then notarizes the result.
+# FinderInfo and a file provider's xattrs (a vendor/ tree under ~/Documents picks
+# them up on extraction) make codesign reject a framework; they mean nothing here.
+xattr -cr "$APP"
 IDENTITY="${CRA_SIGN_IDENTITY:--}"
 sign() {  # sign <path> [entitlements]
   local target="$1" ent="${2:-}"
@@ -106,6 +112,7 @@ sign "$SPARKLE/Versions/B/Autoupdate"
 sign "$SPARKLE/Versions/B/Updater.app"
 sign "$SPARKLE"
 for h in "$APP"/Contents/Frameworks/*.app; do sign "$h" "$ROOT/resources/CraHelper.entitlements"; done
+sign "$APP/Contents/MacOS/CraInferenceHelper"
 sign "$DOCK_TILE"
 # Passkeys need entitlements only a provisioning profile can grant: the Touch ID
 # keychain group ("<app id>.webauthn", scripts/cef-patches) and, once Apple approves

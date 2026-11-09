@@ -134,7 +134,7 @@ final class TidyDownloadsService {
             return ext.isEmpty ? stem : "\(stem).\(ext)"
         }
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), SystemLanguageModel.default.availability == .available {
             do {
                 let session = LanguageModelSession(instructions: TidyDownloads.instructions)
                 let r = try await session.respond(to: prompt, generating: TidyDownloadAnswer.self, options: GenerationOptions(sampling: .greedy))
@@ -145,7 +145,8 @@ final class TidyDownloadsService {
             }
         }
         #endif
-        return nil
+        // The user's own provider answers in plain text; CraCore's clean() does the parsing.
+        return await MaxRemote.ask(instructions: TidyDownloads.instructions, prompt: prompt, json: false)
     }
 }
 

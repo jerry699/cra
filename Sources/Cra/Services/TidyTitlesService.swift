@@ -37,7 +37,7 @@ final class TidyTitlesService {
 
     /// The store saw a tab pinned. Ask for a name if the setting is on and the model can run.
     func tabPinned(_ id: UUID, store: SidebarStore) {
-        guard store.settings.tidyTabTitles, TidyTabsService.shared.modelAvailable, !pending.contains(id),
+        guard store.settings.tidyTabTitles, Self.modelReady, !pending.contains(id),
               let item = store.item(id), item.title == nil, let tab = item.tab, !item.isEmptyTab else { return }
         let shown = TidyTitleRules.arc.tidy(item.displayTitle, url: tab.url)
         let prompt = TidyTitles.prompt(title: item.displayTitle, url: tab.url)
@@ -61,10 +61,14 @@ final class TidyTitlesService {
         }
     }
 
+    private static var modelReady: Bool {
+        TidyTabsService.shared.modelAvailable || MaxLocal.isReady
+    }
+
     private static func ask(_ prompt: String) async -> String? {
         if let fake = fakeAnswer(prompt) { return fake }
         #if canImport(FoundationModels)
-        if #available(macOS 26.0, *) {
+        if #available(macOS 26.0, *), SystemLanguageModel.default.availability == .available {
             do {
                 let session = LanguageModelSession(instructions: TidyTitles.instructions)
                 let r = try await session.respond(to: prompt, generating: TidyTitleAnswer.self, options: GenerationOptions(sampling: .greedy))
@@ -75,7 +79,13 @@ final class TidyTitlesService {
             }
         }
         #endif
-        return nil
+        // The Mac's own GGUF, when the user turned it on; it answers plain text like the
+        // user's provider, so CraCore's clean() does the parsing.
+        if MaxLocal.isReady {
+            return await MaxLocal.ask(instructions: TidyTitles.localInstructions, prompt: prompt)
+        }
+        // The user's own provider answers in plain text; CraCore's clean() does the parsing.
+        return await MaxRemote.ask(instructions: TidyTitles.instructions, prompt: prompt, json: false)
     }
 
     /// CRA_TIDY_FAKE_MODEL=1: the title up to its first separator, so a test copy renames without

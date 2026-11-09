@@ -134,7 +134,7 @@ final class SuggestionEngine {
         let query = rawQuery.trimmingCharacters(in: .whitespaces)
         var result = SuggestionResult(query: query)
         guard !query.isEmpty else { return result }
-        result.items = [Suggestion(id: "typed", kind: .search, title: query, subtitle: "Search \(site.name)", url: site.searchURL(query),
+        result.items = [Suggestion(id: "typed", kind: .search, title: query, subtitle: L10n.tr("Search %@", site.name), url: site.searchURL(query),
                                    faviconKey: nil, symbol: "magnifyingglass", trailing: nil, score: 1000)]
         return result
     }
@@ -153,7 +153,7 @@ final class SuggestionEngine {
         }, typed: !q.isEmpty)
         result.items = ranked.prefix(Self.maxRows).compactMap { byID[$0] }.map { tab in
             Suggestion(id: "tab:\(tab.id)", kind: .switchToTab(tab.id), title: tab.displayTitle, subtitle: Self.humanURL(tab.tab?.url ?? ""),
-                       url: tab.tab?.url, faviconKey: tab.tab?.faviconKey, symbol: nil, trailing: "Switch to Tab", score: 0, spaceID: spaceID)
+                       url: tab.tab?.url, faviconKey: tab.tab?.faviconKey, symbol: nil, trailing: L10n.tr("Switch to Tab"), score: 0, spaceID: spaceID)
         }
         return result
     }
@@ -278,11 +278,11 @@ final class SuggestionEngine {
     private func typedRow(query: String) -> Suggestion {
         if Self.looksLikeURL(query) {
             let url = Self.urlFromInput(query)
-            return Suggestion(id: "typed", kind: .navigate, title: query, subtitle: "Open URL", url: url,
+            return Suggestion(id: "typed", kind: .navigate, title: query, subtitle: L10n.tr("Open URL"), url: url,
                               faviconKey: FaviconKey.key(for: url), symbol: "globe", trailing: nil, score: 1000)
         }
         let engine = searchEngine
-        return Suggestion(id: "typed", kind: .search, title: query, subtitle: "Search \(engine.name)",
+        return Suggestion(id: "typed", kind: .search, title: query, subtitle: L10n.tr("Search %@", engine.name),
                           url: engine.searchURL(query), faviconKey: nil, symbol: "magnifyingglass", trailing: nil, score: 1000)
     }
 
@@ -306,8 +306,8 @@ final class SuggestionEngine {
             let spaceName = sid.flatMap { store.space($0)?.title } ?? ""
             let pinned = store.isPinned(tab.id)
             out.append(Suggestion(id: "tab:\(tab.id)", kind: .switchToTab(tab.id), title: tab.displayTitle,
-                                  subtitle: [spaceName, pinned ? "Pinned" : "", Self.humanURL(t.url)].filter { !$0.isEmpty }.joined(separator: " · "),
-                                  url: t.url, faviconKey: t.faviconKey, symbol: nil, trailing: "Switch to Tab", score: score, spaceID: sid, loose: loose))
+                                  subtitle: [spaceName, pinned ? L10n.tr("Pinned") : "", Self.humanURL(t.url)].filter { !$0.isEmpty }.joined(separator: " · "),
+                                  url: t.url, faviconKey: t.faviconKey, symbol: nil, trailing: L10n.tr("Switch to Tab"), score: score, spaceID: sid, loose: loose))
         }
         return out
     }
@@ -325,8 +325,8 @@ final class SuggestionEngine {
             score += recencyBoost(entry.archivedAt) * 0.5
             let spaceName = entry.sourceSpaceID.flatMap { store.space($0)?.title } ?? ""
             out.append(Suggestion(id: "arch:\(entry.id)", kind: .archived(entry.id), title: entry.item.displayTitle,
-                                  subtitle: ["Archived \(Self.relative(entry.archivedAt))", spaceName, Self.humanURL(t.url)].filter { !$0.isEmpty }.joined(separator: " · "),
-                                  url: t.url, faviconKey: t.faviconKey, symbol: nil, trailing: "Restore", score: score,
+                                  subtitle: [L10n.tr("Archived %@", Self.relative(entry.archivedAt)), spaceName, Self.humanURL(t.url)].filter { !$0.isEmpty }.joined(separator: " · "),
+                                  url: t.url, faviconKey: t.faviconKey, symbol: nil, trailing: L10n.tr("Restore"), score: score,
                                   loose: text < Self.looseBelow))
         }
         return out
@@ -353,7 +353,7 @@ final class SuggestionEngine {
             let bare = d.hasPrefix("www.") ? String(d.dropFirst(4)) : d
             guard bare.hasPrefix(q) || d.hasPrefix(q) else { continue }
             let url = "https://\(d)/"
-            out.append(Suggestion(id: "top:\(d)", kind: .topDomain, title: bare, subtitle: "Open URL", url: url,
+            out.append(Suggestion(id: "top:\(d)", kind: .topDomain, title: bare, subtitle: L10n.tr("Open URL"), url: url,
                                   faviconKey: FaviconKey.key(for: url), symbol: "globe", trailing: nil,
                                   score: 72 - Double(i) * 0.1))
         }
@@ -382,33 +382,41 @@ final class SuggestionEngine {
             return 0
         }
         for a in bindings.actions where a.inCommandBar {
-            let s = nameScore(a.name, triggers: a.triggers)
+            let zhTriggers = L10n.triggers(for: a.id)
+            let displayName = L10n.actionName(id: a.id, fallback: a.name)
+            let s = max(nameScore(a.name, triggers: a.triggers),
+                        nameScore(displayName, triggers: a.triggers + zhTriggers))
             guard s > 0 else { continue }
-            out.append((Suggestion(id: "cmd:\(a.id)", kind: .command(a.id), title: a.name, subtitle: "Command",
+            out.append((Suggestion(id: "cmd:\(a.id)", kind: .command(a.id), title: displayName, subtitle: L10n.tr("Command"),
                                    url: nil, faviconKey: nil, symbol: a.symbol ?? "command", trailing: a.primary?.display, score: s),
                         store.ranking.commandUsage[a.id] ?? 0))
         }
         for space in incognito ? [] : store.orderedSpaces {
-            let s = nameScore("Switch to \(space.title)", triggers: [space.title.lowercased()])
+            let switchTitle = L10n.tr("Switch to %@", space.title)
+            let s = max(nameScore("Switch to \(space.title)", triggers: [space.title.lowercased()]),
+                        nameScore(switchTitle, triggers: [space.title.lowercased(), space.title]))
             if s > 0 && space.id != store.focusedSpaceID {
-                out.append((Suggestion(id: "space:\(space.id)", kind: .switchSpace(space.id), title: "Switch to \(space.title)",
-                                       subtitle: "Space", url: nil, faviconKey: nil, symbol: nil, trailing: space.emoji, score: s), 0))
+                out.append((Suggestion(id: "space:\(space.id)", kind: .switchSpace(space.id), title: switchTitle,
+                                       subtitle: L10n.tr("Space"), url: nil, faviconKey: nil, symbol: nil, trailing: space.emoji, score: s), 0))
             }
             if currentTabID != nil, space.id != store.focusedSpaceID {
-                let m = nameScore("Move Tab to \(space.title)", triggers: ["move"])
+                let moveTitle = L10n.tr("Move Tab to %@", space.title)
+                let m = max(nameScore("Move Tab to \(space.title)", triggers: ["move"]),
+                            nameScore(moveTitle, triggers: ["move", "移动"]))
                 if m > 0 {
-                    out.append((Suggestion(id: "move:\(space.id)", kind: .moveToSpace(space.id), title: "Move Tab to \(space.title)",
-                                           subtitle: "Space", url: nil, faviconKey: nil, symbol: "arrow.right.square", trailing: space.emoji, score: m - 5), 0))
+                    out.append((Suggestion(id: "move:\(space.id)", kind: .moveToSpace(space.id), title: moveTitle,
+                                           subtitle: L10n.tr("Space"), url: nil, faviconKey: nil, symbol: "arrow.right.square", trailing: space.emoji, score: m - 5), 0))
                 }
             }
         }
         if currentTabID != nil {
             for f in store.children(of: store.focusedSpace.pinnedContainerID) where f.isFolder && !f.isLiveFolder {
                 let name = f.title ?? "Folder"
-                let m = nameScore("Move Tab to Folder \(name)", triggers: [name.lowercased()])
+                let moveTitle = L10n.tr("Move Tab to %@", name)
+                let m = max(nameScore("Move Tab to Folder \(name)", triggers: [name.lowercased()]), nameScore(moveTitle, triggers: ["移动"]))
                 if m > 0 {
-                    out.append((Suggestion(id: "folder:\(f.id)", kind: .moveToFolder(f.id), title: "Move Tab to \(name)",
-                                           subtitle: "Folder", url: nil, faviconKey: nil, symbol: "folder", trailing: nil, score: m - 5), 0))
+                    out.append((Suggestion(id: "folder:\(f.id)", kind: .moveToFolder(f.id), title: moveTitle,
+                                           subtitle: L10n.tr("Folder"), url: nil, faviconKey: nil, symbol: "folder", trailing: nil, score: m - 5), 0))
                 }
             }
         }
@@ -423,13 +431,13 @@ final class SuggestionEngine {
             let sid = store.spaceID(ofItem: tab.id)
             return Suggestion(id: "tab:\(tab.id)", kind: .switchToTab(tab.id), title: tab.displayTitle,
                               subtitle: [sid.flatMap { store.space($0)?.title } ?? "", Self.humanURL(tab.tab?.url ?? "")].filter { !$0.isEmpty }.joined(separator: " · "),
-                              url: tab.tab?.url, faviconKey: tab.tab?.faviconKey, symbol: nil, trailing: "Switch to Tab", score: 0, spaceID: sid)
+                              url: tab.tab?.url, faviconKey: tab.tab?.faviconKey, symbol: nil, trailing: L10n.tr("Switch to Tab"), score: 0, spaceID: sid)
         }
         for entry in store.archive.prefix(incognito ? 0 : 2) {
             guard let t = entry.item.tab else { continue }
             out.append(Suggestion(id: "arch:\(entry.id)", kind: .archived(entry.id), title: entry.item.displayTitle,
                                   subtitle: "Archived \(Self.relative(entry.archivedAt))", url: t.url, faviconKey: t.faviconKey,
-                                  symbol: nil, trailing: "Restore", score: 0))
+                                  symbol: nil, trailing: L10n.tr("Restore"), score: 0))
         }
         return out
     }
