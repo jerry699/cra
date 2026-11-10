@@ -99,7 +99,8 @@ enum MaxLocal {
     /// 4096 holds the two-stage Tidy Tabs prompt and its answer; a rename needs 1024.
     static var context: Int {
         if let value = ProcessInfo.processInfo.environment["CRA_LOCAL_CONTEXT"], let n = Int(value), n >= 256 { return n }
-        return modelURL?.lastPathComponent.contains("2B") == true ? 4096 : 1024
+        let name = modelURL?.lastPathComponent ?? ""
+        return name.contains("2B") || name.contains("1.7B") ? 4096 : 1024
     }
 
     /// The same shape as MaxRemote.ask, so TidyTitlesService can fall through to it unchanged.

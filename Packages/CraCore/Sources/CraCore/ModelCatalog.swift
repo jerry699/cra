@@ -78,13 +78,17 @@ public enum ModelCatalog {
         sha256: "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
         capabilities: [.titles])
 
+    /// Measured on the 2018 Intel test Mac (2026-11-10, see docs/local-model-plan.md): Titles 6/6
+    /// synthetic renames (0.59-0.94 s after load), Tidy Tabs 7 tabs → 3 groups in 31.0 s — faster
+    /// and less fragmented than the Qwen3.5 2B (45.1 s, 6 fragmented groups), so it serves both
+    /// features and the 0.8B stays as the low-memory fallback.
     public static let twoB = LocalModel(
-        id: "qwen3.5-2b-q4km",
-        name: "Qwen3.5 2B",
-        fileName: "Qwen3.5-2B-Q4_K_M.gguf",
-        repository: "unsloth/Qwen3.5-2B-GGUF",
-        bytes: 1_280_835_840,
-        sha256: "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
+        id: "qwen3-1.7b-q4km",
+        name: "Qwen3 1.7B",
+        fileName: "Qwen3-1.7B-Q4_K_M.gguf",
+        repository: "unsloth/Qwen3-1.7B-GGUF",
+        bytes: 1_107_409_472,
+        sha256: "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
         capabilities: [.titles, .tabs])
 
     public static let all = [twoB, pointEightB]
