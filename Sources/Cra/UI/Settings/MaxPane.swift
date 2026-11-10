@@ -95,6 +95,17 @@ struct MaxPane: View {
                                                         set: { MaxLocal.setEnabled($0); service.refresh() }))
                         .toggleStyle(.switch).labelsHidden().disabled(!MaxLocal.isInstalled)
                 }
+                SettingsCardDivider()
+                SettingsCardRow {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Auto-tidy Today").font(.system(size: 13))
+                        Text("Runs Tidy on its own when Today fills up.").font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                } trailing: {
+                    Toggle("Auto-tidy Today", isOn: Binding(get: { TidyTabsService.autoTidyEnabled },
+                                                            set: { TidyTabsService.setAutoTidyEnabled($0) }))
+                        .toggleStyle(.switch).labelsHidden()
+                }
                 ForEach(ModelCatalog.all) { model in
                     SettingsCardDivider()
                     SettingsCardRow {

@@ -2321,11 +2321,14 @@ final class DividerRowView: SidebarRowView {
         squiggle.strokeColor = colors.separator.cgColor
         // The squiggle stands in for the line while Tidy works.
         line.alphaValue = hasToday && !squiggle.isShowing ? 1 : 0
-        let show = (isHovered || tidy.isRunning) && hasToday
+        let hovered = (isHovered || tidy.isRunning) && hasToday
+        // The broom stays visible while it can tidy (the fork's change): hiding it behind the
+        // hover made the feature undiscoverable.
+        let show = (hovered || tidy.showsButton || tidy.statusText != nil) && hasToday
         // While Tidy runs the stage takes Clear's place, and a pause's reason does the same; Clear
         // comes back with the answer, or after the notice has gone.
         let hasStatus = tidy.statusText != nil
-        if show && !tidy.isRunning && !hasStatus, clear == nil, let list {
+        if hovered && !tidy.isRunning && !hasStatus, clear == nil, let list {
             let b = ClearButton(colors: colors) { [weak list] in
                 guard let list else { return }
                 list.store.clearToday(list.spaceID)
@@ -2334,7 +2337,7 @@ final class DividerRowView: SidebarRowView {
             addSubview(b)
             clear = b
             b.animator().alphaValue = 1
-        } else if (!show || tidy.isRunning || hasStatus), let b = clear {
+        } else if (!hovered || tidy.isRunning || hasStatus), let b = clear {
             clear = nil
             fadeOut(b)
         }

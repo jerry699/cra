@@ -42,7 +42,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: Lifecycle
 
-    func applicationDidFinishLaunching(_ notification: Notification) { bootstrapIfNeeded() }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        bootstrapIfNeeded()
+        // The auto-tidy poller: watches Today's loose-tab counts for TidyTabsService.
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                guard self.bootstrapped else { return }
+                TidyTabsService.shared.autoTick(store: self.store)
+            }
+        }
+    }
 
     func bootstrapIfNeeded() {
         guard !bootstrapped else { return }

@@ -350,3 +350,7 @@
 "Model" = "模型";
 "Max features run on your own provider (%@). Tab titles and site names are sent to it." = "Max 功能运行在你自己的服务商（%@）上。标签页标题和站点名称会发送给它。";
 "remote" = "远程";
+
+/* MARK: 自动整理 */
+"Auto-tidy Today" = "自动整理 Today";
+"Runs Tidy on its own when Today fills up." = "Today 攒满时自动整理，无需动手。";

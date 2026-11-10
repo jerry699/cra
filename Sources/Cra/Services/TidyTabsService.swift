@@ -226,6 +226,42 @@ final class TidyTabsService {
         for (sid, run) in Array(tidyRuns) { cancelTidy(sid, store: run.store) }
     }
 
+    // MARK: Auto-tidy (the fork's addition): Today fills up, Tidy runs on its own.
+
+    static var autoTidyEnabled: Bool {
+        UserDefaults.standard.object(forKey: "autoTidyEnabled") == nil
+            ? true : UserDefaults.standard.bool(forKey: "autoTidyEnabled")
+    }
+
+    static func setAutoTidyEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "autoTidyEnabled")
+        CraLog.note(String(format: "Auto Tidy: %@", enabled ? "on" : "off"))
+    }
+
+    private var looseCounts: [UUID: Int] = [:]
+    private var lastAutoTidy: [UUID: Date] = [:]
+
+    /// Polled every few seconds by the app. Fires Tidy when a space's loose Today tabs cross
+    /// the threshold (6): the local model is free and private, so running on its own is cheap.
+    /// With auto-tidy off, a crossing points at the broom instead (the divider's notice).
+    @MainActor func autoTick(store: SidebarStore) {
+        let auto = Self.autoTidyEnabled
+        for space in store.orderedSpaces {
+            let loose = store.looseTodayTabs(space.id).count
+            let previous = looseCounts[space.id] ?? 0
+            looseCounts[space.id] = loose
+            guard loose >= TidyTabs.minimumTabs, previous < TidyTabs.minimumTabs else { continue }
+            let cooled = Date().timeIntervalSince(lastAutoTidy[space.id] ?? .distantPast) > 600
+            if auto, cooled, offers(space.id, store: store), !store.tidyingSpaces.contains(space.id) {
+                CraLog.note(String(format: "Auto Tidy: %d loose tabs in %@ — running", loose, space.id.uuidString))
+                lastAutoTidy[space.id] = Date()
+                tidy(space.id, store: store)
+            } else if !auto, cooled {
+                store.setTidyNotice(space.id, String(format: "%d tabs — the broom can tidy", loose))
+            }
+        }
+    }
+
     /// The model's groups, nil when it couldn't answer.
     private static func ask(_ prompt: String) async -> [TidyTabs.Proposal]? {
         if fakeModel { return await fakeAnswer(prompt) }
