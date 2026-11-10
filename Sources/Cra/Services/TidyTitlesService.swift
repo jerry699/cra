@@ -82,7 +82,10 @@ final class TidyTitlesService {
         // The Mac's own GGUF, when the user turned it on; it answers plain text like the
         // user's provider, so CraCore's clean() does the parsing.
         if MaxLocal.isReady {
-            return await MaxLocal.ask(instructions: TidyTitles.localInstructions, prompt: prompt)
+            if let local = await MaxLocal.ask(instructions: TidyTitles.localInstructions, prompt: prompt) {
+                return local
+            }
+            // The local run produced nothing; the user's provider stands in.
         }
         // The user's own provider answers in plain text; CraCore's clean() does the parsing.
         return await MaxRemote.ask(instructions: TidyTitles.instructions, prompt: prompt, json: false)

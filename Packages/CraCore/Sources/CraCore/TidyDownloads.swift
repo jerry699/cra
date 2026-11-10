@@ -23,6 +23,8 @@ public enum TidyDownloads {
         ("image.png", "Logo feedback - Slack", "app.slack.com", "Logo Feedback.png"),
         ("Screenshot 2026-09-26 at 11.12.18 PM.png", "DM with Sara - X", "x.com", "Sep 26 Screenshot from Sara.png"),
         ("annual-report-final(1).pdf", "Annual report 2025 | Nordic Rail", "nordicrail.com", "Nordic Rail Annual Report 2025.pdf"),
+        ("2026考研英语大纲词汇_完整版.pdf", "考研英语资料分享", "weibo.com", "考研英语大纲词汇.pdf"),
+        ("微信图片_2026-10-01_143252.png", "和妈妈的聊天记录截图", "weixin.com", "和妈妈聊天记录 10-1.png"),
     ]
 
     /// The request: the file's name, the tab it came from and the site.

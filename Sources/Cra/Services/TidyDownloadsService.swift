@@ -44,7 +44,7 @@ final class TidyDownloadsService {
     /// tells the window the file's new path.
     func finished(_ id: UInt32, path: String, downloadURL: String, window: UUID, store: SidebarStore,
                   moved: @escaping (String) -> Void) {
-        guard store.settings.tidyDownloads, TidyTabsService.shared.modelAvailable, !asked.contains(id), !path.isEmpty else { return }
+        guard store.settings.tidyDownloads, TidyTabsService.shared.tabsAvailable, !asked.contains(id), !path.isEmpty else { return }
         asked.insert(id)
         let source = sources.removeValue(forKey: id)
         let original = (path as NSString).lastPathComponent
@@ -145,6 +145,13 @@ final class TidyDownloadsService {
             }
         }
         #endif
+        // The Mac's own GGUF, when the user turned it on; clean() does the parsing. A nil from
+        // the local run falls through to the user's provider.
+        if MaxLocal.isReady {
+            if let local = await MaxLocal.ask(instructions: TidyDownloads.instructions, prompt: prompt) {
+                return local
+            }
+        }
         // The user's own provider answers in plain text; CraCore's clean() does the parsing.
         return await MaxRemote.ask(instructions: TidyDownloads.instructions, prompt: prompt, json: false)
     }
