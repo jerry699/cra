@@ -32,14 +32,19 @@ public struct Boost: Codable, Equatable, Identifiable, Sendable {
         case none, upper, lower, capitalize
         public var title: String {
             switch self {
+            // zh: 保持原样
             case .none: "As Is"
+            // zh: 全部大写
             case .upper: "UPPERCASE"
+            // zh: 全部小写
             case .lower: "lowercase"
+            // zh: 首字母大写
             case .capitalize: "Title Case"
             }
         }
     }
 
+    // zh: 我的 Boost（新建 Boost 的默认名称）
     public init(id: UUID = UUID(), host: String, name: String = "My Boost") {
         self.id = id
         self.host = Self.siteHost(host)

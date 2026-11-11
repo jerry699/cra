@@ -18,12 +18,18 @@ public enum DownloadMenu {
 
         public var name: String {
             switch self {
+            // zh: 图像
             case .image: "Image"
+            // zh: 磁盘映像
             case .diskImage: "Disk Image"
             case .pdf: "PDF"
+            // zh: 影片
             case .movie: "Movie"
+            // zh: 音频
             case .audio: "Audio"
+            // zh: Zip 归档
             case .zip: "Zip Archive"
+            // zh: 归档
             case .archive: "Archive"
             }
         }
@@ -48,15 +54,24 @@ public enum DownloadMenu {
     }
 
     public static func title(_ action: Action, kind: Kind?, fileName: String) -> String {
+        // zh: "File" → 文件
         let noun = kind?.name ?? { let ext = (fileName as NSString).pathExtension; return ext.isEmpty ? "File" : ext }()
         switch action {
+        // zh: "Open \(noun)" → "打开\(noun)"（如 "打开 PDF"、"打开 txt"）
         case .open: return "Open \(noun)"
+        // zh: "Copy \(noun)" → "拷贝\(noun)"
         case .copy: return "Copy \(noun)"
+        // zh: 在访达中显示
         case .showInFinder: return "Show in Finder"
+        // zh: 暂停下载
         case .pause: return "Pause Download"
+        // zh: 继续下载
         case .resume: return "Resume Download"
+        // zh: 取消下载
         case .cancel: return "Cancel Download"
+        // zh: 从 Cra 中隐藏
         case .hide: return "Hide from Cra"
+        // zh: 移到废纸篓
         case .moveToTrash: return "Move to Trash"
         }
     }

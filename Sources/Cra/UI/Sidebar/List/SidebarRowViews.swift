@@ -2429,12 +2429,12 @@ final class DividerRowView: SidebarRowView {
             self.action = action
             self.colors = colors
             super.init(frame: .zero)
-            label.stringValue = "Clear"
+            label.stringValue = L10n.tr("Clear")
             label.textColor = colors.textSecondary
             label.sizeToFit()
             addSubview(label)
             frame.size = label.frame.size
-            _ = ArcTooltipAnchorView.attach(to: self, help: "Clear Today tabs")
+            _ = ArcTooltipAnchorView.attach(to: self, help: L10n.tr("Clear Today tabs"))
         }
 
         required init?(coder: NSCoder) { fatalError() }
@@ -2588,7 +2588,7 @@ final class TidyButton: NSView {
         self.action = action
         super.init(frame: .zero)
         wantsLayer = true
-        label.stringValue = "Tidy"
+        label.stringValue = L10n.tr("Tidy")
         label.sizeToFit()
         addSubview(label)
         broomMask.contents = BroomGlyph.image
@@ -2600,8 +2600,8 @@ final class TidyButton: NSView {
         frame.size = fittingSize
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityLabel("Tidy")
-        tip = ArcTooltipAnchorView.attach(to: self, help: "Organize Today Tabs")
+        setAccessibilityLabel(L10n.tr("Tidy"))
+        tip = ArcTooltipAnchorView.attach(to: self, help: L10n.tr("Organize Today Tabs"))
         tint()
     }
 
@@ -2671,12 +2671,12 @@ final class TidyButton: NSView {
     func setCancelling(_ on: Bool) {
         guard on != cancelling else { return }
         cancelling = on
-        label.stringValue = on ? "Cancel" : "Tidy"
+        label.stringValue = on ? L10n.tr("Cancel") : L10n.tr("Tidy")
         label.sizeToFit()
         frame.size = fittingSize
         needsLayout = true
-        setAccessibilityLabel(on ? "Cancel Tidy" : "Tidy")
-        tip?.text = on ? "Cancel Tidy" : "Organize Today Tabs"
+        setAccessibilityLabel(on ? L10n.tr("Cancel Tidy") : L10n.tr("Tidy"))
+        tip?.text = on ? L10n.tr("Cancel Tidy") : L10n.tr("Organize Today Tabs")
         tint()
     }
 

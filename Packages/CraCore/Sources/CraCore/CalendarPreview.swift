@@ -91,6 +91,7 @@ public enum CalendarPreview {
         guard let start = item["start"] as? [String: Any], let end = item["end"] as? [String: Any] else { return nil }
         let allDay = start["date"] != nil
         guard let s = time(start), let e = time(end) else { return nil }
+        // zh: （无标题）
         return Event(title: (item["summary"] as? String) ?? "(No title)", start: s, end: max(e, s), allDay: allDay,
                      meetingURL: meetingURL(in: item), link: item["htmlLink"] as? String)
     }
@@ -189,10 +190,15 @@ public enum CalendarPreview {
 
         public var title: String {
             switch self {
+            // zh: 从不
             case .never: return "Never"
+            // zh: 开始时
             case .onStart: return "On Start"
+            // zh: 提前两分钟
             case .twoMinutes: return "Two Minutes Before"
+            // zh: 提前五分钟
             case .fiveMinutes: return "Five Minutes Before"
+            // zh: 提前十分钟
             case .tenMinutes: return "Ten Minutes Before"
             }
         }
@@ -228,9 +234,11 @@ public enum CalendarPreview {
     /// ("12m", "Now" while it runs), nil when none is near.
     public static func timeToNext(in events: [Event], now: Date) -> String? {
         let timed = events.filter { !$0.allDay && $0.end > now }
+        // zh: 现在
         if timed.contains(where: { $0.start <= now && $0.meetingURL != nil }) { return "Now" }
         guard let next = timed.filter({ $0.start > now }).min(by: { $0.start < $1.start }) else { return nil }
         let minutes = Int(ceil(next.start.timeIntervalSince(now) / 60))
+        // zh: "12m" → "12 分钟"
         return minutes <= 60 ? "\(minutes)m" : nil
     }
 
@@ -248,10 +256,14 @@ public enum CalendarPreview {
 
     /// The gear menu's "Last fetch: …" line ("Just now", "5 min ago").
     public static func lastFetch(_ date: Date?, now: Date) -> String {
+        // zh: 上次获取：从未
         guard let date else { return "Last fetch: Never" }
         let s = Int(now.timeIntervalSince(date))
+        // zh: 上次获取：刚刚
         if s < 60 { return "Last fetch: Just now" }
+        // zh: 上次获取：\(s / 60) 分钟前
         if s < 3600 { return "Last fetch: \(s / 60) min ago" }
+        // zh: 上次获取：\(s / 3600) 小时前
         return "Last fetch: \(s / 3600) h ago"
     }
 }

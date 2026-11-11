@@ -19,12 +19,17 @@ public enum DownloadRow {
         switch state {
         case let .downloading(received, total, speed):
             var s = bytes(received)
+            // zh: " of " → "，共 "（如 "12 MB，共 34 MB"）
             if total > 0 { s += " of " + bytes(total) }
+            // zh: 速度段保持 " — 3 MB/s" 格式（"/s" 中文同样适用）
             if let speed, speed > 0 { s += " — " + bytes(Int64(speed)) + "/s" }
             return s
         // Arc 1.172's "Subtitle copy for a paused download".
+        // zh: 已暂停
         case .paused: return "Paused"
+        // zh: 下载失败
         case .failed: return "Failed to Download"
+        // zh: 已取消
         case .cancelled: return "Cancelled"
         // At least a second: a row read just as it finished said "in 0 seconds".
         case let .finished(at): return age.localizedString(fromTimeInterval: -max(1, now.timeIntervalSince(at)))

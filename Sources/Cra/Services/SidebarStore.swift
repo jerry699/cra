@@ -10,8 +10,8 @@ enum TidyStage: Equatable {
 
     var label: String {
         switch self {
-        case .namingGroups: return "Naming groups…"
-        case .sortingTabs: return "Sorting tabs…"
+        case .namingGroups: return L10n.tr("Naming groups…")
+        case .sortingTabs: return L10n.tr("Sorting tabs…")
         }
     }
 

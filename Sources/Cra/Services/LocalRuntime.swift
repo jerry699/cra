@@ -19,8 +19,8 @@ final class LocalRuntime {
 
     /// Why the divider may not offer Tidy Tabs now; nil when it may.
     var tabsPauseReason: String? {
-        if LocalInferenceLimits.pausesTabs(thermal: thermal) { return "Mac is warm — Tidy paused" }
-        if pressure != .normal { return "Low memory — Tidy paused" }
+        if LocalInferenceLimits.pausesTabs(thermal: thermal) { return L10n.tr("Mac is warm — Tidy paused") }
+        if pressure != .normal { return L10n.tr("Low memory — Tidy paused") }
         return nil
     }
 

@@ -27,8 +27,8 @@ struct FolderIconPicker: View {
                             .frame(width: 16, height: 16)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Remove Icon")
-                    .help("Remove Icon")
+                    .accessibilityLabel(L10n.tr("Remove Icon"))
+                    .help(L10n.tr("Remove Icon"))
                 }
             }
             .frame(height: 18)
@@ -50,9 +50,9 @@ struct FolderIconPicker: View {
                     }
                     .buttonStyle(.plain)
                     .onHover { hovered = $0 ? symbol : (hovered == symbol ? nil : hovered) }
-                    .accessibilityLabel(symbol.title)
+                    .accessibilityLabel(L10n.tr(symbol.title))
                     .accessibilityAddTraits(symbol == current ? .isSelected : [])
-                    .help(symbol.title)
+                    .help(L10n.tr(symbol.title))
                 }
             }
             .padding(.horizontal, 11)

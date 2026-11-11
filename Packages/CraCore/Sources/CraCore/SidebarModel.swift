@@ -226,12 +226,15 @@ public struct SidebarItem: Identifiable, Codable, Equatable {
     public var displayTitle: String {
         if let t = title, !t.isEmpty { return t }
         if let tab {
+            // zh: 新标签页
             if isEmptyTab { return "New Tab" }
             if !tab.savedTitle.isEmpty { return tab.savedTitle }
             if let host = URL(string: tab.url)?.host { return host }
             return tab.url
         }
+        // zh: 分屏视图
         if isSplit { return "Split View" }
+        // zh: 未命名
         return "Untitled"
     }
 
@@ -351,6 +354,7 @@ public struct SidebarDocument: Codable, Equatable {
         let fav = SidebarItem.container(.favorites(spaceID: spaceID))
         let pinned = SidebarItem.container(.pinned(spaceID: spaceID))
         let today = SidebarItem.container(.today(spaceID: spaceID))
+        // zh: 个人（新建窗口的默认空间名）
         let space = Space(id: spaceID, title: "Personal", emoji: "🌱", theme: SpaceTheme.presets[0], favoritesContainerID: fav.id,
                           pinnedContainerID: pinned.id, todayContainerID: today.id, createdAt: Date())
         return SidebarDocument(spaceOrder: [spaceID], spaces: [space], items: [fav, pinned, today])
@@ -405,11 +409,17 @@ public enum AutoArchiveThreshold: String, Codable, CaseIterable, Identifiable {
     }
     public var label: String {
         switch self {
+        // zh: 12 小时
         case .twelveHours: return "12 hours"
+        // zh: 24 小时
         case .twentyFourHours: return "24 hours"
+        // zh: 7 天
         case .sevenDays: return "7 days"
+        // zh: 30 天
         case .thirtyDays: return "30 days"
+        // zh: 90 天
         case .ninetyDays: return "90 days"
+        // zh: 180 天
         case .oneHundredEightyDays: return "180 days"
         }
     }
@@ -933,8 +943,11 @@ public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
+        // zh: 自动
         case .automatic: "Automatic"
+        // zh: 浅色
         case .light: "Light"
+        // zh: 深色
         case .dark: "Dark"
         }
     }

@@ -308,7 +308,7 @@ private struct MeetingReminderView: View {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(CardStyle.secondary)
                     .frame(width: 18, height: 18).contentShape(Rectangle())
                     .onTapGesture(perform: dismiss)
-                    .accessibilityLabel("Dismiss")
+                    .accessibilityLabel(L10n.tr("Dismiss"))
                     .accessibilityAddTraits(.isButton)
             }
             .padding(.horizontal, FavoritePreviewMetrics.inset).padding(.vertical, 10)
@@ -530,7 +530,7 @@ private struct GmailPreviewView: View {
                         }
                     }
                 }
-                RoundButton(symbol: "plus", label: "New Email") { _ in compose() }
+                RoundButton(symbol: "plus", label: L10n.tr("New Email")) { _ in compose() }
                     .padding(FavoritePreviewMetrics.buttonInset)
             }
             .frame(width: FavoritePreviewMetrics.width, height: height))
@@ -644,8 +644,8 @@ struct CalendarPreviewView: View {
                     }
                 }
                 HStack(spacing: FavoritePreviewMetrics.buttonGap) {
-                    RoundButton(symbol: "gearshape.fill", light: true, label: "Calendar Settings", run: actions.gear)
-                    RoundButton(symbol: "plus", label: "New Event") { _ in actions.newEvent() }
+                    RoundButton(symbol: "gearshape.fill", light: true, label: L10n.tr("Calendar Settings"), run: actions.gear)
+                    RoundButton(symbol: "plus", label: L10n.tr("New Event")) { _ in actions.newEvent() }
                 }
                 .padding(FavoritePreviewMetrics.buttonInset)
             }

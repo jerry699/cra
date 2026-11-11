@@ -12,9 +12,13 @@ public enum MediaLibrary {
 
         public var title: String {
             switch self {
+            // zh: 文稿
             case .documents: "Documents"
+            // zh: 桌面
             case .desktop: "Desktop"
+            // zh: 截图
             case .screenshots: "Screenshots"
+            // zh: 下载
             case .downloads: "Downloads"
             }
         }
@@ -57,10 +61,15 @@ public enum MediaLibrary {
 
         public func title(isVideo: Bool) -> String {
             switch self {
+            // zh: "Copy Video" → 拷贝视频；"Copy Image" → 拷贝图像
             case .copy: return isVideo ? "Copy Video" : "Copy Image"
+            // zh: 通过 iMessage 发送
             case .sendMessage: return "Send via iMessage"
+            // zh: 隔空投送（Apple 对 AirDrop 的官方中文名）
             case .airDrop: return "AirDrop"
+            // zh: 在访达中显示
             case .showInFinder: return "Show in Finder"
+            // zh: 从 Cra 中隐藏
             case .hide: return "Hide from Cra"
             }
         }
