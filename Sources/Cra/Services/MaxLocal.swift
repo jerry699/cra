@@ -238,8 +238,8 @@ actor LocalInference {
         guard !Task.isCancelled else { return nil }
         do {
             if process?.isRunning != true || startedModel != model || startedContext != context
-                || startedThreads != threads {
-                try start(helper: helper, model: model, context: context, threads: threads)
+                || startedThreads != threads || startedPooling != -1 {
+                try start(helper: helper, model: model, context: context, threads: threads, pooling: -1)
             }
             return try exchange(system: system, user: user, grammar: grammar,
                                 maxTokens: maxTokens, timeout: timeout)
@@ -252,9 +252,9 @@ actor LocalInference {
 
     /// One embedding vector (helper op 4): the text in, `n_embd` little-endian floats out.
     /// The helper loads the model in embedding mode on first use (pooling per the GGUF metadata).
-    func embed(text: String, model: URL, helper: URL, threads: Int32) async -> [Float]? {
-        if process?.isRunning != true || startedModel != model {
-            do { try start(helper: helper, model: model, context: 1024, threads: threads) }
+    func embed(text: String, model: URL, helper: URL, threads: Int32, pooling: Int32) async -> [Float]? {
+        if process?.isRunning != true || startedModel != model || startedPooling != pooling {
+            do { try start(helper: helper, model: model, context: 1024, threads: threads, pooling: pooling) }
             catch {
                 CraLog.note("Embeddings: cannot start the helper (\(error))")
                 return nil
@@ -297,11 +297,13 @@ actor LocalInference {
     }
 
 
-    private func start(helper: URL, model: URL, context: Int, threads: Int32) throws {
+    private var startedPooling: Int32 = -1
+
+    private func start(helper: URL, model: URL, context: Int, threads: Int32, pooling: Int32) throws {
         stop()
         let process = Process()
         process.executableURL = helper
-        process.arguments = [model.path, "60", String(context), String(threads)]
+        process.arguments = [model.path, "60", String(context), String(threads), String(pooling)]
         let input = Pipe()
         let output = Pipe()
         process.standardInput = input
@@ -321,8 +323,9 @@ actor LocalInference {
         startedModel = model
         startedContext = context
         startedThreads = threads
-        CraLog.note(String(format: "Max Local: started the model process (context %d, %d threads)",
-                           context, threads))
+        startedPooling = pooling
+        CraLog.note(String(format: "Max Local: started the model process (context %d, %d threads, pooling %d)",
+                           context, threads, pooling))
     }
 
     static var stderrFile: URL?
@@ -342,6 +345,7 @@ actor LocalInference {
         startedModel = nil
         startedContext = 0
         startedThreads = 0
+        startedPooling = -1
     }
 
     private func exchange(system: String, user: String, grammar: String?, maxTokens: Int,

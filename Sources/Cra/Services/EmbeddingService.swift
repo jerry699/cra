@@ -14,6 +14,9 @@ final class EmbeddingService {
 
     static let modelID = "qwen3-embedding-0.6b-q8_0"
     static let modelFileName = "Qwen3-Embedding-0.6B-Q8_0.gguf"
+    /// bge (bert) pools MEAN; Qwen3-Embedding pools LAST. The GGUF metadata for the latter is
+    /// absent, so the helper needs the value explicitly.
+    static var poolingType: Int32 { modelID.contains("bge") ? 1 : 3 }
 
     private let inference = LocalInference()
     private let indexFile = JSONStore<SemanticIndex>("semantic-index.json")
@@ -69,7 +72,7 @@ final class EmbeddingService {
                 let host = URL(string: entry.url)?.host() ?? ""
                 let text = "\(entry.title) \(host)"
                 guard let vector = await inference.embed(text: text, model: modelURL,
-                                                         helper: helperURL, threads: 4) else { return }
+                                                         helper: helperURL, threads: 4, pooling: Self.poolingType) else { return }
                 index.upsert(SemanticDocument(url: entry.url, title: entry.title, vector: vector))
                 embedded += 1
             }
@@ -92,7 +95,7 @@ final class EmbeddingService {
     func search(_ query: String, limit: Int = 5) async -> [(url: String, title: String, score: Float)] {
         guard indexLoaded, !index.documents.isEmpty, query.count >= 2,
               let modelURL = Self.modelURL, let helperURL = Self.helperURL else { return [] }
-        guard let vector = await inference.embed(text: query, model: modelURL, helper: helperURL, threads: 4) else {
+        guard let vector = await inference.embed(text: query, model: modelURL, helper: helperURL, threads: 4, pooling: Self.poolingType) else {
             return []
         }
         return index.search(query: vector, limit: limit)

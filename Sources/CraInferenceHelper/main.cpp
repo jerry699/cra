@@ -40,6 +40,10 @@ static int g_context = 1024;
 // Set by argv[4]: 4 normally, 2 while the chassis is hot (the app pauses Tidy Tabs then, but
 // renames still run).
 static int g_threads = 4;
+// Pooling for embedding mode (argv[5]): 1 = MEAN (bge), 3 = LAST (Qwen3-Embedding). Some
+// embedding GGUFs carry no pooling metadata, so UNSPECIFIED would resolve to NONE and every
+// op 4 would return an empty vector.
+static int g_pooling = -1;
 // The prompt is evaluated in chunks of this size; 256 keeps the CPU compute buffer small
 // (about half of 512's 489MB), which matters on an 8GB Mac.
 static constexpr int kBatch = 256;
@@ -152,7 +156,9 @@ struct Engine {
             // Embedding models pool per the GGUF's metadata (bge: MEAN, Qwen3-Embedding: LAST);
             // AUTO reads it, and embeddings need no logits.
             cp.embeddings = true;
-            cp.pooling_type = LLAMA_POOLING_TYPE_UNSPECIFIED;  // AUTO: the GGUF metadata picks MEAN (bge) / LAST (Qwen3-Embedding)
+            // Explicit pooling: GGUFs like Qwen3-Embedding carry no pooling metadata, and
+            // UNSPECIFIED resolves to NONE there (every op 4 would return an empty vector).
+            cp.pooling_type = static_cast<decltype(cp.pooling_type)>(g_pooling);
         }
         ctx = llama_init_from_model(model, cp);
         if (!ctx) {
@@ -294,6 +300,9 @@ struct Engine {
             batch.logits[i] = 0;
         }
         batch.n_tokens = static_cast<int32_t>(toks.size());
+        // Each embed is independent: clear the memory or the second call's tokens overlap the
+        // first's positions and the pooled vector comes back all zeros.
+        llama_memory_clear(llama_get_memory(ctx), true);
         const bool ok = llama_decode(ctx, batch) == 0;
         llama_batch_free(batch);
         if (!ok) return {};
