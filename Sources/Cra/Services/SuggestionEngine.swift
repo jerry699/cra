@@ -252,10 +252,19 @@ final class SuggestionEngine {
     /// Asks the local embedding model about `rawQuery`; `done` runs when the matches are in.
     func fetchSemanticSuggestions(for rawQuery: String, done: @escaping @MainActor () -> Void) {
         let query = rawQuery.trimmingCharacters(in: .whitespaces)
-        guard !incognito, query.count >= 2, !query.contains("://") else { return }
-        guard semantic?.query != query.lowercased() else { return }
+        CraLog.note(String(format: "Semantic: fetch '%@' (incognito=%d, docs=%d)",
+                           query, incognito ? 1 : 0, EmbeddingService.shared.documentURLs().count))
+        guard !incognito, query.count >= 2, !query.contains("://") else {
+            CraLog.note("Semantic: skipped (incognito or short query)")
+            return
+        }
+        guard semantic?.query != query.lowercased() else {
+            CraLog.note("Semantic: cache hit, no refetch")
+            return
+        }
         Task { @MainActor in
             let matches = await EmbeddingService.shared.search(query, limit: 4)
+            CraLog.note(String(format: "Semantic: %d matches for '%@'", matches.count, query))
             guard !matches.isEmpty else { return }
             let rows = matches.compactMap { m -> Suggestion? in
                 guard let entry = store.history[m.url] else { return nil }

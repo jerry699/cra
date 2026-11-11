@@ -1,8 +1,8 @@
 import Foundation
 
 /// Semantic history search: embeds history titles with a pinned embedding GGUF
-/// (bge-small-zh-v1.5, 512-dim, 25 MB — the lightest model that covers Chinese) in its own
-/// CraInferenceHelper process, and answers queries for the command bar.
+/// (Qwen3-Embedding-0.6B, 1024-dim — conceptual Chinese matching the 25MB bge couldn't do) in
+/// its own CraInferenceHelper process, and answers queries for the command bar.
 ///
 /// Separate process from the generation model on purpose: bge is a BERT — it embeds and cannot
 /// generate, so sharing one helper would thrash modes between Tidy bursts and index builds.
@@ -12,12 +12,12 @@ import Foundation
 final class EmbeddingService {
     static let shared = EmbeddingService()
 
-    static let modelID = "bge-small-zh-v1.5-q8_0"
-    static let modelFileName = "bge-small-zh-v1.5-q8_0.gguf"
+    static let modelID = "qwen3-embedding-0.6b-q8_0"
+    static let modelFileName = "Qwen3-Embedding-0.6B-Q8_0.gguf"
 
     private let inference = LocalInference()
     private let indexFile = JSONStore<SemanticIndex>("semantic-index.json")
-    private var index = SemanticIndex(modelID: "bge-small-zh-v1.5-q8_0")
+    private var index = SemanticIndex(modelID: "qwen3-embedding-0.6b-q8_0")
     private var indexLoaded = false
     private var building = false
 
