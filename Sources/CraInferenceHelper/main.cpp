@@ -8,7 +8,9 @@
 //             u32 sys_len, sys bytes, u32 user_len, user bytes   (op 0)
 //             u32 sys_len, sys bytes, u32 user_len, user bytes,
 //             u32 grammar_len, grammar bytes                     (op 3, GBNF held sampling)
-//   response: u32 magic 'CRSL', u8 status, u8 pad[3], u32 len, text bytes
+//             u32 text_len, text bytes                           (op 4, embedding:
+//   response: u32 magic 'CRSL', u8 status, u8 pad[3], u32 len,
+//             float[len/4] — the text's embedding vector)
 // op 1 = ping ("pong"), op 2 = exit. Any read error or EOF ends the process.
 //
 // Qwen3.5 is a hybrid SSM model: llama_memory_seq_rm cannot rewind its state to a prefix, so a
@@ -117,12 +119,18 @@ struct Engine {
     llama_model * model = nullptr;
     llama_context * ctx = nullptr;
     const llama_vocab * vocab = nullptr;
+    bool embedding_mode = false;  // op 4 runs: the model was loaded for embeddings (pooling comes
+                                  // from the GGUF's metadata — MEAN for bge, LAST for Qwen3-Embedding).
 
     std::vector<llama_token> cached_tokens;
     std::vector<uint8_t> snapshot;
     int cached_prefix = 0;
 
     bool load(const std::string & path) {
+        return load(path, false);
+    }
+
+    bool load(const std::string & path, bool for_embedding) {
         llama_backend_init();
         llama_model_params mp = llama_model_default_params();
         mp.use_mmap = true;
@@ -140,11 +148,18 @@ struct Engine {
         cp.n_threads_batch = g_threads;
         cp.n_batch = kBatch;
         cp.n_ubatch = kBatch;
+        if (for_embedding) {
+            // Embedding models pool per the GGUF's metadata (bge: MEAN, Qwen3-Embedding: LAST);
+            // AUTO reads it, and embeddings need no logits.
+            cp.embeddings = true;
+            cp.pooling_type = LLAMA_POOLING_TYPE_UNSPECIFIED;  // AUTO: the GGUF metadata picks MEAN (bge) / LAST (Qwen3-Embedding)
+        }
         ctx = llama_init_from_model(model, cp);
         if (!ctx) {
             fprintf(stderr, "CraInferenceHelper: cannot create a context\n");
             return false;
         }
+        embedding_mode = for_embedding;
         return true;
     }
 
@@ -152,6 +167,7 @@ struct Engine {
         if (ctx) { llama_free(ctx); ctx = nullptr; }
         if (model) { llama_model_free(model); model = nullptr; }
         vocab = nullptr;
+        embedding_mode = false;
         snapshot.clear();
         cached_tokens.clear();
         cached_prefix = 0;
@@ -262,6 +278,32 @@ struct Engine {
                 pp_ms, now_ms() - tg_started, out.size());
         return out;
     }
+
+    // One text's embedding vector (op 4). Batch of one keeps memory flat; the caller embeds a
+    // day's history one text at a time.
+    std::vector<float> embed(const std::string & text) {
+        const std::vector<llama_token> toks = tokenize(text);
+        if (toks.empty()) return {};
+
+        llama_batch batch = llama_batch_init(static_cast<int>(toks.size()), 0, 1);
+        for (size_t i = 0; i < toks.size(); i++) {
+            batch.token[i] = toks[i];
+            batch.pos[i] = static_cast<int32_t>(i);
+            batch.n_seq_id[i] = 1;
+            batch.seq_id[i][0] = 0;
+            batch.logits[i] = 0;
+        }
+        batch.n_tokens = static_cast<int32_t>(toks.size());
+        const bool ok = llama_decode(ctx, batch) == 0;
+        llama_batch_free(batch);
+        if (!ok) return {};
+
+        // Pooled sequence embedding (MEAN/LAST per the GGUF metadata): one vector, n_embd floats.
+        const float * emb = llama_get_embeddings_seq(ctx, 0);
+        if (!emb) return {};
+        const int n_embd = llama_model_n_embd(model);
+        return std::vector<float>(emb, emb + n_embd);
+    }
 };
 
 int main(int argc, char ** argv) {
@@ -308,6 +350,31 @@ int main(int argc, char ** argv) {
             if (!reply(STDOUT_FILENO, 0, "pong")) break;
             continue;
         }
+        // op 4 (embed): one text in, one float vector out. The model reloads in embedding mode
+        // if the previous load was for generation, and back again after — a day's history is
+        // embedded in one idle window between the app's generation bursts.
+        if (op == 4) {
+            std::string text;
+            if (!read_string(STDIN_FILENO, text)) break;
+            if (loaded && engine.embedding_mode == false) {
+                engine.unload();
+                loaded = false;
+            }
+            if (!loaded) {
+                const double started = now_ms();
+                if (!engine.load(model_path, true)) {
+                    reply(STDOUT_FILENO, 1, "");
+                    break;
+                }
+                loaded = true;
+                fprintf(stderr, "CraInferenceHelper: loaded (embedding mode) in %.0fms\n", now_ms() - started);
+            }
+            const std::vector<float> vec = engine.embed(text);
+            // The vector rides the text channel as IEEE little-endian floats.
+            std::string bytes(reinterpret_cast<const char *>(vec.data()), vec.size() * sizeof(float));
+            if (!reply(STDOUT_FILENO, vec.empty() ? 1 : 0, bytes)) break;
+            continue;
+        }
         std::string system, user, grammar;
         if (op == 3) {
             if (!read_string(STDIN_FILENO, system) || !read_string(STDIN_FILENO, user) ||
@@ -316,6 +383,10 @@ int main(int argc, char ** argv) {
             break;
         }
 
+        if (loaded && engine.embedding_mode) {
+            engine.unload();  // an embedding-mode context computes no logits; reload for generation
+            loaded = false;
+        }
         if (!loaded) {
             const double started = now_ms();
             if (!engine.load(model_path)) {
