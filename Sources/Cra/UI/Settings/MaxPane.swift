@@ -36,6 +36,8 @@ struct MaxPane: View {
         // The local model always runs Tidy Tab Titles; its Tabs need the 2B.
         let titlesAvailable = available || service.status == .local
         let tabsAvailable = available || (service.status == .local && MaxLocal.canTidyTabs)
+        // Downloads run locally on the 1.7B (the 0.8B can't): same gate as Tabs.
+        let downloadsAvailable = available || (service.status == .local && MaxLocal.canTidyTabs)
         let sourceLabel = ModelDownloader.preferredSource.label
         SettingsCardPane {
             MaxCard {
@@ -148,7 +150,7 @@ struct MaxPane: View {
                     Text("Have your tabs automatically renamed with tidier, shorter titles when you Pin them.")
                 }
                 SettingsCardDivider()
-                MaxFeatureRow(title: "Tidy Downloads", isOn: $store.settings.tidyDownloads, enabled: available) {
+                MaxFeatureRow(title: "Tidy Downloads", isOn: $store.settings.tidyDownloads, enabled: downloadsAvailable) {
                     TidyDownloadsPicture()
                 } description: {
                     Text("Keep your many files more organized with smartly renamed downloads — and make them a little easier to find later.")
