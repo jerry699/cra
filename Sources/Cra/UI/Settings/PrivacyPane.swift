@@ -14,15 +14,15 @@ struct PrivacyPane: View {
     var body: some View {
         @Bindable var store = store
         SettingsCardPane {
-            SettingsHeader("Content blocking")
+            SettingsHeader(L10n.tr("Content blocking"))
             SettingsCard {
                 SettingsCardRow {
                     HStack(spacing: 5.5) {
                         SettingsGlyph(symbol: "hand.raised.fill", color: Color(nsColor: .systemRed))
-                        Text("Block ads and trackers").font(.system(size: 13))
+                        Text(L10n.tr("Block ads and trackers")).font(.system(size: 13))
                     }
                 } trailing: {
-                    Toggle("Block ads and trackers", isOn: $store.settings.blockAdsAndTrackers)
+                    Toggle(L10n.tr("Block ads and trackers"), isOn: $store.settings.blockAdsAndTrackers)
                         .toggleStyle(.switch).labelsHidden()
                 }
                 SettingsCardDivider()
@@ -30,45 +30,45 @@ struct PrivacyPane: View {
                 SettingsCardRow {
                     HStack(spacing: 5.5) {
                         SettingsGlyph(symbol: "eye.slash.fill", color: Color(nsColor: .systemOrange))
-                        Text("Block cookie banners").font(.system(size: 13))
+                        Text(L10n.tr("Block cookie banners")).font(.system(size: 13))
                     }
                 } trailing: {
-                    Toggle("Block cookie banners", isOn: $store.settings.blockCookieBanners)
+                    Toggle(L10n.tr("Block cookie banners"), isOn: $store.settings.blockCookieBanners)
                         .toggleStyle(.switch).labelsHidden()
                 }
             }
-            SettingsFootnote("Requests to known ad and tracker domains are cancelled unless they are first-party to the page. Cookie banners from the common consent tools are hidden; pages load again with the change.")
+            SettingsFootnote(L10n.tr("Requests to known ad and tracker domains are cancelled unless they are first-party to the page. Cookie banners from the common consent tools are hidden; pages load again with the change."))
 
-            SettingsHeader("Connections").padding(.top, 20)
+            SettingsHeader(L10n.tr("Connections")).padding(.top, 20)
             SettingsCard {
                 SettingsCardRow {
                     HStack(spacing: 5.5) {
                         SettingsGlyph(symbol: "lock.fill", color: Color(nsColor: .systemGreen))
-                        Text("Always use secure connections").font(.system(size: 13))
+                        Text(L10n.tr("Always use secure connections")).font(.system(size: 13))
                     }
                 } trailing: {
-                    Toggle("Always use secure connections", isOn: $store.settings.httpsOnly)
+                    Toggle(L10n.tr("Always use secure connections"), isOn: $store.settings.httpsOnly)
                         .toggleStyle(.switch).labelsHidden()
                 }
                 SettingsCardDivider()
                 SecureDNSRows(error: $dnsError)
             }
-            SettingsFootnote("Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first.")
+            SettingsFootnote(L10n.tr("Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first."))
             if let line = dnsFootnote { SettingsFootnote(line) }
             if let dnsError { SettingsFootnote(dnsError).foregroundStyle(.red) }
 
-            SettingsHeader("Data").padding(.top, 20)
+            SettingsHeader(L10n.tr("Data")).padding(.top, 20)
             SettingsCard {
                 SettingsCardRow {
                     HStack(spacing: 5.5) {
                         SettingsGlyph(symbol: "trash.fill", color: Color(nsColor: .systemGray))
-                        Text("Browsing data").font(.system(size: 13))
+                        Text(L10n.tr("Browsing data")).font(.system(size: 13))
                     }
                 } trailing: {
-                    Button("Clear Browsing Data…") { actions.openURL(BrowsingDataClear.pageURL) }
+                    Button(L10n.tr("Clear Browsing Data…")) { actions.openURL(BrowsingDataClear.pageURL) }
                 }
             }
-            SettingsFootnote("Delete history, cookies and cached files for the current space’s profile. History you delete also leaves the command bar.")
+            SettingsFootnote(L10n.tr("Delete history, cookies and cached files for the current space’s profile. History you delete also leaves the command bar."))
         }
     }
 
@@ -77,7 +77,7 @@ struct PrivacyPane: View {
     private var dnsFootnote: String? {
         let dns = SecureDNSSetting.shared
         guard let summary = dns.inEffect?.summary, !summary.isEmpty else { return nil }
-        return dns.isManaged ? "Your organization sets secure DNS. " + summary : summary
+        return dns.isManaged ? L10n.tr("Your organization sets secure DNS. ") + summary : summary
     }
 }
 
@@ -93,16 +93,16 @@ private struct SecureDNSRows: View {
         SettingsCardRow {
             HStack(spacing: 5.5) {
                 SettingsGlyph(symbol: "network.badge.shield.half.filled", color: Color(nsColor: .systemBlue))
-                Text("Secure DNS").font(.system(size: 13))
+                Text(L10n.tr("Secure DNS")).font(.system(size: 13))
             }
         } trailing: {
-            Picker("Secure DNS", selection: choice) {
-                Text("Automatic").tag(SecureDNSChoice.automatic)
-                Text("Off").tag(SecureDNSChoice.off)
+            Picker(L10n.tr("Secure DNS"), selection: choice) {
+                Text(L10n.tr("Automatic")).tag(SecureDNSChoice.automatic)
+                Text(L10n.tr("Off")).tag(SecureDNSChoice.off)
                 Divider()
                 ForEach(SecureDNSProvider.all) { Text($0.name).tag(SecureDNSChoice.provider($0)) }
                 Divider()
-                Text("Custom…").tag(SecureDNSChoice.custom)
+                Text(L10n.tr("Custom…")).tag(SecureDNSChoice.custom)
             }
             .labelsHidden()
             .fixedSize()
@@ -113,13 +113,13 @@ private struct SecureDNSRows: View {
         if showsCustom {
             SettingsCardDivider()
             SettingsCardRow {
-                TextField("Custom provider", text: $customText, prompt: Text("https://dns.example/dns-query{?dns}"))
+                TextField(L10n.tr("Custom provider"), text: $customText, prompt: Text("https://dns.example/dns-query{?dns}"))
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
                     .onSubmit(saveCustom)
                     .disabled(dns.isManaged)
             } trailing: {
-                Button("Use", action: saveCustom)
+                Button(L10n.tr("Use"), action: saveCustom)
                     .disabled(dns.isManaged || customText.trimmingCharacters(in: .whitespacesAndNewlines) == liveCustom)
             }
         }
@@ -138,13 +138,13 @@ private struct SecureDNSRows: View {
                 return
             }
             editingCustom = false
-            if let prefs = SecureDNSPrefs(new), !dns.apply(prefs) { error = "Cra couldn’t change secure DNS." }
+            if let prefs = SecureDNSPrefs(new), !dns.apply(prefs) { error = L10n.tr("Cra couldn’t change secure DNS.") }
         })
     }
 
     private func saveCustom() {
         guard let prefs = SecureDNSPrefs(.custom, custom: customText) else {
-            error = "Enter one or more https:// templates, like https://dns.example/dns-query{?dns}."
+            error = L10n.tr("Enter one or more https:// templates, like https://dns.example/dns-query{?dns}.")
             return
         }
         error = nil
@@ -152,7 +152,7 @@ private struct SecureDNSRows: View {
             editingCustom = false
             customText = prefs.templates
         } else {
-            error = "Cra couldn’t change secure DNS."
+            error = L10n.tr("Cra couldn’t change secure DNS.")
         }
     }
 }

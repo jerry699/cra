@@ -14,9 +14,9 @@ struct AirTrafficControlView: View {
         @Bindable var store = store
         VStack(spacing: 0) {
             HStack(spacing: 0) {
-                Text("Air Traffic Control").font(.system(size: 13, weight: .bold))
+                Text(L10n.tr("Air Traffic Control")).font(.system(size: 13, weight: .bold))
                 Spacer(minLength: 8)
-                Button { addRoute() } label: { Text("New Route").frame(width: 94) }
+                Button { addRoute() } label: { Text(L10n.tr("New Route")).frame(width: 94) }
                     .controlSize(.large)
                     .buttonBorderShape(.roundedRectangle(radius: 6))
                 Button { dismiss() } label: {
@@ -24,7 +24,7 @@ struct AirTrafficControlView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Close")
+                .help(L10n.tr("Close"))
                 .keyboardShortcut(.cancelAction)
                 .padding(.leading, 24)
             }
@@ -34,7 +34,7 @@ struct AirTrafficControlView: View {
             routes
             Divider()
             HStack(alignment: .firstTextBaseline, spacing: 0) {
-                Text("Default").font(.system(size: 13))
+                Text(L10n.tr("Default")).font(.system(size: 13))
                     .frame(width: 104, alignment: .leading)
                 destinationPicker($store.settings.defaultLinkDestination)
                 Spacer(minLength: 0)
@@ -63,7 +63,7 @@ struct AirTrafficControlView: View {
             }
             .overlay {
                 if store.settings.linkRoutes.isEmpty {
-                    Text("Add a route to open matching links from other apps in a chosen space.")
+                    Text(L10n.tr("Add a route to open matching links from other apps in a chosen space."))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 300)
@@ -80,16 +80,16 @@ struct AirTrafficControlView: View {
     private func routeRow(_ id: UUID) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Label("URL", systemImage: "link")
+                Label(L10n.tr("URL"), systemImage: "link")
                     .labelStyle(RouteLabelStyle())
                     .frame(width: 49, alignment: .leading)
-                    .accessibilityLabel("Link URL")
-                Picker("Match", selection: binding(id, \.match)) {
-                    ForEach(LinkMatchStyle.allCases) { Text($0.label).tag($0) }
+                    .accessibilityLabel(L10n.tr("Link URL"))
+                Picker(L10n.tr("Match"), selection: binding(id, \.match)) {
+                    ForEach(LinkMatchStyle.allCases) { Text(L10n.tr($0.label)).tag($0) }
                 }
                 .labelsHidden()
                 .frame(width: 110)
-                TextField("URL", text: binding(id, \.text), prompt: Text("crabrowser.app"))
+                TextField(L10n.tr("URL"), text: binding(id, \.text), prompt: Text("crabrowser.app"))
                     .textFieldStyle(.roundedBorder)
                     .focused($focusedRoute, equals: id)
                     .frame(width: 210)
@@ -99,10 +99,10 @@ struct AirTrafficControlView: View {
                         .foregroundStyle(.background, .secondary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Remove")
+                .accessibilityLabel(L10n.tr("Remove"))
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Label("Open in", systemImage: "arrow.turn.down.right")
+                Label(L10n.tr("Open in"), systemImage: "arrow.turn.down.right")
                     .labelStyle(RouteLabelStyle())
                     .frame(width: 70, alignment: .leading)
                 destinationPicker(binding(id, \.destination))
@@ -135,22 +135,22 @@ struct AirTrafficControlView: View {
             get: { if case .littleWindow(let sid) = selection.wrappedValue { return known(sid) } else { return nil } },
             set: { selection.wrappedValue = .littleWindow(space: $0) })
         return VStack(alignment: .leading, spacing: 4) {
-            Picker("Open in", selection: shown) {
-                Section("Open in Space") {
-                    Text("Most Recent Space").tag(LinkDestination.mostRecentSpace)
+            Picker(L10n.tr("Open in"), selection: shown) {
+                Section(L10n.tr("Open in Space")) {
+                    Text(L10n.tr("Most Recent Space")).tag(LinkDestination.mostRecentSpace)
                     ForEach(spaces) { space in
                         Text(space.labeled).tag(LinkDestination.space(space.id))
                     }
                 }
                 Divider()
-                Text("Little Window").tag(LinkDestination.littleWindowInUse)
+                Text(L10n.tr("Little Window")).tag(LinkDestination.littleWindowInUse)
             }
             .labelsHidden()
             .frame(width: 165)
             if selection.wrappedValue.isLittleWindow {
-                Picker("Little Window space", selection: littleSpace) {
-                    Section("Little Window in") {
-                        Text("Most Recent Space").tag(UUID?.none)
+                Picker(L10n.tr("Little Window space"), selection: littleSpace) {
+                    Section(L10n.tr("Little Window in")) {
+                        Text(L10n.tr("Most Recent Space")).tag(UUID?.none)
                         ForEach(spaces) { space in
                             Text(space.labeled).tag(UUID?.some(space.id))
                         }
@@ -158,7 +158,7 @@ struct AirTrafficControlView: View {
                 }
                 .labelsHidden()
                 .frame(width: 165)
-                .help("The space the Little Window opens in: the page loads with its sign-ins, and ⌘O moves it there")
+                .help(L10n.tr("The space the Little Window opens in: the page loads with its sign-ins, and ⌘O moves it there"))
             }
         }
     }

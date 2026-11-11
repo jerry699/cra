@@ -135,7 +135,7 @@ private struct DefaultBrowserStep: View {
     var body: some View {
         let system = model.system
         ZStack(alignment: .topLeading) {
-            Text("Fast, secure, and packed with all your browser essentials")
+            Text(L10n.tr("Fast, secure, and packed with all your browser essentials"))
                 .font(.system(size: 29, weight: .regular, design: .serif))
                 .tracking(-0.6)
                 .foregroundStyle(c.title)
@@ -146,16 +146,16 @@ private struct DefaultBrowserStep: View {
             VStack(alignment: .leading, spacing: 8) {
                 SelectableRow(c: c, checked: system.isDefaultBrowser || model.setAsDefault, disabled: system.isDefaultBrowser,
                               toggle: { model.setAsDefault.toggle() }) {
-                    RowTitle(title: "Set Cra as default browser",
-                             caption: system.isDefaultBrowser ? "Cra already opens your links" : "Open links and web pages in Cra by default", c: c)
+                    RowTitle(title: L10n.tr("Set Cra as default browser"),
+                             caption: system.isDefaultBrowser ? L10n.tr("Cra already opens your links") : L10n.tr("Open links and web pages in Cra by default"), c: c)
                 }
                 SelectableRow(c: c, checked: system.isInDock || model.addToDock, disabled: system.isInDock,
                               toggle: { model.addToDock.toggle() }) {
-                    RowTitle(title: "Add Cra to Dock",
-                             caption: system.isInDock ? "Cra is already in your Dock" : "Quick access to Cra whenever you need it", c: c)
+                    RowTitle(title: L10n.tr("Add Cra to Dock"),
+                             caption: system.isInDock ? L10n.tr("Cra is already in your Dock") : L10n.tr("Quick access to Cra whenever you need it"), c: c)
                 }
                 SelectableRow(c: c, checked: model.launchAtLogin, toggle: { model.launchAtLogin.toggle() }) {
-                    RowTitle(title: "Open Cra at login", caption: "Automatically open Cra when you sign in", c: c)
+                    RowTitle(title: L10n.tr("Open Cra at login"), caption: L10n.tr("Automatically open Cra when you sign in"), c: c)
                 }
             }
             .frame(width: ImportMetrics.columnWidth)
@@ -166,9 +166,9 @@ private struct DefaultBrowserStep: View {
                     .offset(y: ImportMetrics.buttonTop - 28)
             }
             HStack(spacing: 6) {
-                SecondaryButton(title: "Skip", c: c) { model.continueFromDefaultBrowser(applying: false) }
+                SecondaryButton(title: L10n.tr("Skip"), c: c) { model.continueFromDefaultBrowser(applying: false) }
                     .frame(width: 146)
-                PrimaryButton(title: system.isPromptingDefault ? "Confirm in the macOS dialog" : "Continue",
+                PrimaryButton(title: system.isPromptingDefault ? L10n.tr("Confirm in the macOS dialog") : L10n.tr("Continue"),
                               c: c, enabled: !model.applyingSystemOptions, width: 290) { model.continueFromDefaultBrowser() }
             }
             .frame(width: ImportMetrics.columnWidth + 2)
@@ -182,8 +182,8 @@ private struct SourceStep: View {
     let c: ImportColors
     var body: some View {
         ZStack(alignment: .topLeading) {
-            StepHeader(title: "Import now to get connected",
-                       subtitle: "Import once and stay in your flow. Your spaces, tabs, folders and extensions come with you.", c: c)
+            StepHeader(title: L10n.tr("Import now to get connected"),
+                       subtitle: L10n.tr("Import once and stay in your flow. Your spaces, tabs, folders and extensions come with you."), c: c)
             let cols = [GridItem(.fixed(ImportMetrics.card.width), spacing: ImportMetrics.gap),
                         GridItem(.fixed(ImportMetrics.card.width))]
             // Three rows of cards fit; more browsers scroll under a soft edge.
@@ -206,13 +206,13 @@ private struct SourceStep: View {
             if model.firstRun {
                 // Dia's onboarding offers "skip the importing process" beside Continue.
                 HStack(spacing: 6) {
-                    SecondaryButton(title: "Skip", c: c) { model.skipImport() }.frame(width: 146)
-                    PrimaryButton(title: "Continue", c: c, enabled: model.canContinueFromSource, width: 290) { model.continueFromSource() }
+                    SecondaryButton(title: L10n.tr("Skip"), c: c) { model.skipImport() }.frame(width: 146)
+                    PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: model.canContinueFromSource, width: 290) { model.continueFromSource() }
                 }
                 .frame(width: ImportMetrics.columnWidth + 2)
                 .offset(x: -1, y: ImportMetrics.buttonTop)
             } else {
-                PrimaryButton(title: "Continue", c: c, enabled: model.canContinueFromSource) { model.continueFromSource() }
+                PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: model.canContinueFromSource) { model.continueFromSource() }
                     .offset(x: -1, y: ImportMetrics.buttonTop)
             }
         }
@@ -227,8 +227,8 @@ private struct SpacesStep: View {
         let name = model.source?.rawValue ?? "Arc"
         ZStack(alignment: .topLeading) {
             BackLink(c: c) { model.go(.source) }
-            StepHeader(title: "Select spaces to import",
-                       subtitle: "We'll import your \(name) spaces, tabs, and folders to Cra.", c: c)
+            StepHeader(title: L10n.tr("Select spaces to import"),
+                       subtitle: L10n.tr("We'll import your %@ spaces, tabs, and folders to Cra.", name), c: c)
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(Array((plan?.spaces ?? []).enumerated()), id: \.offset) { i, sp in
@@ -236,29 +236,29 @@ private struct SpacesStep: View {
                                       onHover: { if $0 { model.previewSpace = i } },
                                       toggle: { model.toggleSpace(i) }) {
                             Text(sp.emoji).font(.system(size: 18)).frame(width: 24)
-                            RowTitle(title: sp.title, caption: "\(sp.itemCount) tab\(sp.itemCount == 1 ? "" : "s")", c: c)
+                            RowTitle(title: sp.title, caption: L10n.tr(sp.itemCount == 1 ? "%d tab" : "%d tabs", sp.itemCount), c: c)
                         }
                     }
                     if let plan, !plan.favorites.isEmpty || !plan.archive.isEmpty || model.includeSettings {
-                        Text("Also bring over")
+                        Text(L10n.tr("Also bring over"))
                             .font(.system(size: 12, weight: .medium)).foregroundStyle(c.caption)
                             .padding(.top, 8).padding(.leading, 2)
                         if !plan.favorites.isEmpty {
                             SelectableRow(c: c, checked: model.includeFavorites, toggle: { model.includeFavorites.toggle() }) {
                                 RowSymbol(name: "star.fill", c: c)
-                                RowTitle(title: "Favorites", caption: "\(plan.favorites.count) in your current space", c: c)
+                                RowTitle(title: L10n.tr("Favorites"), caption: L10n.tr("%d in your current space", plan.favorites.count), c: c)
                             }
                         }
                         if !plan.archive.isEmpty {
                             SelectableRow(c: c, checked: model.includeArchive, toggle: { model.includeArchive.toggle() }) {
                                 RowSymbol(name: "archivebox.fill", c: c)
-                                RowTitle(title: "Archived Tabs", caption: "\(plan.archive.count) tabs", c: c)
+                                RowTitle(title: L10n.tr("Archived Tabs"), caption: L10n.tr(plan.archive.count == 1 ? "%d tab" : "%d tabs", plan.archive.count), c: c)
                             }
                         }
                         if !plan.settings.isEmpty {
                             SelectableRow(c: c, checked: model.includeSettings, toggle: { model.includeSettings.toggle() }) {
                                 RowSymbol(name: "gearshape.fill", c: c)
-                                RowTitle(title: "Settings", caption: plan.settings.linkRoutes.isEmpty ? "Auto-archive, sidebar width and toolbar" : "Auto-archive, toolbar and Air Traffic Control", c: c)
+                                RowTitle(title: L10n.tr("Settings"), caption: plan.settings.linkRoutes.isEmpty ? L10n.tr("Auto-archive, sidebar width and toolbar") : L10n.tr("Auto-archive, toolbar and Air Traffic Control"), c: c)
                             }
                         }
                     }
@@ -269,7 +269,7 @@ private struct SpacesStep: View {
             .frame(width: ImportMetrics.columnWidth, height: ImportMetrics.listHeight + 12)
             .mask(ScrollFade())
             .offset(y: ImportMetrics.listTop - 8)
-            PrimaryButton(title: "Continue", c: c, enabled: model.hasAnythingSelected) { model.continueFromSpaces() }
+            PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: model.hasAnythingSelected) { model.continueFromSpaces() }
                 .offset(x: -1, y: ImportMetrics.buttonTop)
         }
     }
@@ -281,8 +281,8 @@ private struct ExtensionsStep: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             BackLink(c: c) { model.go(.spaces) }
-            StepHeader(title: "Import your extensions",
-                       subtitle: "Pick your essentials. You can always add more extensions later as you settle in with Cra.", c: c)
+            StepHeader(title: L10n.tr("Import your extensions"),
+                       subtitle: L10n.tr("Pick your essentials. You can always add more extensions later as you settle in with Cra."), c: c)
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(model.extensions) { e in
@@ -292,8 +292,8 @@ private struct ExtensionsStep: View {
                         SelectableRow(c: c, checked: model.selectedExtensions.contains(e.id), toggle: { model.toggleExtension(e.id) }) {
                             ExtensionIcon(image: e.icon, size: 24, c: c)
                             RowTitle(title: e.name,
-                                     caption: installed ? "Already in Cra · \(e.version)"
-                                        : (e.isEnabled ? e.version + profiles : "Turned off in \(model.source?.rawValue ?? "Arc")"),
+                                     caption: installed ? L10n.tr("Already in Cra · %@", e.version)
+                                        : (e.isEnabled ? e.version + profiles : L10n.tr("Turned off in %@", model.source?.rawValue ?? "Arc")),
                                      c: c)
                         }
                     }
@@ -305,9 +305,10 @@ private struct ExtensionsStep: View {
             .mask(ScrollFade())
             .offset(y: ImportMetrics.listTop - 8)
             HStack(spacing: 6) {
-                SecondaryButton(title: "Skip", c: c) { model.startImport(withExtensions: false) }
+                SecondaryButton(title: L10n.tr("Skip"), c: c) { model.startImport(withExtensions: false) }
                     .frame(width: 146)
-                PrimaryButton(title: model.selectedExtensions.isEmpty ? "Continue" : "Import \(model.selectedExtensions.count) Extension\(model.selectedExtensions.count == 1 ? "" : "s")",
+                PrimaryButton(title: model.selectedExtensions.isEmpty ? L10n.tr("Continue")
+                                        : L10n.tr(model.selectedExtensions.count == 1 ? "Import %d Extension" : "Import %d Extensions", model.selectedExtensions.count),
                               c: c, enabled: true, width: 290) { model.startImport(withExtensions: true) }
             }
             .frame(width: ImportMetrics.columnWidth + 2)
@@ -321,7 +322,8 @@ private struct ProgressStep: View {
     let c: ImportColors
     var body: some View {
         ZStack(alignment: .topLeading) {
-            Text("\(model.finished ? "Imported" : "Importing") from \(model.source?.rawValue ?? "Arc")")
+            Text(model.finished ? L10n.tr("Imported from %@", model.source?.rawValue ?? "Arc")
+                                : L10n.tr("Importing from %@", model.source?.rawValue ?? "Arc"))
                 .font(.system(size: 29, weight: .regular, design: .serif))
                 .tracking(-0.6)
                 .foregroundStyle(c.title)
@@ -329,7 +331,7 @@ private struct ProgressStep: View {
                 .offset(y: ImportMetrics.titleTop)
             HStack(spacing: 8) {
                 if !model.finished { ProgressView().controlSize(.small) }
-                Text(model.finished ? (model.failures.isEmpty ? "Everything is in place." : "Some import steps failed:") : "Hold on while we fetch your data")
+                Text(model.finished ? (model.failures.isEmpty ? L10n.tr("Everything is in place.") : L10n.tr("Some import steps failed:")) : L10n.tr("Hold on while we fetch your data"))
                     .font(.system(size: 15)).foregroundStyle(model.finished ? c.body : c.loading)
             }
             .frame(height: 22)
@@ -349,9 +351,9 @@ private struct ProgressStep: View {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(model.failures, id: \.self) { Text($0).lineLimit(2) }
                         if model.importedExtensionCount > 0 {
-                            Text("Cra restarts once to load your extensions. Their settings and sign-ins stay in \(model.source?.rawValue ?? "Arc").")
+                            Text(L10n.tr("Cra restarts once to load your extensions. Their settings and sign-ins stay in %@.", model.source?.rawValue ?? "Arc"))
                         } else if model.credentialsStaged {
-                            Text("Cra restarts once to bring in your passwords and sign-ins.")
+                            Text(L10n.tr("Cra restarts once to bring in your passwords and sign-ins."))
                         }
                     }
                     .font(.system(size: 12)).foregroundStyle(c.caption)
@@ -360,7 +362,7 @@ private struct ProgressStep: View {
             }
             .frame(width: ImportMetrics.columnWidth, alignment: .topLeading)
             .offset(y: ImportMetrics.listTop - 8)
-            PrimaryButton(title: model.needsRelaunch && !model.firstRun && !model.credentialsAttempted ? "Restart Cra" : "Continue",
+            PrimaryButton(title: model.needsRelaunch && !model.firstRun && !model.credentialsAttempted ? L10n.tr("Restart Cra") : L10n.tr("Continue"),
                           c: c, enabled: model.finished) { model.continueFromProgress() }
                 .offset(x: -1, y: ImportMetrics.buttonTop)
         }
@@ -402,7 +404,7 @@ private struct BrowserCard: View {
                 Text(source.rawValue).font(.system(size: 16, weight: .medium)).foregroundStyle(c.title)
                 if selected, let plan = model.plan, !plan.spaces.isEmpty {
                     Button { model.continueFromSource() } label: {
-                        Text("\(model.selectedSpaces.count) of \(plan.spaces.count) spaces")
+                        Text(L10n.tr("%d of %d spaces", model.selectedSpaces.count, plan.spaces.count))
                             .font(.system(size: 11)).foregroundStyle(c.body).underline(hover)
                     }
                     .buttonStyle(.plain)
@@ -608,7 +610,7 @@ struct BackLink: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
-                Text("Back").font(.system(size: 13, weight: .medium))
+                Text(L10n.tr("Back")).font(.system(size: 13, weight: .medium))
             }
             .foregroundStyle(hover ? c.title : c.body)
             .contentShape(Rectangle())
@@ -634,6 +636,6 @@ private struct CloseButton: View {
         .buttonStyle(.plain)
         .keyboardShortcut(.cancelAction)
         .onHover { hover = $0 }
-        .accessibilityLabel("Close")
+        .accessibilityLabel(L10n.tr("Close"))
     }
 }

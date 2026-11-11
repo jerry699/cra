@@ -63,7 +63,8 @@ public enum TidyTabs {
 
     /// The request: Arc's "Here are my tabs, in the format 'id: title':", plus the site, and the
     /// groups Today already has so new tabs can join them (Arc does that on a second Tidy).
-    public static func prompt(tabs: [Tab], existingGroups: [String]) -> String {
+    public static func prompt(tabs: [Tab], existingGroups: [String],
+                              preferences: [(title: String, group: String)] = []) -> String {
         var lines = ["Here are my tabs, as 'id: title (site)':"]
         for (i, t) in tabs.prefix(maximumTabs).enumerated() {
             let title = clip(t.title.isEmpty ? t.host : t.title, maximumTitleLength)
@@ -73,6 +74,13 @@ public enum TidyTabs {
             lines.append("")
             lines.append("I already have these groups; reuse a name exactly to add tabs to it: "
                          + existingGroups.map { "\"\($0)\"" }.joined(separator: ", ") + ".")
+        }
+        if !preferences.isEmpty {
+            lines.append("")
+            lines.append("Where I moved similar pages before (follow the same pattern when a tab clearly matches):")
+            for pref in preferences.prefix(20) {
+                lines.append("\"\(clip(pref.title, 60))\" → \"\(pref.group)\"")
+            }
         }
         return lines.joined(separator: "\n")
     }
@@ -124,5 +132,53 @@ public enum TidyTabs {
     static func clip(_ s: String, _ n: Int) -> String {
         let one = s.split(whereSeparator: \.isNewline).joined(separator: " ")
         return one.count <= n ? one : String(one.prefix(n - 1)) + "…"
+    }
+}
+
+
+/// What past tidy runs taught the model, so the next one keeps the user's pattern: accepted
+/// assignments (tab title → group name), newest first, capped. ⌘Z of a tidy clears that run's
+/// lesson; the user retraining the model is the point (the fork's addition).
+public struct TidyPreferences: Codable, Equatable, Sendable {
+    public struct Entry: Codable, Equatable, Sendable {
+        public var title: String
+        public var group: String
+        public init(title: String, group: String) {
+            self.title = title
+            self.group = group
+        }
+    }
+
+    public var entries: [Entry] = []
+    public static let cap = 40
+
+    public init(entries: [Entry] = []) { self.entries = entries }
+
+    public mutating func record(_ assignments: [(title: String, group: String)]) {
+        for a in assignments where !a.title.isEmpty && !a.group.isEmpty {
+            entries.removeAll { $0.title == a.title }
+            entries.insert(Entry(title: String(a.title.prefix(80)), group: String(a.group.prefix(32))), at: 0)
+        }
+        if entries.count > Self.cap { entries = Array(entries.prefix(Self.cap)) }
+    }
+
+    public mutating func clear(groups: Set<String>) {
+        entries.removeAll { groups.contains($0.group) }
+    }
+
+    public static func load(directory: URL, spaceID: UUID) -> TidyPreferences {
+        let url = directory.appendingPathComponent("tidy-prefs-\(spaceID.uuidString).json")
+        guard let data = try? Data(contentsOf: url),
+              let prefs = try? JSONDecoder().decode(TidyPreferences.self, from: data) else { return TidyPreferences() }
+        return prefs
+    }
+
+    public func save(to directory: URL, spaceID: UUID) {
+        let url = directory.appendingPathComponent("tidy-prefs-\(spaceID.uuidString).json")
+        if let data = try? JSONEncoder().encode(self) { try? data.write(to: url, options: .atomic) }
+    }
+
+    public func remove(directory: URL, spaceID: UUID) {
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent("tidy-prefs-\(spaceID.uuidString).json"))
     }
 }

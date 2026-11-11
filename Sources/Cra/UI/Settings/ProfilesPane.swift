@@ -12,53 +12,53 @@ struct ProfilesPane: View {
 
     var body: some View {
         SettingsCardPane {
-            SettingsHeader("Profiles")
+            SettingsHeader(L10n.tr("Profiles"))
             SettingsCard {
-                row(name: "Default", profileID: nil) { EmptyView() }
+                row(name: L10n.tr("Default"), profileID: nil) { EmptyView() }
                 ForEach(store.profiles) { p in
                     SettingsCardDivider()
                     row(name: p.name, profileID: p.id) {
-                        Button("Rename…") { rename(p) }
-                        Button("Delete…") { delete(p) }
+                        Button(L10n.tr("Rename…")) { rename(p) }
+                        Button(L10n.tr("Delete…")) { delete(p) }
                             .disabled(!store.spaces(usingProfile: p.id).isEmpty)
                     }
                 }
             }
             HStack {
-                Button("Create Profile…") { actions.newProfile() }
+                Button(L10n.tr("Create Profile…")) { actions.newProfile() }
                 Spacer()
                 // Spaces an Arc import left on Default, back on their Arc profiles (#131).
                 if ArcProfileRebuilder.isAvailable {
-                    Button("Rebuild from Arc…") { actions.rebuildArcProfiles() }
-                        .help("Put spaces imported from Arc back on the profiles they use in Arc, with their sign-ins and extensions.")
+                    Button(L10n.tr("Rebuild from Arc…")) { actions.rebuildArcProfiles() }
+                        .help(L10n.tr("Put spaces imported from Arc back on the profiles they use in Arc, with their sign-ins and extensions."))
                 }
             }
             .padding(.top, 7.5)
-            SettingsFootnote("Profiles help keep your data separate across Spaces, like logins, cookies and site data. You can use any Profile across one or more Spaces: choose Spaces ▸ Change Profile, or Set Profile on a Space's menu. Spaces on the same Profile share their logins. Only Profiles not assigned to any Spaces can be deleted.")
+            SettingsFootnote(L10n.tr("Profiles help keep your data separate across Spaces, like logins, cookies and site data. You can use any Profile across one or more Spaces: choose Spaces ▸ Change Profile, or Set Profile on a Space's menu. Spaces on the same Profile share their logins. Only Profiles not assigned to any Spaces can be deleted."))
             // Arc's per-profile Download location (DownloadLocationView: the folder, Ask
             // Where to Save, Other…), GitHub #190.
-            SettingsHeader("Downloads").padding(.top, 20)
+            SettingsHeader(L10n.tr("Downloads")).padding(.top, 20)
             SettingsCard {
-                downloadRow(name: "Default", profileID: nil)
+                downloadRow(name: L10n.tr("Default"), profileID: nil)
                 ForEach(store.profiles) { p in
                     SettingsCardDivider()
                     downloadRow(name: p.name, profileID: p.id)
                 }
             }
-            SettingsFootnote("Where each Profile saves downloaded files. Choose Ask Where to Save Each File to pick a place every time.")
+            SettingsFootnote(L10n.tr("Where each Profile saves downloaded files. Choose Ask Where to Save Each File to pick a place every time."))
             // Chromium's per-profile website languages (#209); Arc leaves them to arc://settings/languages.
-            SettingsHeader("Languages").padding(.top, 20)
+            SettingsHeader(L10n.tr("Languages")).padding(.top, 20)
             SettingsCard {
-                languageRow(name: "Default", profileID: nil)
+                languageRow(name: L10n.tr("Default"), profileID: nil)
                 ForEach(store.profiles) { p in
                     SettingsCardDivider()
                     languageRow(name: p.name, profileID: p.id)
                 }
             }
             .id(nav.shown)  // read again each time Settings comes up: Chromium's page may have changed them
-            SettingsFootnote("The languages websites show their pages in for each Profile, most wanted first. Change opens Chromium’s language settings for that Profile. Cra itself stays in English.")
+            SettingsFootnote(L10n.tr("The languages websites show their pages in for each Profile, most wanted first. Change opens Chromium’s language settings for that Profile. Cra itself stays in English."))
             // Arc's Profiles ▸ "Your Data and Settings": Chromium's pages for the profile.
-            SettingsHeader("Your Data and Settings").padding(.top, 20)
+            SettingsHeader(L10n.tr("Your Data and Settings")).padding(.top, 20)
             SettingsCard {
                 ForEach(Array(Self.dataPages.enumerated()), id: \.offset) { i, page in
                     if i > 0 { SettingsCardDivider() }
@@ -78,14 +78,14 @@ struct ProfilesPane: View {
 
     private func dataRow(_ page: (title: String, symbol: String, url: String)) -> some View {
         SettingsCardRow {
-            Label(page.title, systemImage: page.symbol).font(.system(size: 13))
+            Label(L10n.tr(page.title), systemImage: page.symbol).font(.system(size: 13))
         } trailing: {
             if store.profiles.isEmpty {
-                Button("Open") { actions.openProfilePage(page.url, nil) }
+                Button(L10n.tr("Open")) { actions.openProfilePage(page.url, nil) }
             } else {
                 // One set of pages per Profile: pick whose.
-                Menu("Open") {
-                    Button("Default") { actions.openProfilePage(page.url, nil) }
+                Menu(L10n.tr("Open")) {
+                    Button(L10n.tr("Default")) { actions.openProfilePage(page.url, nil) }
                     ForEach(store.profiles) { p in Button(p.name) { actions.openProfilePage(page.url, p.id) } }
                 }
                 .fixedSize()
@@ -111,8 +111,8 @@ struct ProfilesPane: View {
                     panel.canChooseFiles = false
                     panel.canCreateDirectories = true
                     panel.directoryURL = folder
-                    panel.prompt = "Select"
-                    panel.message = "Choose where \(name) saves downloaded files."
+                    panel.prompt = L10n.tr("Select")
+                    panel.message = L10n.tr("Choose where %@ saves downloaded files.", name)
                     guard panel.runModal() == .OK, let url = panel.url else { return }
                     l.folder = url.standardizedFileURL.path == DownloadDestinations.downloadsFolder.standardizedFileURL.path ? nil : url.path
                     l.askWhereToSave = false
@@ -122,14 +122,14 @@ struct ProfilesPane: View {
         return SettingsCardRow {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.system(size: 13))
-                Text("Download location").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(L10n.tr("Download location")).font(.system(size: 11)).foregroundStyle(.secondary)
             }
         } trailing: {
-            Picker("Download location", selection: choice) {
+            Picker(L10n.tr("Download location"), selection: choice) {
                 Label(FileManager.default.displayName(atPath: folder.path), systemImage: "folder").tag(DownloadChoice.folder)
-                Text("Ask Where to Save Each File").tag(DownloadChoice.ask)
+                Text(L10n.tr("Ask Where to Save Each File")).tag(DownloadChoice.ask)
                 Divider()
-                Text("Other…").tag(DownloadChoice.other)
+                Text(L10n.tr("Other…")).tag(DownloadChoice.other)
             }
             .labelsHidden()
             .frame(width: 200)
@@ -143,14 +143,14 @@ struct ProfilesPane: View {
         return SettingsCardRow {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.system(size: 13))
-                Text(summary.isEmpty ? "Chromium’s default languages" : summary)
+                Text(summary.isEmpty ? L10n.tr("Chromium’s default languages") : summary)
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     .help(summary)
             }
         } trailing: {
-            Button("Change…") { actions.openProfilePage(BrowserLanguages.settingsPage, profileID) }
+            Button(L10n.tr("Change…")) { actions.openProfilePage(BrowserLanguages.settingsPage, profileID) }
                 .disabled(!hasSpace)
-                .help(hasSpace ? "Open Chromium’s language settings for \(name)." : "Set \(name) on a Space first.")
+                .help(hasSpace ? L10n.tr("Open Chromium’s language settings for %@.", name) : L10n.tr("Set %@ on a Space first.", name))
         }
     }
 
@@ -168,9 +168,9 @@ struct ProfilesPane: View {
 
     private func rename(_ profile: BrowserProfile) {
         guard let window = AppDialog.parentWindow else { return }
-        let dialog = AppDialog(title: "Rename your Profile",
-                               message: "This won’t affect the names of any of the Spaces associated with this Profile.",
-                               actions: [DialogAction("Save"), .cancel], input: profile.name, placeholder: "Profile name", requiresInput: true,
+        let dialog = AppDialog(title: L10n.tr("Rename your Profile"),
+                               message: L10n.tr("This won’t affect the names of any of the Spaces associated with this Profile."),
+                               actions: [DialogAction(L10n.tr("Save")), .cancel], input: profile.name, placeholder: L10n.tr("Profile name"), requiresInput: true,
                                icon: .none, width: 496, buttonSpacing: 30, buttonOutset: 0)
         dialog.present(over: window) { response in
             guard response == .alertFirstButtonReturn, let name = dialog.input else { return }
@@ -180,9 +180,9 @@ struct ProfilesPane: View {
 
     private func delete(_ profile: BrowserProfile) {
         guard let window = AppDialog.parentWindow else { return }
-        let dialog = AppDialog(title: "Delete “\(profile.name)”?",
-                               message: "Deleting this Profile will permanently remove any cookies, history, preferences, and logins that belong to it.",
-                               actions: [DialogAction("Delete Profile", role: .destructive), .cancel])
+        let dialog = AppDialog(title: L10n.tr("Delete “%@”?", profile.name),
+                               message: L10n.tr("Deleting this Profile will permanently remove any cookies, history, preferences, and logins that belong to it."),
+                               actions: [DialogAction(L10n.tr("Delete Profile"), role: .destructive), .cancel])
         dialog.present(over: window) { response in
             if response == .alertFirstButtonReturn { store.deleteProfile(profile.id) }
         }
@@ -193,7 +193,7 @@ struct ProfilesPane: View {
         return SettingsCardRow {
             VStack(alignment: .leading, spacing: 2) {
                 Text(name).font(.system(size: 13))
-                Text(spaces.isEmpty ? "No Spaces" : spaces.map(\.labeled).joined(separator: ", "))
+                Text(spaces.isEmpty ? L10n.tr("No Spaces") : spaces.map(\.labeled).joined(separator: ", "))
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
             }
         } trailing: {

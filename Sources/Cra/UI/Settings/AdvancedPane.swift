@@ -13,62 +13,64 @@ struct AdvancedPane: View {
         @Bindable var store = store
         @Bindable var updater = SoftwareUpdater.shared
         SettingsFormPane {
-            SettingsFormRow(label: "General:") {
-                SettingsCheckbox(title: "Automatically update Cra", isOn: $updater.automaticallyUpdates)
+            SettingsFormRow(label: L10n.tr("General:")) {
+                SettingsCheckbox(title: L10n.tr("Automatically update Cra"), isOn: $updater.automaticallyUpdates)
                     .disabled(!updater.isAvailable)
                 HStack(spacing: 8) {
-                    Button("Check for Updates…") { updater.checkForUpdates(nil) }
+                    Button(L10n.tr("Check for Updates…")) { updater.checkForUpdates(nil) }
                         .disabled(!updater.isAvailable)
                     Text(updater.lastCheckSummary).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                SettingsCheckbox(title: "Chrome engine for pages (extensions, Chrome DevTools)", isOn: $store.settings.chromeEngine)
-                Text("Restart Cra to apply an engine change.").font(.system(size: 11)).foregroundStyle(.secondary)
+                SettingsCheckbox(title: L10n.tr("Chrome engine for pages (extensions, Chrome DevTools)"), isOn: $store.settings.chromeEngine)
+                Text(L10n.tr("Restart Cra to apply an engine change.")).font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            SettingsFormRow(label: "Address Bar:") {
+            SettingsFormRow(label: L10n.tr("Address Bar:")) {
                 SearchEnginePicker(store: store, openURL: actions.openURL)
-                SettingsCheckbox(title: "Show search suggestions", isOn: $store.settings.searchSuggestions)
+                SettingsCheckbox(title: L10n.tr("Show search suggestions"), isOn: $store.settings.searchSuggestions)
             }
-            SettingsFormRow(label: "Sounds:") {
+            SettingsFormRow(label: L10n.tr("Sounds:")) {
                 // Arc: Settings ▸ Advanced "Play Arc sound effects".
-                SettingsCheckbox(title: "Play Cra sound effects", isOn: $store.settings.soundEffects)
+                SettingsCheckbox(title: L10n.tr("Play Cra sound effects"), isOn: $store.settings.soundEffects)
             }
-            SettingsFormRow(label: "Websites:") {
+            SettingsFormRow(label: L10n.tr("Websites:")) {
                 // Arc: Settings ▸ Advanced "Allow websites to get your theme data" (--arc-palette-* variables).
-                SettingsCheckbox(title: "Allow websites to get your theme data", isOn: $store.settings.shareThemeWithWebsites)
+                SettingsCheckbox(title: L10n.tr("Allow websites to get your theme data"), isOn: $store.settings.shareThemeWithWebsites)
                 // Arc: "Allow window dragging from the top of webpages" (with the toolbar hidden).
-                SettingsCheckbox(title: "Allow window dragging from the top of webpages", isOn: $store.settings.pageTopWindowDrag)
+                SettingsCheckbox(title: L10n.tr("Allow window dragging from the top of webpages"), isOn: $store.settings.pageTopWindowDrag)
                 // Arc: "Enable Boosts on websites you visit".
-                SettingsCheckbox(title: "Enable Boosts on websites you visit", isOn: $store.settings.boostsEnabled)
+                SettingsCheckbox(title: L10n.tr("Enable Boosts on websites you visit"), isOn: $store.settings.boostsEnabled)
             }
-            SettingsFormRow(label: "When quitting Cra:") {
-                SettingsCheckbox(title: "Warn before quitting", isOn: $store.settings.warnBeforeQuitting)
+            SettingsFormRow(label: L10n.tr("When quitting Cra:")) {
+                SettingsCheckbox(title: L10n.tr("Warn before quitting"), isOn: $store.settings.warnBeforeQuitting)
                     .disabled(store.settings.keepInMenuBar)
                 // GitHub #231, not in Arc: ⌘Q puts Cra in the menu bar instead of quitting.
-                SettingsCheckbox(title: "Keep Cra in the menu bar", isOn: $store.settings.keepInMenuBar)
-                Text("⌘Q closes Cra’s windows and pages but leaves it running in the menu bar, so \(KeyBindingRegistry.shared.action("newLittleWindow")?.primary?.display ?? "⌥⌘N") opens a Little Window at once. Quit it from the menu bar.")
+                SettingsCheckbox(title: L10n.tr("Keep Cra in the menu bar"), isOn: $store.settings.keepInMenuBar)
+                Text(L10n.tr("⌘Q closes Cra’s windows and pages but leaves it running in the menu bar, so %@ opens a Little Window at once. Quit it from the menu bar.",
+                             KeyBindingRegistry.shared.action("newLittleWindow")?.primary?.display ?? "⌥⌘N"))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 // Arc: Settings ▸ Advanced "When opening Arc, restore windows from previous session".
-                SettingsCheckbox(title: "When opening Cra, restore windows from previous session", isOn: $store.settings.restoreWindows)
+                SettingsCheckbox(title: L10n.tr("When opening Cra, restore windows from previous session"), isOn: $store.settings.restoreWindows)
                 // Not in Arc (X DM 7 Nov 2026): Arc opens on the tab in use last.
-                SettingsCheckbox(title: "When opening Cra, start on a new tab", isOn: $store.settings.startOnNewTab)
+                SettingsCheckbox(title: L10n.tr("When opening Cra, start on a new tab"), isOn: $store.settings.startOnNewTab)
             }
-            SettingsFormRow(label: "Import:") {
-                Button("Import from Another Browser…") { actions.importData() }
+            SettingsFormRow(label: L10n.tr("Import:")) {
+                Button(L10n.tr("Import from Another Browser…")) { actions.importData() }
                 let names = ImportSource.allCases.filter { $0.kind != .safari && $0.isAvailable }.map(\.name)
                 Text(names.isEmpty
-                     ? "Bring bookmarks, open tabs, passwords and sign-ins over from Safari."
-                     : "Bring spaces, tabs, folders, favorites, passwords, sign-ins and extensions over from \(names.joined(separator: ", ")), Safari and more.")
+                     ? L10n.tr("Bring bookmarks, open tabs, passwords and sign-ins over from Safari.")
+                     : L10n.tr("Bring spaces, tabs, folders, favorites, passwords, sign-ins and extensions over from %@, Safari and more.",
+                               names.joined(separator: ", ")))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            SettingsFormRow(label: "Export:") {
-                Button("Export Spaces and Pinned Tabs…") { SidebarExport.run(store, in: NSApp.keyWindow) }
-                Text("Save every space's favorites, pinned tabs and folders as a bookmarks file that Chrome, Safari, Firefox and other browsers can import.")
+            SettingsFormRow(label: L10n.tr("Export:")) {
+                Button(L10n.tr("Export Spaces and Pinned Tabs…")) { SidebarExport.run(store, in: NSApp.keyWindow) }
+                Text(L10n.tr("Save every space's favorites, pinned tabs and folders as a bookmarks file that Chrome, Safari, Firefox and other browsers can import."))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            SettingsFormRow(label: "About:") {
+            SettingsFormRow(label: L10n.tr("About:")) {
                 Text("Cra \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")").font(.system(size: 13))
                 Text("Chromium \(CraCEFRuntime.chromiumVersion()) · CEF \(CraCEFRuntime.cefVersion())")
                     .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -95,7 +97,7 @@ private struct SearchEnginePicker: View {
             }
             .labelsHidden()
             .fixedSize()
-            Button("Manage Search Engines…") { openURL(SearchEngines.settingsPage) }
+            Button(L10n.tr("Manage Search Engines…")) { openURL(SearchEngines.settingsPage) }
         }
         .onAppear(perform: reload)
     }

@@ -22,15 +22,15 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: return "General"
-        case .tabs: return "Tabs"
-        case .max: return "Max"
-        case .privacy: return "Privacy"
-        case .profiles: return "Profiles"
-        case .extensions: return "Extensions"
-        case .shortcuts: return "Shortcuts"
-        case .performance: return "Performance"
-        case .advanced: return "Advanced"
+        case .general: return L10n.tr("General")
+        case .tabs: return L10n.tr("Tabs")
+        case .max: return L10n.tr("Max")
+        case .privacy: return L10n.tr("Privacy")
+        case .profiles: return L10n.tr("Profiles")
+        case .extensions: return L10n.tr("Extensions")
+        case .shortcuts: return L10n.tr("Shortcuts")
+        case .performance: return L10n.tr("Performance")
+        case .advanced: return L10n.tr("Advanced")
         }
     }
 
@@ -100,7 +100,7 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: SettingsMetrics.windowSize),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         super.init(window: window)
-        window.title = "Settings"
+        window.title = L10n.tr("Settings")
         window.titleVisibility = .hidden
         window.toolbarStyle = .unified
         // The content view draws the pill and title under the toolbar; the titlebar must not

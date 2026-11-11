@@ -164,7 +164,8 @@ final class TidyTabsService {
         }
         let groups = store.tabGroups(in: sid).map { $0.title ?? "" }
         let ids = loose.map(\.id)
-        let prompt = TidyTabs.prompt(tabs: tabs, existingGroups: groups)
+        let prefs = store.preferences[sid]?.entries.map { (title: $0.title, group: $0.group) } ?? []
+        let prompt = TidyTabs.prompt(tabs: tabs, existingGroups: groups, preferences: prefs)
         let local = status == .local
         store.setTidying(sid, true, stage: local ? .namingGroups : nil)
         let started = Date()
@@ -238,7 +239,6 @@ final class TidyTabsService {
         CraLog.note(String(format: "Auto Tidy: %@", enabled ? "on" : "off"))
     }
 
-    private var looseCounts: [UUID: Int] = [:]
     private var lastAutoTidy: [UUID: Date] = [:]
 
     /// Polled every few seconds by the app. Fires Tidy when a space's loose Today tabs cross
@@ -247,16 +247,17 @@ final class TidyTabsService {
     @MainActor func autoTick(store: SidebarStore) {
         let auto = Self.autoTidyEnabled
         for space in store.orderedSpaces {
+            // Level-triggered, not edge-triggered: a crossing that lands in the cooldown or on a
+            // busy model must not be lost — it fires as soon as the cooldown expires (the user saw
+            // tidy "sometimes manual" when this was edge-based).
             let loose = store.looseTodayTabs(space.id).count
-            let previous = looseCounts[space.id] ?? 0
-            looseCounts[space.id] = loose
-            guard loose >= TidyTabs.minimumTabs, previous < TidyTabs.minimumTabs else { continue }
+            guard loose >= TidyTabs.minimumTabs, !store.tidyingSpaces.contains(space.id) else { continue }
             let cooled = Date().timeIntervalSince(lastAutoTidy[space.id] ?? .distantPast) > 600
-            if auto, cooled, offers(space.id, store: store), !store.tidyingSpaces.contains(space.id) {
+            if auto, cooled, offers(space.id, store: store) {
                 CraLog.note(String(format: "Auto Tidy: %d loose tabs in %@ — running", loose, space.id.uuidString))
                 lastAutoTidy[space.id] = Date()
                 tidy(space.id, store: store)
-            } else if !auto, cooled {
+            } else if !auto, cooled, offers(space.id, store: store) {
                 store.setTidyNotice(space.id, String(format: "%d tabs — the broom can tidy", loose))
             }
         }

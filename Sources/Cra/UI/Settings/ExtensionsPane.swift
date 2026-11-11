@@ -11,11 +11,11 @@ struct ExtensionsPane: View {
 
     var body: some View {
         SettingsCardPane {
-            SettingsHeader("Installed extensions")
+            SettingsHeader(L10n.tr("Installed extensions"))
             SettingsCard {
                 if extensions.entries.isEmpty {
                     SettingsCardRow {
-                        Text("No extensions installed. Add one from the Chrome Web Store, or an unpacked extension folder (the kind Chrome’s “Load unpacked” takes).")
+                        Text(L10n.tr("No extensions installed. Add one from the Chrome Web Store, or an unpacked extension folder (the kind Chrome’s “Load unpacked” takes)."))
                             .font(.system(size: 13)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     } trailing: { EmptyView() }
@@ -31,24 +31,24 @@ struct ExtensionsPane: View {
                         }
                     } trailing: {
                         if e.managedByChrome {
-                            Button("Remove…") { actions.openURL("chrome://extensions/?id=\(e.extensionID)") }
+                            Button(L10n.tr("Remove…")) { actions.openURL("chrome://extensions/?id=\(e.extensionID)") }
                         } else {
-                            Button("Remove") { extensions.remove(e) }
+                            Button(L10n.tr("Remove")) { extensions.remove(e) }
                         }
                     }
                 }
             }
             HStack {
-                Button("Add Unpacked Extension…") { addExtension() }
+                Button(L10n.tr("Add Unpacked Extension…")) { addExtension() }
                 Spacer()
-                Button("Open Chrome’s Extension Manager") { actions.openURL("chrome://extensions") }
+                Button(L10n.tr("Open Chrome’s Extension Manager")) { actions.openURL("chrome://extensions") }
                     .disabled(!store.settings.chromeEngine)
             }
             .padding(.top, 7.5)
             if let error { SettingsFootnote(error).foregroundStyle(.red) }
             SettingsFootnote(store.settings.chromeEngine
-                             ? (extensions.needsRestart ? "Restart Cra to apply the change." : "Extensions load when Cra starts.")
-                             : "Extensions need the Chrome engine (Advanced pane).")
+                             ? (extensions.needsRestart ? L10n.tr("Restart Cra to apply the change.") : L10n.tr("Extensions load when Cra starts."))
+                             : L10n.tr("Extensions need the Chrome engine (Advanced pane)."))
         }
     }
 
@@ -57,8 +57,8 @@ struct ExtensionsPane: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "Add"
-        panel.message = "Choose an unpacked extension folder (it holds manifest.json)."
+        panel.prompt = L10n.tr("Add")
+        panel.message = L10n.tr("Choose an unpacked extension folder (it holds manifest.json).")
         if panel.runModal() == .OK, let url = panel.url {
             do { try extensions.add(folder: url); error = nil } catch { self.error = error.localizedDescription }
         }

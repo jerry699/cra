@@ -13,14 +13,14 @@ struct AppIconSection: View {
     }
 
     @ViewBuilder private var content: some View {
-        SettingsHeader("App Icon")
+        SettingsHeader(L10n.tr("App Icon"))
         SettingsCard {
             HStack(alignment: .top, spacing: 0) {
                 ForEach(AppIconManager.presets) { option in
-                    AppIconTile(name: option.name, image: icons.image(for: option.id),
+                    AppIconTile(name: L10n.tr(option.name), image: icons.image(for: option.id),
                                 selected: icons.selectedID == option.id) { icons.select(option.id) }
                 }
-                AppIconTile(name: "Custom", image: icons.customImage, selected: icons.selectedID == AppIconManager.customID) {
+                AppIconTile(name: L10n.tr("Custom"), image: icons.customImage, selected: icons.selectedID == AppIconManager.customID) {
                     if icons.customImage == nil { chooseImage() } else { icons.select(AppIconManager.customID) }
                 }
                 .dropDestination(for: URL.self) { urls, _ in
@@ -33,23 +33,23 @@ struct AppIconSection: View {
             .padding(.vertical, 8)
             SettingsCardDivider()
             SettingsCardRow {
-                Text("Your own icon").font(.system(size: 13))
+                Text(L10n.tr("Your own icon")).font(.system(size: 13))
             } trailing: {
                 if icons.customImage != nil {
-                    Button("Remove") { icons.removeCustom(); error = nil }
+                    Button(L10n.tr("Remove")) { icons.removeCustom(); error = nil }
                 }
-                Button("Choose Image…") { chooseImage() }
+                Button(L10n.tr("Choose Image…")) { chooseImage() }
             }
         }
-        SettingsFootnote("Pick any image or drop one on Custom. It’s sized to match the other icons in the Dock, and a photo or a logo on a background fills the rounded tile. The Dock keeps the icon after Cra quits.")
+        SettingsFootnote(L10n.tr("Pick any image or drop one on Custom. It’s sized to match the other icons in the Dock, and a photo or a logo on a background fills the rounded tile. The Dock keeps the icon after Cra quits."))
         if let error { SettingsFootnote(error).foregroundStyle(.red) }
     }
 
     private func chooseImage() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
-        panel.message = "Choose an image for Cra’s icon"
-        panel.prompt = "Use as Icon"
+        panel.message = L10n.tr("Choose an image for Cra’s icon")
+        panel.prompt = L10n.tr("Use as Icon")
         let done: (NSApplication.ModalResponse) -> Void = { response in
             if response == .OK, let url = panel.url { use(url) }
         }
@@ -61,7 +61,7 @@ struct AppIconSection: View {
             try icons.setCustom(from: url)
             error = nil
         } catch {
-            self.error = "“\(url.lastPathComponent)” isn’t an image Cra can read."
+            self.error = L10n.tr("“%@” isn’t an image Cra can read.", url.lastPathComponent)
         }
     }
 }
@@ -100,7 +100,7 @@ private struct AppIconTile: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .accessibilityLabel("\(name) app icon")
+        .accessibilityLabel(L10n.tr("%@ app icon", name))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 

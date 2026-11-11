@@ -2037,6 +2037,9 @@ final class SidebarStore {
     /// Per space, Today's tabs when Tidy last ran: Tidy waits for a new loose tab (TidyTabs.offers).
     /// Not saved, like Arc's.
     private(set) var tidiedTabs: [UUID: Set<UUID>] = [:]
+    /// Per space, what past accepted tidy runs taught (title → group), for the prompt.
+    private(set) var preferences: [UUID: TidyPreferences] = [:]
+    static let preferencesDirectory = AppPaths.supportDir
     /// What ⌘Z puts back: the last tidy, until a tab closes or a group's header is used.
     @ObservationIgnored private var lastTidy: (spaceID: UUID, todayBefore: [UUID], moved: [UUID])?
 
@@ -2122,6 +2125,27 @@ final class SidebarStore {
         }
         lastTidy = moved.isEmpty ? nil : (sid, before, moved)
         tidiedTabs[sid] = Set(tabs(under: today).map(\.id))
+        // Teach the model: the accepted assignments become next run's few-shot preferences.
+        if !moved.isEmpty {
+            var assignments: [(title: String, group: String)] = []
+            for (g, indices) in plan.joins.sorted(by: { $0.key < $1.key }) where groups.indices.contains(g) {
+                let name = groups[g].title ?? ""
+                for i in indices where tabIDs.indices.contains(i) {
+                    assignments.append((title: items[tabIDs[i]]?.title ?? "", group: name))
+                }
+            }
+            for p in plan.newGroups {
+                for i in p.tabs where tabIDs.indices.contains(i) {
+                    assignments.append((title: items[tabIDs[i]]?.title ?? "", group: p.name))
+                }
+            }
+            if preferences[sid] == nil {
+                preferences[sid] = TidyPreferences.load(directory: Self.preferencesDirectory, spaceID: sid)
+            }
+            preferences[sid] = (preferences[sid] ?? TidyPreferences())
+            preferences[sid]?.record(assignments)
+            preferences[sid]?.save(to: Self.preferencesDirectory, spaceID: sid)
+        }
         touch()
     }
 
@@ -2145,6 +2169,10 @@ final class SidebarStore {
             items[today] = t
         }
         tidiedTabs[u.spaceID] = nil
+        // The user rejected that grouping: its lesson is retracted, so later runs don't repeat it.
+        preferences[u.spaceID]?.clear(groups: [])
+        preferences[u.spaceID] = nil
+        TidyPreferences().remove(directory: Self.preferencesDirectory, spaceID: u.spaceID)
         touch()
         return true
     }
