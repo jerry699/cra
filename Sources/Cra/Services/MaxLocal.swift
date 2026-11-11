@@ -273,12 +273,16 @@ actor LocalInference {
             let status = header[4]
             let length = Int(Self.uint32(header, at: 8))
             let body = length > 0 ? try read(length) : Data()
-            guard status == 0, body.count >= 4 else { return nil }
+            guard status == 0, body.count >= 4 else {
+                CraLog.note(String(format: "Embeddings: helper replied status %d, %d bytes; stderr: %@",
+                                   status, body.count, recentStderr().suffix(400)))
+                return nil
+            }
             return body.withUnsafeBytes { raw in
                 Array(raw.bindMemory(to: Float.self))
             }
         } catch {
-            CraLog.note("Embeddings: the model process failed (\(error))")
+            CraLog.note("Embeddings: the model process failed (\(error)); helper stderr: \(recentStderr().suffix(400))")
             stop()
             return nil
         }
@@ -291,6 +295,8 @@ actor LocalInference {
         slot.terminate()
     }
 
+    private var lastStderr = ""
+
     private func start(helper: URL, model: URL, context: Int, threads: Int32) throws {
         stop()
         let process = Process()
@@ -300,7 +306,16 @@ actor LocalInference {
         let output = Pipe()
         process.standardInput = input
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
+        let errPipe = Pipe()
+        process.standardError = errPipe
+        // The helper's diagnostics (load failures, aborts) only reach a pipe: capture the tail
+        // so an embed failure can say why. Capped to keep the actor's memory flat.
+        errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
+            Task { await self?.appendStderr(text) }
+        }
+        lastStderr = ""
         try process.run()
         self.process = process
         slot.put(process)
@@ -312,6 +327,12 @@ actor LocalInference {
         CraLog.note(String(format: "Max Local: started the model process (context %d, %d threads)",
                            context, threads))
     }
+
+    private func appendStderr(_ text: String) {
+        lastStderr = String((lastStderr + text).suffix(2000))
+    }
+
+    func recentStderr() -> String { lastStderr }
 
     private func stop() {
         try? toHelper?.close()
