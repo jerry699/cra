@@ -274,8 +274,9 @@ actor LocalInference {
             let length = Int(Self.uint32(header, at: 8))
             let body = length > 0 ? try read(length) : Data()
             guard status == 0, body.count >= 4 else {
+                Thread.sleep(forTimeInterval: 0.3)  // let the helper finish its diagnostics
                 CraLog.note(String(format: "Embeddings: helper replied status %d, %d bytes; stderr: %@",
-                                   status, body.count, recentStderr().suffix(400)))
+                                   status, body.count, recentStderr().suffix(2000)))
                 return nil
             }
             return body.withUnsafeBytes { raw in
