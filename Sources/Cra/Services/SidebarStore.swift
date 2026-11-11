@@ -956,6 +956,20 @@ final class SidebarStore {
     /// Moves several items so they end up next to each other, in the given
     /// order, starting at `index` (appended when nil).
     func moveItems(_ ids: [UUID], to newParent: UUID, index: Int?) {
+        // Manual teaching: a tab the user drops into a group (or files with "New Folder with
+        // Tab") records title → group, so the next Tidy keeps the pattern. Moves made by Tidy
+        // itself are suppressed in applyTidy/undoTidy.
+        if !learningSuppressed, items[newParent]?.isTabGroup == true,
+           let spaceKey = spaceID(ofItem: newParent), let groupTitle = items[newParent]?.title {
+            for id in ids {
+                guard let tab = items[id], !(tab.title ?? "").isEmpty else { continue }
+                if preferences[spaceKey] == nil {
+                    preferences[spaceKey] = TidyPreferences.load(directory: Self.preferencesDirectory, spaceID: spaceKey)
+                }
+                preferences[spaceKey]?.record([(title: tab.title ?? "", group: groupTitle)])
+                preferences[spaceKey]?.save(to: Self.preferencesDirectory, spaceID: spaceKey)
+            }
+        }
         var at = index
         for id in ids {
             moveItem(id, to: newParent, index: at)
@@ -2039,6 +2053,9 @@ final class SidebarStore {
     private(set) var tidiedTabs: [UUID: Set<UUID>] = [:]
     /// Per space, what past accepted tidy runs taught (title → group), for the prompt.
     private(set) var preferences: [UUID: TidyPreferences] = [:]
+    /// True while a Tidy apply/undo is moving tabs programmatically: those moves are the
+    /// model's own doing, not the user teaching us, so they don't record preferences.
+    private var learningSuppressed = false
     static let preferencesDirectory = AppPaths.supportDir
     /// What ⌘Z puts back: the last tidy, until a tab closes or a group's header is used.
     @ObservationIgnored private var lastTidy: (spaceID: UUID, todayBefore: [UUID], moved: [UUID])?
@@ -2123,6 +2140,8 @@ final class SidebarStore {
             t.children = TidyTabs.order(today: rest, isGroup: { self.items[$0]?.isTabGroup == true }, grouped: [], newGroups: newGroups)
             items[today] = t
         }
+        learningSuppressed = true
+        defer { learningSuppressed = false }
         lastTidy = moved.isEmpty ? nil : (sid, before, moved)
         tidiedTabs[sid] = Set(tabs(under: today).map(\.id))
         // Teach the model: the accepted assignments become next run's few-shot preferences.
