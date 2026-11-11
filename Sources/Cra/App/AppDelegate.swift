@@ -2257,6 +2257,9 @@ private extension NSMenu {
     func addItem(submenu: NSMenu, title: String) {
         let item = NSMenuItem(title: L10n.tr(title), action: nil, keyEquivalent: "")
         item.submenu = submenu
+        // AppKit syncs submenu.title over the item's, so the translated title must go both ways
+        // or the menu bar shows the English construction title.
+        submenu.title = item.title
         addItem(item)
     }
 }
