@@ -41,10 +41,14 @@ public enum BrowserLanguages {
         return list.isEmpty ? nil : list
     }
 
-    /// A code's English name, as Cra's interface is English: "da" is "Danish", "en-GB" "English
-    /// (United Kingdom)". A code Foundation doesn't know stays as it is.
+    /// A code's name in the interface language: "da" is "Danish" in English and "丹麦语" in
+    /// Chinese (the fork's UI language, L10n's defaultsKey, read directly to keep CraCore
+    /// app-free). An unknown interface language falls back to English. A code Foundation
+    /// doesn't know stays as it is.
     public static func name(_ code: String) -> String {
-        Locale(identifier: "en_US").localizedString(forIdentifier: code) ?? code
+        let uiLanguage = UserDefaults.standard.string(forKey: "interfaceLanguage") ?? "en"
+        let localeID = uiLanguage == "zh-Hans" ? "zh_CN" : "en_US"
+        return Locale(identifier: localeID).localizedString(forIdentifier: code) ?? code
     }
 
     /// The row's summary: "Danish, English (United Kingdom), English".

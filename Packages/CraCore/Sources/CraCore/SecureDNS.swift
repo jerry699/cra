@@ -45,19 +45,19 @@ extension SecureDNS {
         switch mode {
         case "": return ""
         // zh: 主机名由网络自身的解析器以明文查询。
-        case "off": return "Hostnames are looked up in plain text by the network’s own resolver."
+        case "off": return "主机名由网络自身的解析器以明文查询。"
         case "secure":
             // zh: 未设置提供商，因此无法查询主机名。请在上方选择一个。
-            if servers.isEmpty { return "No provider is set, so hostnames can’t be looked up. Choose one above." }
+            if servers.isEmpty { return "未设置提供商，因此无法查询主机名。请在上方选择一个。" }
             // zh: 主机名通过与 \(to) 的加密连接查询。若无法连接，网页将无法加载。
-            return "Hostnames are looked up over an encrypted connection to \(to). If it can’t be reached, pages don’t load."
+            return "主机名通过与 \(to) 的加密连接查询。若无法连接，网页将无法加载。"
         default:
             if servers.isEmpty {
                 // zh: “自动”使用网络自身的解析器，在其支持时加密。仅办公网络内部可知的名称仍能正常解析。
-                return "Automatic uses the network’s own resolver, encrypted when it supports it. Names only a work network knows keep working."
+                return "「自动」使用网络自身的解析器，在其支持时加密。仅办公网络内部可知的名称仍能正常解析。"
             }
             // zh: \(to) 可响应时，主机名通过与它的加密连接查询，否则由网络自身的解析器查询。
-            return "Hostnames are looked up over an encrypted connection to \(to) when it answers, else by the network’s own resolver."
+            return "\(to) 可响应时，主机名通过与它的加密连接查询，否则由网络自身的解析器查询。"
         }
     }
 }
