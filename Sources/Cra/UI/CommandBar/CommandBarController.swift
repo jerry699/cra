@@ -106,6 +106,10 @@ final class CommandBarController {
             guard let self, self.isOpen, self.query == typed else { return }
             self.relist()
         }
+        engine.fetchSemanticSuggestions(for: typed) { [weak self] in
+            guard let self, self.isOpen, self.query == typed else { return }
+            self.relist()
+        }
         result = engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID)
         if !allowCompletion { result.inlineCompletion = nil }
         selectedIndex = 0

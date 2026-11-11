@@ -49,6 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             MainActor.assumeIsolated {
                 guard self.bootstrapped else { return }
                 TidyTabsService.shared.autoTick(store: self.store)
+                // The semantic index keeps up with the history: new entries embed in seconds.
+                EmbeddingService.shared.rebuildIfNeeded(history: Array(self.store.history.values))
+                EmbeddingService.shared.sync(with: Array(self.store.history.values))
             }
         }
     }

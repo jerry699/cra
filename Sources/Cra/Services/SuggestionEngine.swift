@@ -86,6 +86,7 @@ final class SuggestionEngine {
         if !incognito {
             items.append(contentsOf: archiveSuggestions(q))
             items.append(contentsOf: historySuggestions(q, openURLs: searchIndex.openURLs))
+            items.append(contentsOf: semanticSuggestions(query))
             items.append(contentsOf: topDomainSuggestions(q))
         }
         items.append(contentsOf: commandSuggestions(q, currentTabID: currentTabID))
@@ -243,6 +244,36 @@ final class SuggestionEngine {
     var searchEngine: ChromiumSearchEngine { engines.default }
 
     func searchURL(_ text: String) -> String { engines.default.searchURL(text) }
+
+    // Semantic history matches (the fork's addition): the query embedded locally, scored
+    // against the history index. Fetched like the remote suggestions — `done` re-lists.
+    private var semantic: (query: String, rows: [Suggestion])?
+
+    /// Asks the local embedding model about `rawQuery`; `done` runs when the matches are in.
+    func fetchSemanticSuggestions(for rawQuery: String, done: @escaping @MainActor () -> Void) {
+        let query = rawQuery.trimmingCharacters(in: .whitespaces)
+        guard !incognito, query.count >= 2, !query.contains("://") else { return }
+        guard semantic?.query != query.lowercased() else { return }
+        Task { @MainActor in
+            let matches = await EmbeddingService.shared.search(query, limit: 4)
+            guard !matches.isEmpty else { return }
+            let rows = matches.compactMap { m -> Suggestion? in
+                guard let entry = store.history[m.url] else { return nil }
+                return Suggestion(id: "sem:\(m.url)", kind: .history, title: entry.title,
+                                  subtitle: String(format: "%.2f · 语义匹配", m.score), url: m.url,
+                                  faviconKey: entry.title.isEmpty ? nil : entry.title,
+                                  symbol: nil, trailing: L10n.tr("Semantic match"), score: 40)
+            }
+            semantic = (query: query.lowercased(), rows: rows)
+            done()
+        }
+    }
+
+    /// The stored semantic rows for this query, exact match on the lowercased query.
+    func semanticSuggestions(_ query: String) -> [Suggestion] {
+        guard let semantic, semantic.query == query.lowercased() else { return [] }
+        return semantic.rows
+    }
 
     /// Asks the search engine about `rawQuery`; `done` runs when its answer is in, to list again.
     func fetchSearchSuggestions(for rawQuery: String, done: @escaping @MainActor () -> Void) {

@@ -214,6 +214,10 @@ actor LocalInference {
     }
 
     nonisolated let slot = HelperSlot()
+    /// A second process for the embedding model: embeddings and generation use different GGUFs,
+    /// and switching one helper between modes would thrash loads between Tidy bursts and index
+    /// builds (bge is a BERT — it embeds and cannot generate at all).
+    nonisolated static let embedding = LocalInference()
 
     private var process: Process?
     private var toHelper: FileHandle?
@@ -241,6 +245,40 @@ actor LocalInference {
                                 maxTokens: maxTokens, timeout: timeout)
         } catch {
             CraLog.note("Max Local: the model process failed (\(error))")
+            stop()
+            return nil
+        }
+    }
+
+    /// One embedding vector (helper op 4): the text in, `n_embd` little-endian floats out.
+    /// The helper loads the model in embedding mode on first use (pooling per the GGUF metadata).
+    func embed(text: String, model: URL, helper: URL, threads: Int32) async -> [Float]? {
+        if process?.isRunning != true || startedModel != model {
+            do { try start(helper: helper, model: model, context: 1024, threads: threads) }
+            catch {
+                CraLog.note("Embeddings: cannot start the helper (\(error))")
+                return nil
+            }
+        }
+        var frame = Data()
+        Self.append(UInt32(0x4C515243), to: &frame)
+        frame.append(4)
+        frame.append(contentsOf: [0, 0, 0])
+        Self.append(UInt32(0), to: &frame)
+        Self.appendString(text, to: &frame)
+        do {
+            try toHelper?.write(contentsOf: frame)
+            let header = try read(12)
+            guard header.count == 12, Self.uint32(header, at: 0) == 0x4C534352 else { throw Failure.badReply }
+            let status = header[4]
+            let length = Int(Self.uint32(header, at: 8))
+            let body = length > 0 ? try read(length) : Data()
+            guard status == 0, body.count >= 4 else { return nil }
+            return body.withUnsafeBytes { raw in
+                Array(raw.bindMemory(to: Float.self))
+            }
+        } catch {
+            CraLog.note("Embeddings: the model process failed (\(error))")
             stop()
             return nil
         }

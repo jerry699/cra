@@ -753,3 +753,6 @@
 "Cancel Tidy" = "取消整理";
 "Mac is warm — Tidy paused" = "Mac 温度较高——整理已暂停";
 "Low memory — Tidy paused" = "内存不足——整理已暂停";
+
+/* ═══ D2 · 语义搜索（2026-11-12）═══ */
+"Semantic match" = "语义匹配";
