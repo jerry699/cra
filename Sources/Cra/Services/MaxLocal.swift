@@ -296,7 +296,6 @@ actor LocalInference {
         slot.terminate()
     }
 
-    private var lastStderr = ""
 
     private func start(helper: URL, model: URL, context: Int, threads: Int32) throws {
         stop()
@@ -307,16 +306,13 @@ actor LocalInference {
         let output = Pipe()
         process.standardInput = input
         process.standardOutput = output
-        let errPipe = Pipe()
-        process.standardError = errPipe
-        // The helper's diagnostics (load failures, aborts) only reach a pipe: capture the tail
-        // so an embed failure can say why. Capped to keep the actor's memory flat.
-        errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let data = handle.availableData
-            guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
-            Task { await self?.appendStderr(text) }
-        }
-        lastStderr = ""
+        // The helper's diagnostics go to a file: a crash's stderr must survive the process for
+        // the failure log to quote it (pipe chunks raced the log).
+        let errURL = FileManager.default.temporaryDirectory.appendingPathComponent("cra-inference-helper.err")
+        try? FileManager.default.removeItem(at: errURL)
+        FileManager.default.createFile(atPath: errURL.path, contents: nil)
+        process.standardError = try FileHandle(forWritingTo: errURL)
+        Self.stderrFile = errURL
         try process.run()
         self.process = process
         slot.put(process)
@@ -329,11 +325,12 @@ actor LocalInference {
                            context, threads))
     }
 
-    private func appendStderr(_ text: String) {
-        lastStderr = String((lastStderr + text).suffix(2000))
-    }
+    static var stderrFile: URL?
 
-    func recentStderr() -> String { lastStderr }
+    func recentStderr() -> String {
+        guard let url = Self.stderrFile, let data = try? Data(contentsOf: url) else { return "" }
+        return String(data: data.suffix(2000), encoding: .utf8) ?? ""
+    }
 
     private func stop() {
         try? toHelper?.close()
