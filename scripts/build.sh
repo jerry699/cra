@@ -56,6 +56,8 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Framewor
 cp "$BIN/Cra" "$APP/Contents/MacOS/Cra"
 # Started on demand for local Tidy Tab Titles; exits after 60 s idle.
 cp "$BIN/CraInferenceHelper" "$APP/Contents/MacOS/CraInferenceHelper"
+# One-shot transcription of downloaded media (W2): exits when the transcript is done.
+[ -f "$BIN/CraWhisper" ] && cp "$BIN/CraWhisper" "$APP/Contents/MacOS/CraWhisper"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" resources/Info.plist > "$APP/Contents/Info.plist"
 # Only release builds (scripts/release.sh) check the update feed; a dev build would
 # otherwise replace itself with the latest release. Intel copies have their own feed,
@@ -113,6 +115,7 @@ sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" resources/DockT
 
 # Every executable must run on the CPU this build is for (Sparkle ships universal).
 for exe in "$APP/Contents/MacOS/Cra" "$APP"/Contents/Frameworks/*.app/Contents/MacOS/* \
+           "$APP/Contents/MacOS/CraWhisper" \
            "$DOCK_TILE/Contents/MacOS/CraDockTile" \
            "$APP/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework" \
            "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/Sparkle"; do
@@ -146,6 +149,7 @@ sign "$SPARKLE/Versions/B/Updater.app"
 sign "$SPARKLE"
 for h in "$APP"/Contents/Frameworks/*.app; do sign "$h" "$ROOT/resources/CraHelper.entitlements"; done
 sign "$APP/Contents/MacOS/CraInferenceHelper"
+[ -f "$APP/Contents/MacOS/CraWhisper" ] && sign "$APP/Contents/MacOS/CraWhisper"
 sign "$DOCK_TILE"
 # Passkeys need entitlements only a provisioning profile can grant: the Touch ID
 # keychain group ("<app id>.webauthn", scripts/cef-patches) and, once Apple approves

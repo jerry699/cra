@@ -31,6 +31,11 @@ let sparkleRoot = "\(Context.packageDirectory)/vendor/sparkle"
 let llamaRoot = "\(Context.packageDirectory)/vendor/llama.cpp"
 let llamaBuild = "\(llamaRoot)/build"
 
+// whisper.cpp's static libraries, built for the host CPU by scripts/build-whisper.sh
+// (Accelerate for BLAS, Metal off): the transcription process. Same layout as llama's.
+let whisperRoot = "\(Context.packageDirectory)/vendor/whisper.cpp"
+let whisperBuild = "\(whisperRoot)/build"
+
 let package = Package(
     name: "Cra",
     platforms: [.macOS(.v14)],
@@ -39,6 +44,8 @@ let package = Package(
         .executable(name: "CraHelper", targets: ["CraHelper"]),
         // Started by Cra for Tidy Tab Titles on a Mac without Apple Intelligence.
         .executable(name: "CraInferenceHelper", targets: ["CraInferenceHelper"]),
+        // Started by Cra for transcription of downloaded audio/video.
+        .executable(name: "CraWhisper", targets: ["CraWhisper"]),
         // Loaded by the Dock, not by Cra; scripts/build.sh wraps it in
         // Cra.app/Contents/PlugIns/CraDockTile.docktileplugin.
         .library(name: "CraDockTile", type: .dynamic, targets: ["CraDockTile"]),
@@ -87,6 +94,25 @@ let package = Package(
                     "-L\(llamaBuild)/ggml/src",
                     "-L\(llamaBuild)/ggml/src/ggml-blas",
                     "-lllama", "-lggml", "-lggml-cpu", "-lggml-blas", "-lggml-base",
+                    "-framework", "Accelerate", "-framework", "Foundation",
+                ]),
+                .linkedLibrary("c++"),
+            ]
+        ),
+        // Transcription process: whisper.cpp's static libraries, no network, one-shot.
+        .executableTarget(
+            name: "CraWhisper",
+            path: "Sources/CraWhisper",
+            cxxSettings: [.unsafeFlags([
+                "-I", "\(whisperRoot)/include",
+                "-O2",
+            ])],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-L\(whisperBuild)/src",
+                    "-L\(whisperBuild)/ggml/src",
+                    "-L\(whisperBuild)/ggml/src/ggml-blas",
+                    "-lwhisper", "-lggml", "-lggml-base", "-lggml-cpu", "-lggml-blas",
                     "-framework", "Accelerate", "-framework", "Foundation",
                 ]),
                 .linkedLibrary("c++"),

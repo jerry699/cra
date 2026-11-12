@@ -63,6 +63,17 @@ final class TidyDownloadsService {
             moved(newPath)
             CraLog.note("Tidy Downloads: renamed a download (\(original.count) → \(free.count) characters)")
             show(Rename(download: id, window: window, oldPath: path, newPath: newPath))
+            // W2: downloaded audio/video gets transcribed on this Mac (whisper.cpp), the
+            // transcript landing next to the media as .transcript.md.
+            if WhisperService.handles(newPath), WhisperService.isEnabled {
+                let media = newPath
+                Task.detached(priority: .utility) {
+                    guard let transcript = await WhisperService.transcribe(mediaURL: URL(fileURLWithPath: media)) else { return }
+                    let out = (media as NSString).deletingPathExtension + ".transcript.md"
+                    try? transcript.write(toFile: out, atomically: true, encoding: .utf8)
+                    CraLog.note("Whisper: transcript written (\(out))")
+                }
+            }
         }
     }
 
