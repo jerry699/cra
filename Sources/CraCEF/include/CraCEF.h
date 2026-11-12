@@ -117,7 +117,7 @@ typedef NS_ENUM(NSInteger, CraChromiumString) {
 - (void)browser:(CraBrowser *)browser requestsCaptureOfImageAt:(NSPoint)point;
 /// The user picked "Translate Selection" in the page menu: the selected text, for the local
 /// model's translation (the fork's W1; nothing leaves the Mac).
-- (void)browser:(CraBrowser *)browser requestsTranslationOfSelectedText:(NSString *)text;
+- (void)browser:(CraBrowser *)browser requestsTranslationOfSelectedText:(NSString *)text atPoint:(NSPoint)point;
 /// A video of this page entered or left Chromium's Picture in Picture window
 /// (whether the page, the user or Cra asked for it).
 - (void)browser:(CraBrowser *)browser didChangePictureInPicture:(BOOL)active;

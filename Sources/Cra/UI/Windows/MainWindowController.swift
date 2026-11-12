@@ -1677,9 +1677,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     }
 
     /// W1 selection translation: the selected text goes to the local 1.7B (op 0), and the
-    /// translation lands in a toast — nothing leaves the Mac.
-    func browserManagerTranslateSelection(_ text: String, tabID: UUID) {
+    /// translation lands in a HUD card beside the selection — nothing leaves the Mac.
+    func browserManagerTranslateSelection(_ text: String, tabID: UUID, atPoint point: NSPoint) {
         guard tabID == browsers.visibleTabID, !text.isEmpty, let window else { return }
+        guard let rt = browsers.visibleRuntime else { return }
+        // The CEF point is in view coordinates (top-left origin, points); the HUD wants
+        // screen coordinates (AppKit bottom-left), so flip Y against the page's screen rect.
+        guard let pageRect = pageScreenRect(rt) else { return }
+        let screenPoint = NSPoint(x: pageRect.minX + point.x, y: pageRect.maxY - point.y)
         let instructions = TidyTranslate.instructions(for: text)
         let original = text
         Task { @MainActor in
@@ -1697,7 +1702,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             // sides, and the translation lands in the clipboard for pasting.
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(translation, forType: .string)
-            TranslationHUD.show(translation, original: original, in: window)
+            TranslationHUD.show(translation, original: original, near: screenPoint, in: window)
         }
     }
 

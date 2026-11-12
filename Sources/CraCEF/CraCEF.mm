@@ -1845,7 +1845,8 @@ public:
                 [o showDevToolsInspectingPoint:NSMakePoint(params->GetXCoord(), params->GetYCoord())];
                 return true;
             case kMenuTranslateSelection:
-                [o.delegate browser:o requestsTranslationOfSelectedText:NSStringFromCef(params->GetSelectionText())];
+                [o.delegate browser:o requestsTranslationOfSelectedText:NSStringFromCef(params->GetSelectionText())
+                            atPoint:NSMakePoint(params->GetXCoord(), params->GetYCoord())];
                 return true;
             case kMenuPictureInPicture:
                 [o requestPictureInPictureInFrame:frame automatic:NO x:params->GetXCoord() y:params->GetYCoord()];
