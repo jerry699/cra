@@ -30,6 +30,9 @@ enum TranslationHUD {
         panel.hasShadow = true
         panel.level = .floating
         panel.isMovableByWindowBackground = true
+        // The HUD card is dark with white text: force dark appearance or a light-mode system
+        // renders the material light and the white text vanishes.
+        panel.appearance = NSAppearance(named: .darkAqua)
 
         let card = NSVisualEffectView(frame: NSRect(origin: .zero, size: panel.frame.size))
         card.material = .hudWindow
@@ -73,9 +76,9 @@ enum TranslationHUD {
         self.panel = panel
 
         // Click anywhere dismisses; a local click monitor sees clicks outside too.
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { _ in
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { event in
             dismiss()
-            return nil
+            return event  // pass through: dismissing must not swallow the user's click
         }
         let globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
             dismiss()
