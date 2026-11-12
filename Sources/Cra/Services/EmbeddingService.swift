@@ -25,10 +25,8 @@ final class EmbeddingService {
     private var building = false
 
     static var modelURL: URL? {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Cra", isDirectory: true).appendingPathComponent("Models", isDirectory: true)
-        let url = dir.appendingPathComponent(Self.modelFileName)
-        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        // Same Models folder the other catalog models live in (MaxLocal.modelsDirectory).
+        MaxLocal.modelsDirectory?.appendingPathComponent(Self.modelFileName)
     }
 
     static var helperURL: URL? { MaxLocal.helperURL }

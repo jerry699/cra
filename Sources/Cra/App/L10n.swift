@@ -17,10 +17,13 @@ enum L10n {
 
     static let defaultsKey = "interfaceLanguage"
 
-    /// The chosen language, "en" unless the user picked another one. Read on
-    /// every call so a Settings change takes effect without a launch.
+    /// The chosen language. Unset = follow the system (zh systems get zh-Hans, everyone
+    /// else English); the user's pick in Settings overrides. Read on every call so a
+    /// Settings change takes effect without a relaunch.
     static var language: String {
-        UserDefaults.standard.string(forKey: defaultsKey) ?? "en"
+        if let picked = UserDefaults.standard.string(forKey: defaultsKey) { return picked }
+        let preferred = Locale.preferredLanguages.first ?? "en"
+        return preferred.hasPrefix("zh") ? "zh-Hans" : "en"
     }
 
     private static let lock = NSLock()

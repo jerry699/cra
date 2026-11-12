@@ -91,7 +91,18 @@ public enum ModelCatalog {
         sha256: "b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897",
         capabilities: [.titles, .tabs])
 
-    public static let all = [twoB, pointEightB]
+    /// Embedding model for semantic history search (helper op 4): Qwen3-Embedding pools LAST,
+    /// so the helper needs the explicit pooling hint — see EmbeddingService.poolingType.
+    public static let embedding06B = LocalModel(
+        id: "qwen3-embedding-0.6b-q8_0",
+        name: "Qwen3-Embedding 0.6B",
+        fileName: "Qwen3-Embedding-0.6B-Q8_0.gguf",
+        repository: "Qwen/Qwen3-Embedding-0.6B-GGUF",
+        bytes: 639_150_592,
+        sha256: "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
+        capabilities: [.titles, .tabs])
+
+    public static let all = [twoB, pointEightB, embedding06B]
 
     public static func model(id: String) -> LocalModel? {
         all.first { $0.id == id }
