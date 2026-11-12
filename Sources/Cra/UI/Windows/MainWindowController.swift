@@ -1679,7 +1679,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
     /// W1 selection translation: the selected text goes to the local 1.7B (op 0), and the
     /// translation lands in a toast — nothing leaves the Mac.
     func browserManagerTranslateSelection(_ text: String, tabID: UUID) {
-        guard tabID == browsers.visibleTabID, !text.isEmpty else { return }
+        guard tabID == browsers.visibleTabID, !text.isEmpty, let window else { return }
         let instructions = TidyTranslate.instructions(for: text)
         let original = text
         Task { @MainActor in
@@ -1693,7 +1693,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 showToast(L10n.tr("Translation failed — the local model had no answer"))
                 return
             }
-            showToast(translation, keyCap: nil)
+            // Multi-line translations don't fit a one-line toast: the HUD card shows both
+            // sides, and the translation lands in the clipboard for pasting.
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(translation, forType: .string)
+            TranslationHUD.show(translation, original: original, in: window)
         }
     }
 

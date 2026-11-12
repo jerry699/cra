@@ -95,6 +95,7 @@ static CefString CefStringFromNS(NSString* s) {
 
 // The two "open link" items on a page's context menu, from CraCore's LinkMenu (GitHub #183).
 static NSString* g_linkMenuTitle = @"Open Link in New Tab";
+static NSString* g_translateSelectionTitle = nil;  // nil keeps the English fallback
 static BOOL g_linkMenuBackground = YES;
 static NSString* _Nullable (^g_imageSearchTitle)(NSString*) = nil;
 
@@ -1745,7 +1746,8 @@ public:
         const std::string selection = params->GetSelectionText();
         if (!selection.empty() && !params->IsEditable()) {
             int copyIdx = model->GetIndexOf(IDC_CONTENT_CONTEXT_COPY);
-            if (copyIdx >= 0) model->InsertItemAt(copyIdx + 1, kMenuTranslateSelection, "Translate Selection");
+            NSString* title = g_translateSelectionTitle ?: @"Translate Selection";
+            if (copyIdx >= 0) model->InsertItemAt(copyIdx + 1, kMenuTranslateSelection, title.UTF8String);
         }
         int search = model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFOR), copy = model->GetIndexOf(IDC_CONTENT_CONTEXT_COPY);
         if (params->GetLinkUrl().empty() && !params->IsEditable() && search > copy && copy >= 0) {
@@ -2830,6 +2832,9 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
 + (void)setLinkMenuTitle:(NSString*)title opensInBackground:(BOOL)background {
     g_linkMenuTitle = [title copy];
     g_linkMenuBackground = background;
+}
++ (void)setTranslateSelectionTitle:(NSString*)title {
+    g_translateSelectionTitle = [title copy];
 }
 + (nullable NSString*)chromiumString:(CraChromiumString)string {
     int ids = string == CraChromiumStringOpenLinkInNewTab ? IDS_CONTENT_CONTEXT_OPENLINKNEWTAB

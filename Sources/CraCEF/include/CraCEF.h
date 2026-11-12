@@ -309,6 +309,8 @@ typedef NS_ENUM(NSInteger, CraChromiumString) {
 /// The "Open Link in New Tab" item at the top of a page's context menu: its title and whether it
 /// opens its tab in the background. Read when a menu opens.
 + (void)setLinkMenuTitle:(NSString *)title opensInBackground:(BOOL)background;
+/// The fork's selection-translation menu title, localized by the app's language.
++ (void)setTranslateSelectionTitle:(NSString *)title;
 /// One of Chromium's strings in the language Chromium runs in, as its resource bundle has it
 /// (`$1` where a name goes, `&` before a mnemonic); nil before CEF is up.
 + (nullable NSString *)chromiumString:(CraChromiumString)string;
