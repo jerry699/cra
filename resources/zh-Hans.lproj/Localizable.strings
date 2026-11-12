@@ -756,3 +756,7 @@
 
 /* ═══ D2 · 语义搜索（2026-11-12）═══ */
 "Semantic match" = "语义匹配";
+
+/* ═══ W1 · 划选翻译（2026-11-13）═══ */
+"Translate Selection" = "翻译选中文字";
+"Translation failed — the local model had no answer" = "翻译失败——本地模型没有给出答案";

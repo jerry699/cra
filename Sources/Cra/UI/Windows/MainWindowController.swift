@@ -1676,6 +1676,27 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         return true
     }
 
+    /// W1 selection translation: the selected text goes to the local 1.7B (op 0), and the
+    /// translation lands in a toast — nothing leaves the Mac.
+    func browserManagerTranslateSelection(_ text: String, tabID: UUID) {
+        guard tabID == browsers.visibleTabID, !text.isEmpty else { return }
+        let instructions = TidyTranslate.instructions(for: text)
+        let original = text
+        Task { @MainActor in
+            let answer = await LocalInference.shared.ask(
+                system: instructions, user: TidyTranslate.prompt(original),
+                grammar: nil, maxTokens: 256, context: 2048,
+                timeout: 60, threads: 4,
+                helper: MaxLocal.helperURL ?? URL(fileURLWithPath: "/usr/bin/false"),
+                model: MaxLocal.modelURL ?? URL(fileURLWithPath: "/dev/null"))
+            guard let translation = TidyTranslate.clean(answer ?? "", original: original) else {
+                showToast(L10n.tr("Translation failed — the local model had no answer"))
+                return
+            }
+            showToast(translation, keyCap: nil)
+        }
+    }
+
     func browserManagerCaptureImage(at point: NSPoint, tabID: UUID) {
         guard tabID == browsers.visibleTabID else { return }
         capturePage(liftImageAt: point)

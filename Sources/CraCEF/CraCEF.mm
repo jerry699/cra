@@ -139,6 +139,7 @@ enum CraMenuCommand {
     kMenuOpenImageInNewTab,
     kMenuCopyImageURL,
     kMenuPictureInPicture,
+    kMenuTranslateSelection,
 };
 
 // MARK: - Downloads
@@ -1738,6 +1739,14 @@ public:
         int before = translate - 1;
         while (before >= 0 && model->GetTypeAt(before) != MENUITEMTYPE_SEPARATOR && !model->IsVisibleAt(before)) before--;
         if (translate > 0 && before >= 0 && model->GetTypeAt(before) == MENUITEMTYPE_SEPARATOR) model->RemoveAt(before);
+        // The fork's selection translation: a Translate item when the page has a selection
+        // (Chromium's own Translate item is the full-page engine toggle; ours is the local
+        // model's selection translation — see BrowserManager's translation handler).
+        const std::string selection = params->GetSelectionText();
+        if (!selection.empty() && !params->IsEditable()) {
+            int copyIdx = model->GetIndexOf(IDC_CONTENT_CONTEXT_COPY);
+            if (copyIdx >= 0) model->InsertItemAt(copyIdx + 1, kMenuTranslateSelection, "Translate Selection");
+        }
         int search = model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFOR), copy = model->GetIndexOf(IDC_CONTENT_CONTEXT_COPY);
         if (params->GetLinkUrl().empty() && !params->IsEditable() && search > copy && copy >= 0) {
             CefString label = model->GetLabelAt(search);
@@ -1832,6 +1841,9 @@ public:
             case IDC_CONTENT_CONTEXT_INSPECTELEMENT:
             case kMenuInspectElement:
                 [o showDevToolsInspectingPoint:NSMakePoint(params->GetXCoord(), params->GetYCoord())];
+                return true;
+            case kMenuTranslateSelection:
+                [o.delegate browser:o requestsTranslationOfSelectedText:NSStringFromCef(params->GetSelectionText())];
                 return true;
             case kMenuPictureInPicture:
                 [o requestPictureInPictureInFrame:frame automatic:NO x:params->GetXCoord() y:params->GetYCoord()];
