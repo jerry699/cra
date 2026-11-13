@@ -1687,6 +1687,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         let screenPoint = NSPoint(x: pageRect.minX + point.x, y: pageRect.maxY - point.y)
         let instructions = TidyTranslate.instructions(for: text)
         let original = text
+        // The yellow highlight and the bubble land NOW: the model can take a while on a
+        // loaded Mac, and the user's selection may be gone by the time it answers.
+        let token = TranslationHUD.begin(original: original, near: screenPoint, in: window, page: rt.browser)
         Task { @MainActor in
             let answer = await LocalInference.shared.ask(
                 system: instructions, user: TidyTranslate.prompt(original),
@@ -1695,14 +1698,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                 helper: MaxLocal.helperURL ?? URL(fileURLWithPath: "/usr/bin/false"),
                 model: MaxLocal.modelURL ?? URL(fileURLWithPath: "/dev/null"))
             guard let translation = TidyTranslate.clean(answer ?? "", original: original) else {
-                showToast(L10n.tr("Translation failed — the local model had no answer"))
+                TranslationHUD.fail(token: token)
                 return
             }
-            // Multi-line translations don't fit a one-line toast: the HUD card shows both
-            // sides, and the translation lands in the clipboard for pasting.
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(translation, forType: .string)
-            TranslationHUD.show(translation, original: original, near: screenPoint, in: window)
+            TranslationHUD.finish(translation, token: token)
         }
     }
 
