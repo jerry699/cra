@@ -118,6 +118,9 @@ typedef NS_ENUM(NSInteger, CraChromiumString) {
 /// The user picked "Translate Selection" in the page menu: the selected text, for the local
 /// model's translation (the fork's W1; nothing leaves the Mac).
 - (void)browser:(CraBrowser *)browser requestsTranslationOfSelectedText:(NSString *)text atPoint:(NSPoint)point;
+/// The user picked "Distill Media" in the page menu (the fork's W2-C): the page's audio/video
+/// gets transcribed and summarized on this Mac into a note.
+- (void)browserDidRequestDistillationOfPageMedia:(CraBrowser *)browser;
 /// A video of this page entered or left Chromium's Picture in Picture window
 /// (whether the page, the user or Cra asked for it).
 - (void)browser:(CraBrowser *)browser didChangePictureInPicture:(BOOL)active;
@@ -311,6 +314,8 @@ typedef NS_ENUM(NSInteger, CraChromiumString) {
 + (void)setLinkMenuTitle:(NSString *)title opensInBackground:(BOOL)background;
 /// The fork's selection-translation menu title, localized by the app's language.
 + (void)setTranslateSelectionTitle:(NSString *)title;
+/// The fork's media-distillation menu title, localized by the app's language.
++ (void)setDistillMediaTitle:(NSString *)title;
 /// One of Chromium's strings in the language Chromium runs in, as its resource bundle has it
 /// (`$1` where a name goes, `&` before a mnemonic); nil before CEF is up.
 + (nullable NSString *)chromiumString:(CraChromiumString)string;
@@ -430,6 +435,10 @@ typedef NS_ENUM(NSInteger, CraChromiumString) {
 + (void)fetchURL:(NSString *)url headers:(nullable NSDictionary<NSString *, NSString *> *)headers
      profilePath:(nullable NSString *)profilePath
       completion:(void (^)(NSInteger status, NSString *finalURL, NSString *mimeType, NSString *body))completion;
+/// fetchURL for binary bodies (the fork's W2-C): the body as NSData, on the main queue.
++ (void)fetchBinaryURL:(NSString *)url headers:(nullable NSDictionary<NSString *, NSString *> *)headers
+           profilePath:(nullable NSString *)profilePath
+            completion:(void (^)(NSInteger status, NSString *finalURL, NSData *body))completion;
 /// Same, inside an attached target's session (Target.attachToTarget with flatten).
 + (void)sendBrowserDevToolsMethod:(NSString *)method params:(NSString *)params sessionID:(nullable NSString *)sessionID
                        completion:(void (^)(NSString * _Nullable result, NSString * _Nullable error))completion;

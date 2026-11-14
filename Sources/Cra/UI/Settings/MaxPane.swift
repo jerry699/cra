@@ -108,6 +108,31 @@ struct MaxPane: View {
                                                             set: { TidyTabsService.setAutoTidyEnabled($0) }))
                         .toggleStyle(.switch).labelsHidden()
                 }
+                SettingsCardDivider()
+                SettingsCardRow {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Distill notes").font(.system(size: 13))
+                        Text("Notes from 蒸馏音视频 land here as Markdown.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(MediaDistillService.notesDirectory.path)
+                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
+                } trailing: {
+                    Button("Choose…") {
+                        let picker = NSOpenPanel()
+                        picker.canChooseDirectories = true
+                        picker.canChooseFiles = false
+                        picker.canCreateDirectories = true
+                        picker.directoryURL = MediaDistillService.notesDirectory
+                        picker.message = "Choose the folder distilled notes land in (e.g. an Obsidian vault)"
+                        if picker.runModal() == .OK, let url = picker.url {
+                            UserDefaults.standard.set(url.path, forKey: "notesDirectory")
+                        }
+                    }
+                    .controlSize(.small)
+                }
                 ForEach(ModelCatalog.all) { model in
                     SettingsCardDivider()
                     SettingsCardRow {

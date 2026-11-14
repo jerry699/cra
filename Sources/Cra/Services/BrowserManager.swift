@@ -92,6 +92,8 @@ protocol BrowserManagerDelegate: AnyObject {
     func browserManagerOpenLinkInSplit(_ url: String, fromTab tabID: UUID)
     /// The page's context menu on an image: Capture Image… (page points from the top left).
     func browserManagerTranslateSelection(_ text: String, tabID: UUID, atPoint point: NSPoint)
+    /// The page's context menu: Distill Media — the page's audio/video into a local note (W2-C).
+    func browserManagerDistillPageMedia(tabID: UUID)
     func browserManagerCaptureImage(at point: NSPoint, tabID: UUID)
 }
 
@@ -1351,6 +1353,11 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
     func browser(_ browser: CraBrowser, requestsTranslationOfSelectedText text: String, at point: NSPoint) {
         guard let id = tabID(of: browser) else { return }
         delegate?.browserManagerTranslateSelection(text, tabID: id, atPoint: point)
+    }
+
+    func browserDidRequestDistillation(ofPageMedia browser: CraBrowser) {
+        guard let id = tabID(of: browser) else { return }
+        delegate?.browserManagerDistillPageMedia(tabID: id)
     }
 
     func browser(_ browser: CraBrowser, requestsCaptureOfImageAt point: NSPoint) {

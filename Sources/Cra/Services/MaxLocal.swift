@@ -374,7 +374,14 @@ actor LocalInference {
         let status = header[4]
         let length = Int(Self.uint32(header, at: 8))
         let body = length > 0 ? try read(length) : Data()
-        guard status == 0, let answer = String(data: body, encoding: .utf8), !answer.isEmpty else { return nil }
+        guard status == 0, let answer = String(data: body, encoding: .utf8), !answer.isEmpty else {
+            // A status-1 reply is the helper declining (a failed load, an empty generation);
+            // its diagnostics live in the stderr file. Silent nil here cost a day of debugging
+            // (the distill summary): quote both.
+            CraLog.note(String(format: "Max Local: the model replied status %d, %d bytes; stderr: %@",
+                               status, body.count, recentStderr().suffix(600)))
+            return nil
+        }
         return answer
     }
 

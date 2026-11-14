@@ -760,3 +760,20 @@
 /* ═══ W1 · 划选翻译（2026-11-13）═══ */
 "Translate Selection" = "翻译选中文字";
 "Translation failed — the local model had no answer" = "翻译失败——本地模型没有给出答案";
+
+/* ═══ Auto Tidy · 完成提示（2026-11-13）═══ */
+"Auto-tidied %d tabs" = "已自动整理 %d 个标签页";
+
+/* ═══ W2-C · 页面媒体蒸馏（2026-11-13）═══ */
+"Distill Media" = "蒸馏音视频";
+"Distilling this page's media…" = "正在蒸馏此页面的音视频…";
+"No audio or video found on this page" = "页面上没有找到音视频";
+"Could not fetch the page's media" = "媒体拉取失败";
+"Could not transcribe the media's audio" = "转写失败——无法解码该媒体的音频";
+"The transcription model is not downloaded yet" = "转写模型还没有下载";
+
+/* ═══ W2-C · 设置项（2026-11-14）═══ */
+"Distill notes" = "蒸馏笔记";
+"Choose…" = "选择…";
+"The video is still loading — try again in a moment" = "视频还在加载——稍等几秒再试一次";
+"This video has no speech to distill (music or silence)" = "这个视频没有人声——纯音乐或静音，没有可蒸馏的内容";

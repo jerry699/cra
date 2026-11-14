@@ -341,6 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let item = LinkMenu.item(switchesToTab: switches, newTabTitle: newTab)
             CraCEFRuntime.setLinkMenuTitle(item.title, opensInBackground: item.opensInBackground)
             CraCEFRuntime.setTranslateSelectionTitle(L10n.tr("Translate Selection"))
+            CraCEFRuntime.setDistillMediaTitle(L10n.tr("Distill Media"))
         }
         CraCEFRuntime.setImageSearchTitle { lens in
             guard let lensTemplate = CraCEFRuntime.chromiumString(.searchLensForImage),

@@ -90,6 +90,11 @@ final class EmbeddingService {
     }
 
     /// Top semantic matches for a query; the command bar merges them with its keyword rows.
+    /// Below the floor a match is the nearest neighbour of a query with no true hit ("中年
+    /// 危机" against a banking page ≈ 0.2): returning it reads as a wrong answer, so weak
+    /// matches are withheld and the keyword rows answer instead.
+    static let minimumScore: Float = 0.35
+
     func search(_ query: String, limit: Int = 5) async -> [(url: String, title: String, score: Float)] {
         guard indexLoaded, !index.documents.isEmpty, query.count >= 2,
               let modelURL = Self.modelURL, let helperURL = Self.helperURL else { return [] }
@@ -97,6 +102,7 @@ final class EmbeddingService {
             return []
         }
         return index.search(query: vector, limit: limit)
+            .filter { $0.score >= Self.minimumScore }
             .map { (url: $0.document.url, title: $0.document.title, score: $0.score) }
     }
 

@@ -133,7 +133,9 @@ final class TidyTabsService {
 
     /// The Tidy button: ask the model about the space's loose Today tabs and apply its answer.
     /// Pressed again while it works, it cancels: the local 2B takes a minute or more per stage.
-    func tidy(_ sid: UUID, store: SidebarStore) {
+    /// `auto` marks the poller's own runs — they announce themselves in the divider, or the
+    /// user only ever sees the broom and never learns the tidying was automatic.
+    func tidy(_ sid: UUID, store: SidebarStore, auto: Bool = false) {
         if store.tidyingSpaces.contains(sid) {
             cancelTidy(sid, store: store)
             return
@@ -208,6 +210,11 @@ final class TidyTabsService {
             }
             // The list slides the tabs under their new headers (SpaceListView.placeViews).
             store.applyTidy(TidyTabs.plan(proposals, tabCount: tabs.count, existingGroups: groups), tabIDs: ids, in: sid)
+            // An automatic run says so in the divider — otherwise the tidying is invisible
+            // and the broom reads like the only thing that ever triggers it.
+            if auto {
+                store.setTidyNotice(sid, L10n.tr(String(format: "Auto-tidied %d tabs", tabs.count)), seconds: 8)
+            }
         }
         tidyRuns[sid] = Run(task: task, store: store)
     }
@@ -256,7 +263,7 @@ final class TidyTabsService {
             if auto, cooled, offers(space.id, store: store) {
                 CraLog.note(String(format: "Auto Tidy: %d loose tabs in %@ — running", loose, space.id.uuidString))
                 lastAutoTidy[space.id] = Date()
-                tidy(space.id, store: store)
+                tidy(space.id, store: store, auto: true)
             } else if !auto, cooled, offers(space.id, store: store) {
                 store.setTidyNotice(space.id, String(format: "%d tabs — the broom can tidy", loose))
             }

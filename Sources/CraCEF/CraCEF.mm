@@ -96,6 +96,7 @@ static CefString CefStringFromNS(NSString* s) {
 // The two "open link" items on a page's context menu, from CraCore's LinkMenu (GitHub #183).
 static NSString* g_linkMenuTitle = @"Open Link in New Tab";
 static NSString* g_translateSelectionTitle = nil;  // nil keeps the English fallback
+static NSString* g_distillMediaTitle = nil;  // nil keeps the English fallback
 static BOOL g_linkMenuBackground = YES;
 static NSString* _Nullable (^g_imageSearchTitle)(NSString*) = nil;
 
@@ -141,6 +142,7 @@ enum CraMenuCommand {
     kMenuCopyImageURL,
     kMenuPictureInPicture,
     kMenuTranslateSelection,
+    kMenuDistillMedia,
 };
 
 // MARK: - Downloads
@@ -860,6 +862,44 @@ private:
     CraFetchCompletion completion_;
     std::string body_;
     IMPLEMENT_REFCOUNTING(FetchClient);
+};
+
+typedef void (^CraBinaryFetchCompletion)(NSInteger, NSString*, NSData*);
+
+/// FetchClient for binary bodies (the fork's W2-C: a page's audio stream). Same request
+/// shape and lifetime rules as FetchClient; the body comes back as NSData instead of a
+/// UTF-8 string, which would mangle it.
+class BinaryFetchClient : public CefURLRequestClient {
+public:
+    explicit BinaryFetchClient(CraBinaryFetchCompletion completion) : completion_([completion copy]) {}
+
+    void OnDownloadData(CefRefPtr<CefURLRequest> request, const void* data, size_t length) override {
+        body_.append(static_cast<const char*>(data), length);
+    }
+    void OnRequestComplete(CefRefPtr<CefURLRequest> request) override {
+        CefRefPtr<CefResponse> response = request->GetResponse();
+        bool ok = request->GetRequestStatus() == UR_SUCCESS && response;
+        NSInteger status = ok ? response->GetStatus() : 0;
+        NSString* finalURL = response ? NSStringFromCef(response->GetURL()) : @"";
+        if (!finalURL.length) finalURL = NSStringFromCef(request->GetRequest()->GetURL());
+        NSData* body = [[NSData alloc] initWithBytes:body_.data() length:body_.size()];
+        CraBinaryFetchCompletion done = completion_;
+        completion_ = nil;
+        CefRefPtr<CefURLRequest> finished = request;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            FetchClient::InFlight().erase(finished);
+            if (done) done(status, finalURL, body);
+        });
+    }
+    void OnUploadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
+    void OnDownloadProgress(CefRefPtr<CefURLRequest> request, int64_t current, int64_t total) override {}
+    bool GetAuthCredentials(bool isProxy, const CefString& host, int port, const CefString& realm, const CefString& scheme,
+                            CefRefPtr<CefAuthCallback> callback) override { return false; }
+
+private:
+    CraBinaryFetchCompletion completion_;
+    std::string body_;
+    IMPLEMENT_REFCOUNTING(BinaryFetchClient);
 };
 
 // MARK: - DevTools client
@@ -1706,7 +1746,7 @@ public:
     // Alloy-style pages (Chrome engine off) get CEF's short menu with Cra's few items added.
     void OnBeforeContextMenu(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                              CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model) override {
-        if (browser->GetHost()->GetRuntimeStyle() == CEF_RUNTIME_STYLE_CHROME) MakeArcMenu(params, model);
+        if (browser->GetHost()->GetRuntimeStyle() == CEF_RUNTIME_STYLE_CHROME) MakeArcMenu(params, model, frame);
         else AddAlloyItems(params, model);
     }
 
@@ -1717,7 +1757,7 @@ public:
     // - selected text: Search <engine> for "…" comes before Copy (not with a link).
     // - image: Capture Image… after Save Image As…, and Search <engine> for Image where Chromium
     //   156 has Google Lens's "Search image with <engine>"; video: no frame search.
-    void MakeArcMenu(CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model) {
+    void MakeArcMenu(CefRefPtr<CefContextMenuParams> params, CefRefPtr<CefMenuModel> model, CefRefPtr<CefFrame> frame) {
         int newTab = model->GetIndexOf(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB);
         if (newTab >= 0) {
             model->RemoveAt(newTab);
@@ -1748,6 +1788,15 @@ public:
             int copyIdx = model->GetIndexOf(IDC_CONTENT_CONTEXT_COPY);
             NSString* title = g_translateSelectionTitle ?: @"Translate Selection";
             if (copyIdx >= 0) model->InsertItemAt(copyIdx + 1, kMenuTranslateSelection, title.UTF8String);
+        }
+        // The fork's media distillation (W2-C): distill this page's audio/video into a note.
+        // HTTP(S) pages only — there is nothing to distill on cra:// or blank tabs.
+        if (!params->IsEditable() && [NSStringFromCef(frame->GetURL()) hasPrefix:@"http"]) {
+            int translateIdx = model->GetIndexOf(kMenuTranslateSelection);
+            int anchorIdx = translateIdx >= 0 ? translateIdx : model->GetIndexOf(IDC_CONTENT_CONTEXT_COPY) + 1;
+            NSString* distillTitle = g_distillMediaTitle ?: @"Distill Media";
+            if (anchorIdx >= 0 && anchorIdx < model->GetCount())
+                model->InsertItemAt(anchorIdx + 1, kMenuDistillMedia, distillTitle.UTF8String);
         }
         int search = model->GetIndexOf(IDC_CONTENT_CONTEXT_SEARCHWEBFOR), copy = model->GetIndexOf(IDC_CONTENT_CONTEXT_COPY);
         if (params->GetLinkUrl().empty() && !params->IsEditable() && search > copy && copy >= 0) {
@@ -1847,6 +1896,9 @@ public:
             case kMenuTranslateSelection:
                 [o.delegate browser:o requestsTranslationOfSelectedText:NSStringFromCef(params->GetSelectionText())
                             atPoint:NSMakePoint(params->GetXCoord(), params->GetYCoord())];
+                return true;
+            case kMenuDistillMedia:
+                [o.delegate browserDidRequestDistillationOfPageMedia:o];
                 return true;
             case kMenuPictureInPicture:
                 [o requestPictureInPictureInFrame:frame automatic:NO x:params->GetXCoord() y:params->GetYCoord()];
@@ -2837,6 +2889,9 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
 + (void)setTranslateSelectionTitle:(NSString*)title {
     g_translateSelectionTitle = [title copy];
 }
++ (void)setDistillMediaTitle:(NSString*)title {
+    g_distillMediaTitle = [title copy];
+}
 + (nullable NSString*)chromiumString:(CraChromiumString)string {
     int ids = string == CraChromiumStringOpenLinkInNewTab ? IDS_CONTENT_CONTEXT_OPENLINKNEWTAB
         : string == CraChromiumStringSearchLensForImage ? IDS_CONTENT_CONTEXT_SEARCHLENSFORIMAGE
@@ -3134,6 +3189,35 @@ static void MarkProfileExitedCleanly(NSString* profileDir) {
     CefRefPtr<CefRequestContext> context = profilePath.length ? ProfileContext(profilePath) : CefRequestContext::GetGlobalContext();
     CefRefPtr<CefURLRequest> r = CefURLRequest::Create(request, new FetchClient(completion), context);
     if (r) FetchClient::InFlight().insert(r); else completion(0, url, @"", @"");
+}
+// The fork's W2-C: fetchURL for binary bodies (a page's audio stream). Same request shape
+// as fetchURL (stored cookies, first-party = the URL); `headers` carries Referer/UA.
++ (void)fetchBinaryURL:(NSString*)url headers:(NSDictionary<NSString*, NSString*>*)headers profilePath:(NSString*)profilePath
+            completion:(void (^)(NSInteger, NSString*, NSData*))completion {
+    [self fetchBinaryURL:url headers:headers profilePath:profilePath attempt:0 completion:completion];
+}
++ (void)fetchBinaryURL:(NSString*)url headers:(NSDictionary<NSString*, NSString*>*)headers profilePath:(NSString*)profilePath
+               attempt:(int)attempt completion:(void (^)(NSInteger, NSString*, NSData*))completion {
+    BOOL ready = g_contextInitialized && (!profilePath.length || (ProfileContext(profilePath), [g_readyProfiles containsObject:profilePath]));
+    if (!ready) {
+        if (attempt >= 60) { completion(0, url, nil); return; }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self fetchBinaryURL:url headers:headers profilePath:profilePath attempt:attempt + 1 completion:completion];
+        });
+        return;
+    }
+    CefRefPtr<CefRequest> request = CefRequest::Create();
+    request->SetURL(CefStringFromNS(url));
+    request->SetMethod("GET");
+    request->SetFlags(UR_FLAG_ALLOW_STORED_CREDENTIALS | UR_FLAG_SKIP_CACHE);
+    request->SetFirstPartyForCookies(CefStringFromNS(url));
+    CefRequest::HeaderMap map;
+    for (NSString* name in headers) map.insert({CefStringFromNS(name), CefStringFromNS(headers[name])});
+    request->SetHeaderMap(map);
+    CefRefPtr<CefRequestContext> context = profilePath.length ? ProfileContext(profilePath) : CefRequestContext::GetGlobalContext();
+    auto* client = new BinaryFetchClient(completion);
+    CefRefPtr<CefURLRequest> r = CefURLRequest::Create(request, client, context);
+    if (r) FetchClient::InFlight().insert(r); else completion(0, url, nil);
 }
 + (void)sendBrowserDevToolsMethod:(NSString*)method params:(NSString*)params sessionID:(NSString*)sessionID
                        completion:(void (^)(NSString* _Nullable, NSString* _Nullable))completion {

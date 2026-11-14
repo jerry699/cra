@@ -68,6 +68,10 @@ enum WhisperService {
 
     /// Decodes the media's audio track to a 16 kHz mono float32 WAV (whisper's input format)
     /// via AVFoundation — mp4/mov/m4a/mp3 all decode natively, no ffmpeg dependency.
+    /// AVAssetReaderTrackOutput with int16, NOT AVAssetReaderAudioMixOutput with float32:
+    /// the mix output decodes some B站 m4s streams to ALL-ZERO samples (a silent 100 %
+    /// "successful" read that transcribes to nothing but "(音樂)" — the user's bug), while
+    /// the plain track output reads the same file loud and clear.
     static func decodeToWav(mediaURL: URL, wavURL: URL) -> Bool {
         let asset = AVURLAsset(url: mediaURL)
         guard let track = asset.tracks(withMediaType: .audio).first else { return false }
@@ -75,13 +79,13 @@ enum WhisperService {
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: 16000,
             AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 32,
-            AVLinearPCMIsFloatKey: true,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsNonInterleaved: false,
             AVLinearPCMIsBigEndianKey: false,
         ]
         guard let reader = try? AVAssetReader(asset: asset),
-              let output = try? AVAssetReaderAudioMixOutput(audioTracks: [track], audioSettings: settings)
+              let output = try? AVAssetReaderTrackOutput(track: track, outputSettings: settings)
         else { return false }
         reader.add(output)
         guard reader.startReading() else { return false }
@@ -94,12 +98,25 @@ enum WhisperService {
                 CMBlockBufferGetDataPointer(block, atOffset: 0, lengthAtOffsetOut: nil,
                                             totalLengthOut: &length, dataPointerOut: &ptr)
                 if let ptr, length > 0 {
-                    let frames = length / MemoryLayout<Float>.size
-                    ptr.withMemoryRebound(to: Float.self, capacity: frames) {
-                        samples.append(contentsOf: UnsafeBufferPointer(start: $0, count: frames))
+                    let frames = length / MemoryLayout<Int16>.size
+                    ptr.withMemoryRebound(to: Int16.self, capacity: frames) {
+                        for v in UnsafeBufferPointer(start: $0, count: frames) {
+                            samples.append(Float(v) / 32768.0)
+                        }
                     }
                 }
             }
+        }
+        // A truncated download decodes to a few seconds of BGM and a transcript of nothing
+        // but "(音樂)" — compare what decoded against what the container claims and refuse
+        // a partial read (the distill flow then falls back to re-fetching).
+        let expected = CMTimeGetSeconds(asset.duration)
+        let decoded = Double(samples.count) / 16000.0
+        CraLog.note(String(format: "Whisper: decoded %.1fs of %.1fs audio (%.0f%%)",
+                           decoded, expected, expected > 0 ? decoded / expected * 100 : 0))
+        if expected > 4, decoded < expected * 0.9 {
+            CraLog.note("Whisper: the audio decoded only partially — the download is probably truncated")
+            return false
         }
         guard !samples.isEmpty else { return false }
         return writeWav(samples: samples, sampleRate: 16000, to: wavURL)
@@ -113,7 +130,7 @@ enum WhisperService {
         func append(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
         func append(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
         append("RIFF"); append(byteCount + 36); append("WAVE")
-        append("fmt "); append(UInt32(16)); append(UInt16(1)); append(UInt16(1))
+        append("fmt "); append(UInt32(16)); append(UInt16(3)); append(UInt16(1))
         append(UInt32(sampleRate)); append(UInt32(sampleRate * 4))
         append(UInt16(4)); append(UInt16(32))
         append("data"); append(byteCount)

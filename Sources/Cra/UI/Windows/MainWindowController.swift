@@ -1705,6 +1705,41 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         }
     }
 
+    /// W2-C: distill this page's audio/video into a local note — right-click "Distill Media".
+    func browserManagerDistillPageMedia(tabID: UUID) {
+        guard tabID == browsers.visibleTabID, let window else { return }
+        guard let rt = browsers.visibleRuntime else { return }
+        guard let item = store.item(tabID), let pageURL = item.tab?.url, !pageURL.isEmpty else { return }
+        let pageTitle = item.displayTitle
+        // The status card replaces the fire-and-forget toast: a silent minute-long run read
+        // as "nothing happened" (user report). It stays up through every phase and lingers
+        // 8 s on the outcome.
+        DistillStatusHUD.show("准备中")
+        Task { @MainActor in
+            let outcome = await MediaDistillService.distill(browser: rt.browser, pageURL: pageURL,
+                                                            pageTitle: pageTitle,
+                                                            progress: { DistillStatusHUD.phase($0) })
+            switch outcome {
+            case .saved(let url):
+                DistillStatusHUD.finish(url.lastPathComponent)
+            case .noMedia:
+                DistillStatusHUD.finish(L10n.tr("No audio or video found on this page"), failed: true)
+            case .pageStillLoading:
+                DistillStatusHUD.finish(L10n.tr("The video is still loading — try again in a moment"), failed: true)
+            case .noSpeech:
+                DistillStatusHUD.finish(L10n.tr("This video has no speech to distill (music or silence)"), failed: true)
+            case .fetchFailed:
+                DistillStatusHUD.finish(L10n.tr("Could not fetch the page's media"), failed: true)
+            case .decodeFailed:
+                DistillStatusHUD.finish(L10n.tr("Could not transcribe the media's audio"), failed: true)
+            case .noModel:
+                DistillStatusHUD.finish(L10n.tr("The transcription model is not downloaded yet"), failed: true)
+            case .noAnswer:
+                DistillStatusHUD.finish(L10n.tr("Translation failed — the local model had no answer"), failed: true)
+            }
+        }
+    }
+
     func browserManagerCaptureImage(at point: NSPoint, tabID: UUID) {
         guard tabID == browsers.visibleTabID else { return }
         capturePage(liftImageAt: point)
