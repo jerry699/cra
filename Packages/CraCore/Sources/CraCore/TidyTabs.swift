@@ -200,10 +200,11 @@ public struct TidyPreferences: Codable, Equatable, Sendable {
         return confirmed.first(where: { host == $0.domain || host.hasSuffix("." + $0.domain) })?.group
     }
 
-    public struct DomainRule: Codable, Equatable, Sendable {
+    public struct DomainRule: Codable, Equatable, Identifiable, Sendable {
         public var domain: String
         public var group: String
         public var count: Int
+        public var id: String { domain }
         public init(domain: String, group: String, count: Int) {
             self.domain = domain
             self.group = group
@@ -226,6 +227,18 @@ public struct TidyPreferences: Codable, Equatable, Sendable {
     /// new one (the rename re-teaches the model, it doesn't fight it).
     public mutating func remapGroup(old: String, new: String) {
         for i in entries.indices where entries[i].group == old { entries[i].group = new }
+    }
+
+    /// Settings ▸ Max "clear": drops every learned rule (P5 记忆治理 — viewable and
+    /// clearable, never silently accumulating).
+    public mutating func clearAll() {
+        entries = []
+        domains = nil
+    }
+
+    /// Deletes one domain rule (per-rule management in Settings ▸ Max).
+    public mutating func deleteDomainRule(domain: String, group: String) {
+        domains?.removeAll { $0.domain == domain && $0.group == group }
     }
 
     public static func load(directory: URL, spaceID: UUID) -> TidyPreferences {

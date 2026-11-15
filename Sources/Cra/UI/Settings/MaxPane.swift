@@ -12,6 +12,57 @@ struct MaxPane: View {
     @State private var pending: PendingModelAction?
 
     /// A download or delete the user confirmed in an alert.
+
+    /// P5 用户记忆: what the tidy learned, viewable and clearable (数据治理 — memory must
+    /// never silently accumulate). Extracted from the body: Swift 6.2 type-checks the
+    /// combined expression too slowly.
+    private func userMemoryRow() -> some View {
+        SettingsCardRow {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("User memory").font(.system(size: 13))
+                let entries = memoryEntries()
+                if entries.isEmpty {
+                    Text("还没有学到的规则——手动归组几次就会积累。")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                } else {
+                    ForEach(entries) { entry in
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(entry.spaceName).font(.system(size: 11, weight: .medium))
+                            ForEach(entry.rules) { rule in
+                                Text("\(rule.domain) → \(rule.group)（\(rule.count) 次）")
+                                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                            }
+                            if entry.rules.isEmpty {
+                                Text("标题记忆 \(entry.entryCount) 条，暂无域规则")
+                                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+            }
+        } trailing: {
+            Button("Clear memory") {
+                store.clearAllMemory()
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private struct MemoryEntryView: Identifiable {
+        let id: UUID
+        let spaceName: String
+        let rules: [TidyPreferences.DomainRule]
+        let entryCount: Int
+    }
+
+    private func memoryEntries() -> [MemoryEntryView] {
+        store.memoryOverview().map { entry in
+            MemoryEntryView(id: entry.space.id, spaceName: entry.space.title,
+                            rules: entry.domains, entryCount: entry.entries)
+        }
+    }
+
     private struct PendingModelAction: Identifiable {
         enum Kind { case download, delete }
         let model: LocalModel
@@ -109,6 +160,8 @@ struct MaxPane: View {
                         .toggleStyle(.switch).labelsHidden()
                 }
                 SettingsCardDivider()
+                userMemoryRow()
+                SettingsCardDivider()
                 SettingsCardRow {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Distill notes").font(.system(size: 13))
@@ -149,6 +202,7 @@ struct MaxPane: View {
                     }
                     .controlSize(.small)
                 }
+
                 ForEach(ModelCatalog.all) { model in
                     SettingsCardDivider()
                     SettingsCardRow {

@@ -2585,6 +2585,36 @@ final class SidebarStore {
         return g.id
     }
 
+    /// P5 记忆的可视化: what the tidy learned, per live space (the user's data-governance
+    /// principle — memory must be viewable and clearable, never silently accumulating).
+    func memoryOverview() -> [(space: Space, domains: [TidyPreferences.DomainRule], entries: Int)] {
+        orderedSpaces.compactMap { space in
+            // The preferences load lazily on the first move/tidy — the settings pane must
+            // see them even in a fresh session where nothing has happened yet.
+            if preferences[space.id] == nil {
+                preferences[space.id] = TidyPreferences.load(directory: Self.preferencesDirectory, spaceID: space.id)
+            }
+            guard let prefs = preferences[space.id],
+                  prefs.entries.isEmpty == false || prefs.domainRules.isEmpty == false else { return nil }
+            return (space, prefs.domainRules, prefs.entries.count)
+        }
+    }
+
+    func clearAllMemory() {
+        for sid in preferences.keys {
+            preferences[sid]?.clearAll()
+            preferences[sid]?.save(to: Self.preferencesDirectory, spaceID: sid)
+        }
+        touch()
+    }
+
+    /// Deletes ONE domain rule (the per-rule management in Settings ▸ Max).
+    func deleteDomainRule(spaceID: UUID, domain: String, group: String) {
+        preferences[spaceID]?.deleteDomainRule(domain: domain, group: group)
+        preferences[spaceID]?.save(to: Self.preferencesDirectory, spaceID: spaceID)
+        touch()
+    }
+
     /// P3-R2 行为信号: the visible tab's URL accrues dwell seconds while the app is active —
     /// "认真看完" vs "点进去秒退", a ranking signal no embedding can fake. In-memory
     /// accumulation, saved on a slow debounce (the 3 s poll would otherwise save constantly).
