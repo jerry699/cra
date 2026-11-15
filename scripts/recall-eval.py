@@ -13,18 +13,41 @@ history = {e["url"]: e for e in json.load(open(os.path.join(C, "history.json")))
 
 # (query, expected-url-substring) — real failures and successes from user testing + derived
 CASES = [
-    ("董事长", "boc.cn"),                    # job-title word, body-only
+    # ── 原始失败案例（回归保护）──
+    ("董事长", "boc.cn"),
     ("中国银行 高级管理层", "boc.cn"),
-    ("yu7", "yu7"),                          # model code, image-heavy page
+    ("yu7", "yu7"),
     ("YU7", "yu7"),
-    ("千问办公 优惠", "qianwen"),             # promo page, desc-only
+    ("千问办公 优惠", "qianwen"),
     ("千问双11", "qianwen"),
     ("阿里云 云计算", "aliyun"),
     ("零跑汽车 参数", "leapmotor"),
-    ("开源热榜 github", "bilibili"),          # video page
+    ("开源热榜 github", "bilibili"),
     ("SoulLink Live2D 桌宠", "bilibili"),
     ("Whisper 语音转写", "bilibili"),
-    ("地图 时序", "bilibili"),                # 江山时序
+    ("地图 时序", "bilibili"),
+    # ── 高频站点（标题直查）──
+    ("哔哩哔哩", "bilibili.com"),
+    ("微博", "weibo.com"),
+    ("B站 动态", "t.bilibili.com"),
+    ("智谱 BigModel", "bigmodel.cn"),
+    ("百度一下", "baidu.com"),
+    ("阿里云 官网", "aliyun.com"),
+    ("DeepSeek 深度求索", "deepseek.com"),
+    ("百度智能云 管理中心", "console.bce.baidu.com"),
+    ("中国银行 门户", "boc.cn"),
+    ("github 项目", "github.com"),
+    ("小米 人车家", "mi.com"),
+    ("腾讯混元 3D", "hunyuan.tencent.com"),
+    ("新浪体育", "sports.sina.com.cn"),
+    # ── 正文/描述词（快照层考验）──
+    ("双11 冲锋衣 评测", "BV1yVn16XEeu"),
+    ("团长 资源 影视", "trex.tzfile.com"),
+    ("阿里云 登录", "account.aliyun.com"),
+    ("中国银行 投资者关系", "boc.cn/investor"),
+    ("百度智能云 账单", "console.bce.baidu.com"),
+    # ── 时间槽 ──
+    ("上周 零跑", "leapmotor"),
 ]
 
 def wstr(s):
