@@ -133,6 +133,22 @@ struct MaxPane: View {
                     }
                     .controlSize(.small)
                 }
+                SettingsCardDivider()
+                SettingsCardRow {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Local AI data").font(.system(size: 13))
+                        Text("语义索引是缓存：清除后从浏览历史自动重建（约 20 秒）。迁移电脑时备份历史与分类记忆即可，模型可重新下载。")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(String(format: "语义索引 %.1f MB（%d 页）", Double(EmbeddingService.shared.indexFileSize) / 1_048_576, EmbeddingService.shared.documentCount))
+                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    }
+                } trailing: {
+                    Button("清除重建") {
+                        EmbeddingService.shared.clearIndex()
+                    }
+                    .controlSize(.small)
+                }
                 ForEach(ModelCatalog.all) { model in
                     SettingsCardDivider()
                     SettingsCardRow {

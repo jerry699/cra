@@ -11,8 +11,11 @@ public enum TidyTabsTwoStage {
 
     public static let topicsInstructions = """
     You sort a person's open browser tabs into topic groups, like tidying loose papers into \
-    labelled folders. Propose three to six short topic names that together cover ALL the tabs \
-    below. Use the tab titles' own language, two to four words each, no website names.
+    labelled folders. Propose TWO to FOUR topic names that together cover ALL the tabs below \
+    — related tabs share one topic; NEVER one topic per tab. Reuse the names of groups the \
+    person already has when they fit, exactly as written; propose new names for the rest. \
+    Write every topic name in Simplified Chinese (for example "云计算", "AI 编程", "购物") — \
+    the person browses in Chinese. Two to four words each, no website names.
     """
 
     public static func assignmentsInstructions(topics: [String]) -> String {
@@ -26,10 +29,44 @@ public enum TidyTabsTwoStage {
         """
     }
 
+    /// P3-R2 single pass: name groups AND assign tab ids in one answer — the two-stage
+    /// split let stage 1 invent names and stage 2 assign independently, and the two
+    /// disagreed (the user's accuracy report). One decision, one answer.
+    public static let groupedInstructions = """
+    You sort a person's open browser tabs into topic groups. Assign EVERY tab id to exactly \
+    one group: related tabs share a group, NEVER one group per tab, never leave a tab out, \
+    and every group needs at least two tabs. Reuse the names of groups the person already \
+    has when they fit, exactly as written; name new groups yourself. Write every group name \
+    in Simplified Chinese (for example "云计算", "AI 编程", "购物") — the person browses in \
+    Chinese. Two to four groups, two to four words each, no website names.
+    """
+    
+    public static let groupedGrammar = """
+    root ::= "{" ws "\\"groups\\"" ws ":" ws "[" ws group (ws "," ws group)* ws "]" ws "}"
+    group ::= "{" "\\"name\\"" ":" ws string ws "," "\\"ids\\"" ":" ws "[" ws integer (ws "," ws integer)* ws "]" ws "}"
+    string ::= "\\"" ( [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" ([\\"/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]) )* "\\""
+    integer ::= [0-9]+
+    ws ::= [ \\t\\n]*
+    """
+    
+    struct GroupedAnswer: Decodable {
+        struct G: Decodable { let name: String; let ids: [Int] }
+        let groups: [G]
+    }
+    public static func grouped(from answer: String) -> [TidyTabs.Proposal]? {
+        guard let data = answer.data(using: .utf8),
+              let parsed = try? JSONDecoder().decode(GroupedAnswer.self, from: data) else { return nil }
+        var proposals: [TidyTabs.Proposal] = []
+        for g in parsed.groups where !g.name.isEmpty && !g.ids.isEmpty {
+            proposals.append(TidyTabs.Proposal(name: g.name, tabs: g.ids))
+        }
+        return proposals.isEmpty ? nil : proposals
+    }
+
     /// `{"topics": ["…"]}`, nothing else: what topics.gbnf allows.
     public static let topicsGrammar = """
     root ::= "{" ws "\\"topics\\"" ws ":" ws "[" ws string (ws "," ws string)* ws "]" ws "}"
-    string ::= "\\"" ( [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" (["\\\\/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]) )* "\\""
+    string ::= "\\"" ( [^"\\\\\\x7F\\x00-\\x1F] | "\\\\" ([\\"/bfnrt] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F]) )* "\\""
     ws ::= [ \\t\\n]*
     """
 

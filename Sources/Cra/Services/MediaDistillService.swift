@@ -36,11 +36,38 @@ enum MediaDistillService {
     /// address bar — the one source the user controls — and the audio is fetched from
     /// bilibili's own API for that id: same-origin fetch, cookies and Referer ride along.
     /// The live playinfo (aid-validated) and plain element srcs stay as fallbacks.
-    private static func discoverScript(bv: String?) -> String {
+    /// The BV id out of Cra's tab URL (the address bar is the user's statement of intent).
+    private static func bvFrom(_ pageURL: String) -> String? {
+        pageURL.range(of: "BV[0-9A-Za-z]{10}", options: .regularExpression)
+            .map { String(pageURL[$0]) }
+    }
+
+    private static func discoverScript(bv: String?, wantSubtitle: Bool = false) -> String {
         let literal = bv.map { "\"" + $0 + "\"" } ?? "null"
+        let wantSubs = wantSubtitle ? "true" : "false"
         return """
         (async function(){
           var bv=__BVID__;
+          var wantSubs=__WANT_SUBS__;
+          if(wantSubs){
+            // No-voiceover videos carry their content as subtitles: B站's AI track or the
+            // uploader's own CC. Same-origin fetch (cookies ride along); wbi/v2 answers
+            // unsigned from the page origin, the subtitle JSON holds {from,to,content}.
+            try{
+              var v=await(await fetch('https://api.bilibili.com/x/web-interface/view?bvid='+bv,{credentials:'include'})).json();
+              if(!v||!v.data) return "";
+              var r=await(await fetch('https://api.bilibili.com/x/player/wbi/v2?bvid='+bv+'&cid='+v.data.cid+'&aid='+v.data.aid,{credentials:'include'})).json();
+              var subs=r&&r.data&&r.data.subtitle&&r.data.subtitle.subtitles||[];
+              if(!subs.length) return "";
+              var u=subs[0].subtitle_url; if(u.indexOf('//')===0) u='https:'+u;
+              var s=await(await fetch(u,{credentials:'include'})).json();
+              var body=s.body||[];
+              return body.map(function(b){
+                var m=Math.floor(b.from/60), sec=Math.floor(b.from%60);
+                return '['+(m<10?'0':'')+m+':'+(sec<10?'0':'')+sec+'] '+b.content;
+              }).join('\\n');
+            }catch(e){ return ""; }
+          }
           if(!bv){ try{ bv=(location.pathname.match(/\\/(?:video\\/)?(BV[0-9A-Za-z]{10})/)||[])[1]||null; }catch(e){} }
           async function apiAudio(bv){
             try{
@@ -101,6 +128,7 @@ enum MediaDistillService {
         })()
         """
             .replacingOccurrences(of: "__BVID__", with: literal)
+            .replacingOccurrences(of: "__WANT_SUBS__", with: wantSubs)
     }
 
     /// What became of a distillation, for the caller's toast.
@@ -299,12 +327,13 @@ enum MediaDistillService {
 
             // Whisper blocks (a minute or more on a long video): off the main thread.
             progress(attempt == 0 ? "转写中（最久的一步）" : "转写中（重试）")
-            rawTranscript = await Task.detached(priority: .utility) {
+            let attempt = await Task.detached(priority: .utility) {
                 WhisperService.transcribe(mediaURL: file)
             }.value
+            rawTranscript = attempt
             if rawTranscript != nil { break }
         }
-        guard let rawTranscript, !rawTranscript.isEmpty else { return .decodeFailed }
+        guard var rawTranscript, !rawTranscript.isEmpty else { return .decodeFailed }
         // Music-only or silent videos transcribe to "(音樂)"/"(Music)" lines. Strip the
         // timestamps and the parenthesized non-speech markers: under ~10 chars of real
         // speech there is nothing to distill — refuse instead of writing a junk note.
@@ -314,9 +343,16 @@ enum MediaDistillService {
             let nonSpeech = t.isEmpty || (t.hasPrefix("(") && t.hasSuffix(")"))
             return count + (nonSpeech ? 0 : t.count)
         }
-        guard speech >= 10 else {
-            CraLog.note("Distill: no speech in the transcript (\(speech) chars)")
-            return .noSpeech
+        if speech < 10 {
+            // No voiceover — but the video may still carry its content as SUBTITLES (B站's
+            // AI subtitles, or the uploader's own CC track). Those are ready-made text:
+            // cheaper and more accurate than whisper. Use them as the transcript when they
+            // exist; refuse only when there is nothing at all.
+            CraLog.note("Distill: no speech in the transcript (\(speech) chars) — trying subtitles")
+            progress("获取字幕")
+            let subtitle = await evaluateInPage(pageURL: pageURL, expression: discoverScript(bv: bvFrom(pageURL), wantSubtitle: true))
+            guard let subtitle, !subtitle.isEmpty else { return .noSpeech }
+            rawTranscript = subtitle
         }
         progress("生成摘要")
 

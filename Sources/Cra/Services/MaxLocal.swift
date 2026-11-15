@@ -131,11 +131,12 @@ enum MaxLocal {
     /// straight away once the task is cancelled (the divider's Cancel) between or within stages.
     @MainActor
     static func tidyTabs(tabs: [TidyTabs.Tab], existingGroups: [String],
+                         preferences: [(title: String, group: String)] = [],
                          onStage: (@MainActor (TidyStage) -> Void)? = nil) async -> [TidyTabs.Proposal]? {
         guard canTidyTabs, !Task.isCancelled else { return nil }
         if let onStage { await onStage(.namingGroups) }
-        CraLog.note("Max Local: Tidy Tabs stage 1 (topic names)")
-        let prompt = TidyTabs.prompt(tabs: tabs, existingGroups: existingGroups)
+        CraLog.note("Max Local: Tidy Tabs grouped (single pass)")
+        let prompt = TidyTabs.prompt(tabs: tabs, existingGroups: existingGroups, preferences: preferences)
         // CRA_TIDY_DEBUG=1: a fingerprint only, so two runs can be told apart without titles in the log.
         if ProcessInfo.processInfo.environment["CRA_TIDY_DEBUG"] != nil {
             var hash: UInt64 = 0xcbf29ce484222325
@@ -143,13 +144,35 @@ enum MaxLocal {
             CraLog.note(String(format: "Max Local: Tidy Tabs prompt %d bytes, fnv %016llx",
                                prompt.utf8.count, hash))
         }
+        // P3-R2 single pass first: name groups AND assign ids in one decision — the
+        // two-stage split let the naming and the assigning disagree (the user's accuracy
+        // report). The two-stage flow stays as the fallback when the single pass fails.
+        let groupedAnswer = await ask(instructions: TidyTabsTwoStage.groupedInstructions, prompt: prompt,
+                                      grammar: TidyTabsTwoStage.groupedGrammar, maxTokens: 768,
+                                      timeout: 240)
+        guard !Task.isCancelled else { return nil }
+        if let groupedAnswer, let proposals = TidyTabsTwoStage.grouped(from: groupedAnswer) {
+            CraLog.note(String(format: "Max Local: Tidy Tabs grouped: %d groups in one pass", proposals.count))
+            return proposals
+        }
+        // Why it failed matters: a broken grammar (the helper answers WITHOUT it, in its own
+        // format) and a constrained-but-garbled answer look identical from the outside.
+        CraLog.note("Max Local: Tidy Tabs grouped pass failed — falling back to two stages")
+        if let groupedAnswer {
+            CraLog.note("Max Local: grouped raw answer: " + String(groupedAnswer.prefix(200)))
+        }
+        if let errURL = LocalInference.stderrFile, let err = try? String(contentsOf: errURL, encoding: .utf8) {
+            CraLog.note("Max Local: helper stderr tail: " + String(err.suffix(300)))
+        }
+
         let topicsAnswer = await ask(instructions: TidyTabsTwoStage.topicsInstructions, prompt: prompt,
                                      grammar: TidyTabsTwoStage.topicsGrammar, maxTokens: 128,
                                      timeout: 240)
         // A cancelled request ends its helper early; that is not a model failure worth a log line.
         guard !Task.isCancelled else { return nil }
         guard let topicsAnswer, let topics = TidyTabsTwoStage.topics(from: topicsAnswer) else {
-            CraLog.note("Max Local: Tidy Tabs found no topic names")
+            CraLog.note("Max Local: Tidy Tabs found no topic names — raw answer: "
+                        + String((topicsAnswer ?? "nil").prefix(200)))
             return nil
         }
         // A count only: the names, like the titles, stay out of the log.
@@ -251,10 +274,13 @@ actor LocalInference {
     }
 
     /// One embedding vector (helper op 4): the text in, `n_embd` little-endian floats out.
-    /// The helper loads the model in embedding mode on first use (pooling per the GGUF metadata).
+    /// The helper loads the model in embedding mode on first use (pooling per the GGUF
+    /// metadata). Context 2048: the indexed text grew to title + description + a 500-char
+    /// body snapshot (P3) — at 1024 a long page overflowed the context, llama_decode
+    /// asserted and the helper crashed, and the 3 s poller restarted it forever.
     func embed(text: String, model: URL, helper: URL, threads: Int32, pooling: Int32) async -> [Float]? {
         if process?.isRunning != true || startedModel != model || startedPooling != pooling {
-            do { try start(helper: helper, model: model, context: 1024, threads: threads, pooling: pooling) }
+            do { try start(helper: helper, model: model, context: 2048, threads: threads, pooling: pooling) }
             catch {
                 CraLog.note("Embeddings: cannot start the helper (\(error))")
                 return nil

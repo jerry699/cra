@@ -249,7 +249,8 @@ final class SpaceListView: NSView, NSDraggingSource {
             var row = Row(key: .item(item.id), content: .newTab(active: false), decor: decor(item.id), itemID: item.id, parent: parent, index: index, depth: depth)
             if item.isTabGroup {
                 // Arc lists a group's tabs under its header without an indent.
-                row.content = .groupHeader(GroupHeaderRowModel(id: item.id, title: item.title ?? "Untitled"))
+                row.content = .groupHeader(GroupHeaderRowModel(id: item.id, title: item.title ?? "Untitled",
+                                                               editing: ui.renamingID == item.id))
                 out.append(row)
                 let kids = item.children
                 for c in store.children(of: item.id) {

@@ -364,9 +364,15 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
             guard let self, let rt, self.runtimes[id] === rt else { return }
             rt.probeWork = nil
             guard self.visibleTabIDs.contains(id) else { return }
-            PageProbe.run(rt.browser) { [weak self] probe in
+            PageProbe.run(rt.browser) { [weak self] probe, description, text in
                 guard let self, self.runtimes[id] === rt else { return }
                 self.log(id, "page \(self.site(rt.browser.currentURL, id, rt.browser))\(rt.browser.isLoading ? " still loading" : ""): \(probe) \(PageProbe.viewState(rt))")
+                // P3 索引增肥: description + body-text snapshot land in the history entry,
+                // and the semantic index re-embeds entries that gained text.
+                if description != nil || text != nil {
+                    self.store.updateHistoryText(url: rt.browser.currentURL,
+                                                 description: description, snippet: text)
+                }
             }
         }
         rt.probeWork = work
@@ -410,6 +416,13 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
                       let reply = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any],
                       let encoded = reply["history"] as? String, let state = Data(base64Encoded: encoded), !state.isEmpty,
                       let url = reply["url"] as? String else { return }
+                // P5 修复 (2026-11-15): a cra:// page's state (the user's Settings tab) crashed
+                // Cra.restoreHistory in the renderer on the next launch — only http(s) pages
+                // get a saved back/forward list.
+                guard url.lowercased().hasPrefix("http") else {
+                    CraLog.note("PageHistory: not saving a non-http state (\(url.prefix(40)))")
+                    return
+                }
                 PageHistoryStore.shared.save(PageHistory(engine: .chromium, url: url, state: state, index: reply["index"] as? Int ?? 0,
                                                          savedAt: self.clock.now), for: id, now: now)
             }

@@ -286,26 +286,36 @@ struct Engine {
     }
 
     // One text's embedding vector (op 4). Batch of one keeps memory flat; the caller embeds a
-    // day's history one text at a time.
+    // day's history one text at a time. The text decodes in 256-token chunks: a whole-page
+    // embed (title + description + body snippet) is 1000+ tokens and llama_decode asserts
+    // past the logical batch size (512) — the P3 snippet crashed every call and the 3 s
+    // poller restarted the helper forever.
     std::vector<float> embed(const std::string & text) {
-        const std::vector<llama_token> toks = tokenize(text);
+        std::vector<llama_token> toks = tokenize(text);
         if (toks.empty()) return {};
+        // A caller may hand us more text than the context holds: clamp, never assert.
+        const int32_t n_ctx = llama_n_ctx(ctx);
+        if (toks.size() > size_t(n_ctx - 8)) toks.resize(size_t(n_ctx - 8));
 
-        llama_batch batch = llama_batch_init(static_cast<int>(toks.size()), 0, 1);
-        for (size_t i = 0; i < toks.size(); i++) {
-            batch.token[i] = toks[i];
-            batch.pos[i] = static_cast<int32_t>(i);
-            batch.n_seq_id[i] = 1;
-            batch.seq_id[i][0] = 0;
-            batch.logits[i] = 0;
-        }
-        batch.n_tokens = static_cast<int32_t>(toks.size());
+        const int32_t kChunk = 256;
         // Each embed is independent: clear the memory or the second call's tokens overlap the
         // first's positions and the pooled vector comes back all zeros.
         llama_memory_clear(llama_get_memory(ctx), true);
-        const bool ok = llama_decode(ctx, batch) == 0;
-        llama_batch_free(batch);
-        if (!ok) return {};
+        for (int32_t off = 0; off < static_cast<int32_t>(toks.size()); off += kChunk) {
+            const int32_t n = std::min<int32_t>(kChunk, static_cast<int32_t>(toks.size()) - off);
+            llama_batch batch = llama_batch_init(n, 0, 1);
+            for (int32_t i = 0; i < n; i++) {
+                batch.token[i] = toks[static_cast<size_t>(off + i)];
+                batch.pos[i] = off + i;
+                batch.n_seq_id[i] = 1;
+                batch.seq_id[i][0] = 0;
+                batch.logits[i] = 0;
+            }
+            batch.n_tokens = n;
+            const bool ok = llama_decode(ctx, batch) == 0;
+            llama_batch_free(batch);
+            if (!ok) return {};
+        }
 
         // Pooled sequence embedding (MEAN/LAST per the GGUF metadata): one vector, n_embd floats.
         const float * emb = llama_get_embeddings_seq(ctx, 0);

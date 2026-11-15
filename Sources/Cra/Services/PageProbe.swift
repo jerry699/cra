@@ -23,35 +23,44 @@ enum PageProbe {
               scrollHeight: document.documentElement ? document.documentElement.scrollHeight : 0,
               elements: document.getElementsByTagName('*').length,
               children: document.body ? document.body.childElementCount : -1,
+              desc: (d => d ? d.content : '')(document.querySelector('meta[name="description"],meta[property="og:description"]')),
+              text: (r => r ? r.innerText.replace(/\\s+/g, ' ').slice(0, 2000) : '')(document.querySelector('main,article,[role=main]') || document.body),
               video: (q => q ? q.droppedVideoFrames + '/' + q.totalVideoFrames : 'none')(document.querySelector('video')?.getVideoPlaybackQuality()),
               painted: performance.getEntriesByName('first-contentful-paint').length > 0,
               frameRate: frames * 2})); }, 500);
         })
         """
 
-    /// One line ("ready=complete visibility=visible …"), or why there is none.
-    static func run(_ browser: CraBrowser, completion: @escaping (String) -> Void) {
-        guard browser.isCreated, !browser.isClosed else { completion("no browser yet"); return }
+    /// One line ("ready=complete visibility=visible …"), plus the page's meta description
+    /// and a 500-char body-text snapshot when the probe found them (P3 索引增肥 — the
+    /// snapshot carries content words like 董事长 that neither title nor description has;
+    /// the TEXT itself never goes into the printed line, which is exported diagnostics).
+    static func run(_ browser: CraBrowser, completion: @escaping (String, String?, String?) -> Void) {
+        guard browser.isCreated, !browser.isClosed else { completion("no browser yet", nil, nil); return }
         let body = try? JSONSerialization.data(withJSONObject: ["expression": script, "returnByValue": true, "awaitPromise": true])
         var answered = false
-        let finish: (String) -> Void = { line in
+        let finish: (String, String?, String?) -> Void = { line, desc, text in
             guard !answered else { return }
             answered = true
-            completion(line)
+            completion(line, desc, text)
         }
         // A hung renderer never answers; that is an answer too.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { finish("no answer in 3 s (renderer busy or gone)") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { finish("no answer in 3 s (renderer busy or gone)", nil, nil) }
         browser.sendDevToolsMethod("Runtime.evaluate", params: body.flatMap { String(data: $0, encoding: .utf8) } ?? "{}") { result, error in
             DispatchQueue.main.async {
                 guard let data = result?.data(using: .utf8),
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let value = (json["result"] as? [String: Any])?["value"] as? String,
                       let fields = (try? JSONSerialization.jsonObject(with: Data(value.utf8))) as? [String: Any] else {
-                    finish("probe failed: \(error ?? "no result")")
+                    finish("probe failed: \(error ?? "no result")", nil, nil)
                     return
                 }
+                let description = fields["desc"] as? String
+                let text = fields["text"] as? String
                 finish(["blank", "ready", "visibility", "viewport", "scrollHeight", "elements", "children", "painted", "frameRate", "video"]
-                    .map { "\($0)=\(fields[$0].map { "\($0)" } ?? "?")" }.joined(separator: " "))
+                    .map { "\($0)=\(fields[$0].map { "\($0)" } ?? "?")" }.joined(separator: " "),
+                       description?.isEmpty == false ? description : nil,
+                       text?.isEmpty == false ? text : nil)
             }
         }
     }

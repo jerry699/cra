@@ -85,8 +85,10 @@ final class SuggestionEngine {
         // Incognito: the window's own tabs, search and commands; nothing from the normal profile.
         if !incognito {
             items.append(contentsOf: archiveSuggestions(q))
-            items.append(contentsOf: historySuggestions(q, openURLs: searchIndex.openURLs))
-            items.append(contentsOf: semanticSuggestions(query))
+            // P3-R2: keyword and semantic vote separately, then fuse by URL — a page found
+            // by BOTH outranks either alone (RRF-flavored: two independent rankers agreeing
+            // is the strongest signal we have).
+            items.append(contentsOf: historyAndSemanticSuggestions(q, openURLs: searchIndex.openURLs))
             items.append(contentsOf: topDomainSuggestions(q))
         }
         items.append(contentsOf: commandSuggestions(q, currentTabID: currentTabID))
@@ -186,13 +188,17 @@ final class SuggestionEngine {
         let url: String
         let host: String
         let bareHost: String
+        /// The page's body-text snapshot (P3 索引增肥), lowercased — content words like
+        /// 董事长 live here, never in the title. Nil for tabs/archive entries.
+        let snippet: String?
 
-        init(title: String, url: String) {
+        init(title: String, url: String, snippet: String? = nil) {
             self.title = title.lowercased()
             words = self.title.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
             self.url = SuggestionEngine.humanURL(url).lowercased()
             host = (URL(string: url)?.host ?? "").lowercased()
             bareHost = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            self.snippet = snippet?.lowercased()
         }
     }
 
@@ -213,7 +219,7 @@ final class SuggestionEngine {
         i.tabs = tabs.compactMap { tab in tab.tab.map { (tab, Searchable(title: tab.displayTitle, url: $0.url)) } }
         i.openURLs = Set(tabs.compactMap { $0.tab?.url })
         i.archive = store.archive.prefix(400).compactMap { e in e.item.tab.map { (e, Searchable(title: e.item.displayTitle, url: $0.url)) } }
-        i.history = store.history.values.map { ($0, Searchable(title: $0.title, url: $0.url)) }
+        i.history = store.history.values.map { ($0, Searchable(title: $0.title, url: $0.url, snippet: $0.contentSnippet)) }
         index = i
         return i
     }
@@ -378,12 +384,87 @@ final class SuggestionEngine {
             let text = Self.score(q, key)
             var score = text * 0.8
             if score < 30 { continue }
-            score += min(Double(h.visitCount), 20) * 1.5 + recencyBoost(h.lastVisit) * 0.6
+            score += behaviorBoost(h)
             out.append(Suggestion(id: "hist:\(h.url)", kind: .history, title: h.title.isEmpty ? Self.humanURL(h.url) : h.title,
                                   subtitle: Self.humanURL(h.url), url: h.url, faviconKey: FaviconKey.key(for: h.url),
                                   symbol: "clock", trailing: nil, score: score, loose: text < Self.looseBelow))
         }
         return out
+    }
+
+    /// P3-R2 行为信号: dwell seconds and visits say "认真看完" vs "点进去秒退" — up to
+    /// +20 combined, a ranking signal no embedding can fake.
+    private func behaviorBoost(_ h: HistoryEntry) -> Double {
+        min(Double(h.visitCount), 20) * 1.5 + recencyBoost(h.lastVisit) * 0.6
+            + min(Double(h.dwellTime ?? 0) / 60.0, 4.0) * 5.0
+    }
+
+    /// P3-R2: keyword and semantic vote separately, then fuse by URL — a page found by BOTH
+    /// (the query word is ON the page AND it's semantically close) outranks either alone.
+    /// Semantic-only rows carry a recency/visit/dwell boost too, so a forgotten page the
+    /// user actually read still surfaces. Time slots ("上周那款手表") filter by lastVisit.
+    private func historyAndSemanticSuggestions(_ q: String, openURLs: Set<String>) -> [Suggestion] {
+        // Time slot: leading 昨天/今天/上周/本周/最近 narrows lastVisit and drops from the query.
+        var term = q
+        var window: (from: Date, to: Date?)?
+        let now = Date()
+        let day = 86_400.0
+        let slots: [(String, Double, Double?)] = [("昨天", 2*day, day), ("今天", day, nil),
+                                                  ("上周", 14*day, 7*day), ("本周", 7*day, nil),
+                                                  ("最近", 7*day, nil), ("最近几天", 4*day, nil)]
+        for (token, fromDays, toDays) in slots where term.hasPrefix(token) {
+            window = (now.addingTimeInterval(-fromDays), toDays.map { now.addingTimeInterval(-$0) })
+            term = String(term.dropFirst(token.count)).trimmingCharacters(in: .whitespaces)
+            break
+        }
+        var keyword: [Suggestion] = []
+        for (h, key) in searchIndex.history where !openURLs.contains(h.url) {
+            if let window, h.lastVisit < window.from || (window.to != nil && h.lastVisit > window.to!) { continue }
+            let text = Self.score(term.isEmpty ? q : term, key)
+            // The content snippet carries words (董事长) that title/url can't — a snippet
+            // hit alone is a solid vote (60-scale), gated to real-word queries.
+            var snippetHit = false
+            if text < 60, term.count >= 2, let snippet = key.snippet, snippet.contains(term) {
+                snippetHit = true
+            }
+            var score = max(text * 0.8, snippetHit ? 48 : 0)
+            if score < 30, !snippetHit { continue }
+            score += behaviorBoost(h)
+            keyword.append(Suggestion(id: "hist:\(h.url)", kind: .history, title: h.title.isEmpty ? Self.humanURL(h.url) : h.title,
+                                      subtitle: Self.humanURL(h.url), url: h.url, faviconKey: FaviconKey.key(for: h.url),
+                                      symbol: "clock", trailing: nil, score: score, loose: text < Self.looseBelow && !snippetHit))
+        }
+        keyword.sort { $0.score > $1.score }
+        let semantic = semanticSuggestions(term.isEmpty ? q : term)
+
+        // Fuse by URL: both votes = +30 (two independent rankers agreeing); semantic-only
+        // rows keep the behavior-boosted 40 base. The weak-anchor gate already filtered
+        // the semantic list upstream, so what arrives here is its best judgment.
+        var fused: [Suggestion] = []
+        var semanticOnly: [Suggestion] = []
+        var consumed = Set<String>()
+        for row in semantic {
+            guard let rowURL = row.url else { continue }
+            consumed.insert(rowURL)
+            if let ki = keyword.firstIndex(where: { $0.url == rowURL }) {
+                var r = keyword.remove(at: ki)
+                r.score += 30
+                fused.append(r)
+            } else {
+                semanticOnly.append(row)
+            }
+        }
+        fused.append(contentsOf: keyword.filter { ($0.url ?? "").isEmpty || !consumed.contains($0.url!) })
+        // A strong keyword hit (title contains the query, or the body snapshot does) means
+        // the query HAS an anchor — the semantic-only rows below are then noise from the
+        // flat similarity band (the 董事长 report). Semantic-only fills in only when the
+        // keyword layer came up weak.
+        let strongAnchor = keyword.contains { $0.score >= 60 }
+        if !strongAnchor { fused.append(contentsOf: semanticOnly) }
+        else if !semanticOnly.isEmpty {
+            CraLog.note(String(format: "Semantic: %d semantic-only rows suppressed (strong keyword anchor)", semanticOnly.count))
+        }
+        return fused
     }
 
     private func topDomainSuggestions(_ q: String) -> [Suggestion] {
@@ -490,23 +571,31 @@ final class SuggestionEngine {
     }
 
     private static func score(_ q: String, _ key: Searchable) -> Double {
-        let t = key.title, u = key.url, host = key.host, bareHost = key.bareHost
+        let t = key.title, host = key.host, bareHost = key.bareHost
         var score = 0.0
-        let tokens = q.split(separator: " ").map(String.init)
+        // Case-insensitive throughout: a query "yu7" must hit the history page titled
+        // "YU7" — the user typed a Xiaomi model code and got zero history rows while
+        // semantic noise filled the bar (the YU7 case). Titles and hosts compare
+        // lowercased; the URL matches lowercased too (hosts are, queries often aren't).
+        let lq = q.lowercased()
+        let lt = t.lowercased(), lu = key.url.lowercased()
+        let lHost = host.lowercased(), lBareHost = bareHost.lowercased()
+        let tokens = q.split(separator: " ").map { $0.lowercased() }
         if tokens.count > 1 {
-            let hay = t + " " + u
+            let hay = lt + " " + lu + " " + (key.snippet ?? "")
             let hits = tokens.filter { hay.contains($0) }.count
             if hits == tokens.count { score = 75 } else if hits > 0 { score = 30 * Double(hits) / Double(tokens.count) }
-            if t.hasPrefix(q) { score = 95 }
+            if lt.hasPrefix(lq) { score = 95 }
             return score
         }
-        if t.hasPrefix(q) { score = 100 }
-        else if key.words.contains(where: { $0.hasPrefix(q) }) { score = 85 }
-        else if t.contains(q) { score = 65 }
-        else if let f = fuzzy(q, in: t) { score = 25 + 25 * f }
-        if bareHost.hasPrefix(q) || host.hasPrefix(q) { score = max(score, 95) }
-        else if bareHost.contains(q) { score = max(score, 70) }
-        else if u.contains(q) { score = max(score, 55) }
+        if lt.hasPrefix(lq) { score = 100 }
+        else if key.words.contains(where: { $0.lowercased().hasPrefix(lq) }) { score = 85 }
+        else if lt.contains(lq) { score = 65 }
+        else if let snippet = key.snippet, snippet.contains(lq) { score = 60 }
+        else if let f = fuzzy(lq, in: lt) { score = 25 + 25 * f }
+        if lBareHost.hasPrefix(lq) || lHost.hasPrefix(lq) { score = max(score, 95) }
+        else if lBareHost.contains(lq) { score = max(score, 70) }
+        else if lu.contains(lq) { score = max(score, 55) }
         return score
     }
 

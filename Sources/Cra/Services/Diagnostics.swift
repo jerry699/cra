@@ -47,7 +47,7 @@ enum Diagnostics {
         let group = DispatchGroup()
         for (i, (label, browser)) in pending.enumerated() {
             group.enter()
-            PageProbe.run(browser) { probes[i] = label + $0; group.leave() }
+            PageProbe.run(browser) { probes[i] = label + $0; _ = $1; _ = $2; group.leave() }
         }
         group.notify(queue: .main) {
             completion(sections.joined(separator: "\n") + "\n" + probes.joined(separator: "\n") + "\n")

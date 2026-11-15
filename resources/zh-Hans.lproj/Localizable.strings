@@ -777,3 +777,7 @@
 "Choose…" = "选择…";
 "The video is still loading — try again in a moment" = "视频还在加载——稍等几秒再试一次";
 "This video has no speech to distill (music or silence)" = "这个视频没有人声——纯音乐或静音，没有可蒸馏的内容";
+
+/* ═══ 手动分组（P5 用户记忆 2026-11-15）═══ */
+"New Group" = "新建分组";
+"New Group with This Tab" = "用此标签新建分组";

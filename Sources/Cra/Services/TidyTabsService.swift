@@ -156,15 +156,65 @@ final class TidyTabsService {
                 return
             }
         }
-        let loose = Array(store.looseTodayTabs(sid).prefix(TidyTabs.maximumTabs))
-        guard !loose.isEmpty else {
+        let allLoose = store.looseTodayTabs(sid)
+        guard !allLoose.isEmpty else {
             CraLog.note("Tidy Tabs: declined (no loose Today tabs)")
             return
+        }
+        let groups = store.tabGroups(in: sid).map { $0.title ?? "" }
+
+        // P5-L2 域级规则 pre-assign: tabs whose host has a learned rule go to their group
+        // DETERMINISTICALLY, right here — the model never sees them, so the user's domain
+        // patterns execute at 100 % and the model only handles the unknown rest.
+        let preAssignPrefs = store.preferences[sid]
+        var preAssigned: [(item: SidebarItem, group: String)] = []
+        var unknown: [SidebarItem] = []
+        for item in allLoose {
+            let host = item.tab.flatMap { URL(string: $0.url)?.host() } ?? ""
+            let title = item.title ?? ""
+            // L2 domain rule first, then the L1 exact-title lesson (a page the user moved
+            // by hand once is pre-assigned forever).
+            let group = preAssignPrefs?.rule(forHost: host)
+                ?? preAssignPrefs?.entries.first(where: { $0.title == title })?.group
+            if let group, groups.contains(group) {
+                preAssigned.append((item, group))
+            } else {
+                unknown.append(item)
+            }
+        }
+        if !preAssigned.isEmpty {
+            store.applyPreAssignment(preAssigned, in: sid)
+            CraLog.note(String(format: "Tidy Tabs: %d tabs pre-assigned by domain rules", preAssigned.count))
+        }
+        let loose = Array(unknown.prefix(TidyTabs.maximumTabs))
+        guard !loose.isEmpty else {
+            // Every loose tab was pre-assigned by rules: no model call at all.
+            CraLog.note(String(format: "Tidy Tabs: all %d tabs pre-assigned by domain rules — done without the model", preAssigned.count))
+            store.markTidied(sid)
+            store.setTidyNotice(sid, L10n.tr(String(format: "Auto-tidied %d tabs", preAssigned.count)), seconds: 8)
+            return
+        }
+        if allLoose.count > loose.count {
+            CraLog.note(String(format: "Tidy Tabs: %d loose tabs, handling the first %d — the rest wait for the next round",
+                               allLoose.count, loose.count))
         }
         let tabs = loose.map { item in
             TidyTabs.Tab(title: item.displayTitle, host: item.tab.flatMap { URL(string: $0.url)?.host() } ?? "")
         }
-        let groups = store.tabGroups(in: sid).map { $0.title ?? "" }
+        // Bootstrap the preference memory from the groups that exist: the ⌘Z wipe bug once
+        // emptied it, and without those Chinese group names the model drifted to English
+        // topic names (the user's report). Two to three tab titles per group as anchors.
+        if store.preferences[sid]?.entries.isEmpty != false {
+            var seeded: [(item: SidebarItem, group: String)] = []
+            for g in store.tabGroups(in: sid) {
+                let name = g.title ?? ""
+                guard !name.isEmpty else { continue }
+                for t in store.tabs(under: g.id).prefix(3) {
+                    seeded.append((item: t, group: name))
+                }
+            }
+            if !seeded.isEmpty { store.seedPreferences(spaceID: sid, entries: seeded) }
+        }
         let ids = loose.map(\.id)
         let prefs = store.preferences[sid]?.entries.map { (title: $0.title, group: $0.group) } ?? []
         let prompt = TidyTabs.prompt(tabs: tabs, existingGroups: groups, preferences: prefs)
@@ -181,7 +231,7 @@ final class TidyTabsService {
             let proposals: [TidyTabs.Proposal]?
             if local {
                 store.setTidyStage(sid, .namingGroups)
-                let localPlan = await MaxLocal.tidyTabs(tabs: tabs, existingGroups: groups) { stage in
+                let localPlan = await MaxLocal.tidyTabs(tabs: tabs, existingGroups: groups, preferences: prefs) { stage in
                     store.setTidyStage(sid, stage)
                 }
                 if let localPlan {
@@ -258,16 +308,37 @@ final class TidyTabsService {
             // busy model must not be lost — it fires as soon as the cooldown expires (the user saw
             // tidy "sometimes manual" when this was edge-based).
             let loose = store.looseTodayTabs(space.id).count
-            guard loose >= TidyTabs.minimumTabs, !store.tidyingSpaces.contains(space.id) else { continue }
+            guard loose >= TidyTabs.minimumTabs else { continue }
+            guard !store.tidyingSpaces.contains(space.id) else {
+                skipLog("a tidy is in flight", space.id, loose)
+                continue
+            }
             let cooled = Date().timeIntervalSince(lastAutoTidy[space.id] ?? .distantPast) > 600
-            if auto, cooled, offers(space.id, store: store) {
+            guard cooled else {
+                skipLog(String(format: "cooling down (%.0f s left)", 600 - Date().timeIntervalSince(lastAutoTidy[space.id] ?? .distantPast)), space.id, loose)
+                continue
+            }
+            if auto, offers(space.id, store: store) {
                 CraLog.note(String(format: "Auto Tidy: %d loose tabs in %@ — running", loose, space.id.uuidString))
                 lastAutoTidy[space.id] = Date()
                 tidy(space.id, store: store, auto: true)
-            } else if !auto, cooled, offers(space.id, store: store) {
+            } else if !auto, offers(space.id, store: store) {
                 store.setTidyNotice(space.id, String(format: "%d tabs — the broom can tidy", loose))
+            } else if auto {
+                // Auto on, cooled, but the model declined (thermals, memory): say why, or
+                // the broom sits there and the auto-tidy looks dead (the user's report).
+                skipLog(pauseReason ?? "model declined (thermal/memory)", space.id, loose)
             }
         }
+    }
+
+    /// Why the auto-tidy didn't fire while the broom was up: at most every 30 s per reason,
+    /// so the 3 s poll doesn't flood the log but a stuck state is always visible in it.
+    private static var lastSkipLog: (reason: String, date: Date)?
+    private func skipLog(_ reason: String, _ sid: UUID, _ loose: Int) {
+        if let last = Self.lastSkipLog, last.reason == reason, Date().timeIntervalSince(last.date) < 30 { return }
+        Self.lastSkipLog = (reason, Date())
+        CraLog.note(String(format: "Auto Tidy: %d loose tabs — holding: %@", loose, reason))
     }
 
     /// The model's groups, nil when it couldn't answer.

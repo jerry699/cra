@@ -47,10 +47,14 @@ enum SidebarMenus {
 
     // MARK: Tab groups
 
-    /// Arc's Tab Group Context Menu: one item, "Remove header" (the tabs stay, loose).
+    /// Arc's Tab Group Context Menu: "Remove header" (the tabs stay, loose) — plus the
+    /// fork's "Rename…": the model misnames groups sometimes, and converting to a folder
+    /// just to rename was the only way (the user's report).
     static func tabGroup(_ id: UUID, list: SpaceListView) -> NSMenu {
+        let store = list.store, ui = list.ui
         let menu = menu()
-        add(menu, L10n.tr("Remove header")) { list.store.removeGroupHeader(id) }
+        add(menu, action: "renameTab", L10n.tr("Rename…")) { ui.renamingID = id }
+        add(menu, L10n.tr("Remove header")) { store.removeGroupHeader(id) }
         return menu
     }
 
@@ -100,6 +104,13 @@ enum SidebarMenus {
             }
         }
         add(menu, action: "renameTab", L10n.tr("Rename…")) { ui.renamingID = id }
+        // P5: no matching group exists? The user creates their own — the move teaches it.
+        add(menu, L10n.tr("New Group with This Tab")) {
+            if let sid = store.spaceID(ofItem: id),
+               let gid = store.createTabGroup(with: [id], in: sid) {
+                ui.renamingID = gid
+            }
+        }
         if item.title != nil { add(menu, L10n.tr("Use Page Title")) { store.rename(id, to: nil) } }
         if m.pinned, tab.liveItemURL == nil { pinnedURLItems(menu, id, navigatedAway: m.navigatedAway, store: store, actions: actions) }
         // Arc: "Add Split View" on the open tab, "Open in Split View" on any other.

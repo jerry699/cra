@@ -750,12 +750,25 @@ public struct HistoryEntry: Codable, Equatable {
     public var title: String
     public var lastVisit: Date
     public var visitCount: Int
+    /// The page's meta description (P3 索引增肥): feeds the semantic index so recall works
+    /// on what a page SAYS, not just its title. Optional — older persisted entries lack it.
+    public var description: String?
+    /// A 2000-char snapshot of the page's body text (P3): carries content words (董事长,
+    /// model codes) that neither the title nor the description has.
+    public var contentSnippet: String?
+    /// 0/nil = title-only embedding; 1 = description included; 2 = description + snippet.
+    /// The semantic index re-embeds an entry when this bumps.
+    public var textVersion: Int?
+    /// Seconds this page was the VISIBLE tab (P3-R2 行为信号): "认真看完" vs "点进去秒退"
+    /// — a ranking signal no embedding can fake. Accumulated in 3 s poll ticks while active.
+    public var dwellTime: Int?
 
-    public init(url: String, title: String, lastVisit: Date, visitCount: Int) {
+    public init(url: String, title: String, lastVisit: Date, visitCount: Int, description: String? = nil) {
         self.url = url
         self.title = title
         self.lastVisit = lastVisit
         self.visitCount = visitCount
+        self.description = description
     }
 }
 

@@ -2750,15 +2750,17 @@ enum BroomGlyph {
 struct GroupHeaderRowModel: Equatable {
     var id: UUID
     var title: String
+    var editing: Bool = false
 }
 
 /// Arc's TabGroupHeaderCellView: a group's name over its tabs in Today (13 pt semibold in the space
 /// header's tone, at the tabs' icon inset, a tab row's height). Hovered, it offers "Create Folder"
 /// and "Close tab group"; its menu has "Remove header". Arc 1.171, offline copy, 4 Nov 2026.
-final class GroupHeaderRowView: SidebarRowView {
+final class GroupHeaderRowView: SidebarRowView, NSTextFieldDelegate {
     private(set) var model: GroupHeaderRowModel?
     private let titleLabel = NSTextField.sidebarLabel(size: 13, weight: .semibold)
     private var buttons: [SidebarGlyphButton] = []
+    private var renameField: NSTextField?
 
     override init(key: SpaceListView.RowKey, list: SpaceListView, colors: SidebarColors) {
         super.init(key: key, list: list, colors: colors)
@@ -2775,8 +2777,53 @@ final class GroupHeaderRowView: SidebarRowView {
         titleLabel.stringValue = m.title
         titleLabel.textColor = colors.isDark ? NSColor.white.withAlphaComponent(0.45) : colors.textSecondary
         setAccessibilityLabel(m.title)
+        if m.editing != (renameField != nil) { m.editing ? beginRename(m.title) : endRename() }
         needsLayout = true
     }
+
+    /// The inline rename field, the folder row's way: borderless over the title, Enter
+    /// commits, Esc cancels, a click or a rebuilt row ends it.
+    private func beginRename(_ text: String) {
+        let f = NSTextField(string: text)
+        f.isBordered = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.font = .systemFont(ofSize: 13, weight: .semibold)
+        f.textColor = colors.isDark ? NSColor.white.withAlphaComponent(0.75) : colors.textSecondary
+        f.delegate = self
+        f.cell?.isScrollable = true
+        renameField = f
+        addSubview(f)
+        titleLabel.isHidden = true
+        needsLayout = true
+        DispatchQueue.main.async { [weak self, weak f] in
+            guard let f, let w = self?.window else { return }
+            w.makeFirstResponder(f)
+        }
+    }
+
+    private func endRename() {
+        guard let f = renameField else { return }
+        renameField = nil
+        f.delegate = nil
+        if let w = window, let editor = f.currentEditor(), w.firstResponder === editor { w.makeFirstResponder(nil) }
+        f.removeFromSuperview()
+        titleLabel.isHidden = false
+    }
+
+    private func commitRename() {
+        guard let m = model, let list, list.ui.renamingID == m.id, let f = renameField else { return }
+        list.store.rename(m.id, to: f.stringValue.isEmpty ? nil : f.stringValue)
+        list.ui.renamingID = nil
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+        if sel == #selector(NSResponder.cancelOperation(_:)) { list?.ui.renamingID = nil; return true }
+        if sel == #selector(NSResponder.insertNewline(_:)) { commitRename(); return true }
+        return false
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) { commitRename() }
 
     override func setColors(_ c: SidebarColors) {
         guard c != colors else { return }
@@ -2820,6 +2867,10 @@ final class GroupHeaderRowView: SidebarRowView {
         let x = CraMetrics.rowLeading
         let th = titleLabel.intrinsicContentSize.height
         titleLabel.frame = NSRect(x: x - SidebarText.inset, y: (h - th) / 2, width: max(0, right - 8 - x) + 2 * SidebarText.inset, height: th)
+        if let f = renameField {
+            let fh = f.intrinsicContentSize.height
+            f.frame = NSRect(x: x - SidebarText.inset, y: (h - fh) / 2, width: max(0, right - 8 - x) + 2 * SidebarText.inset, height: fh)
+        }
     }
 
     override func contextMenu(at point: NSPoint) -> NSMenu? {

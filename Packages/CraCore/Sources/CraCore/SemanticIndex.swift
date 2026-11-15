@@ -7,11 +7,16 @@ public struct SemanticDocument: Codable, Equatable, Sendable {
     public var url: String
     public var title: String
     public var vector: [Float]
+    /// The text-version the vector was embedded at (P3): nil in older files, 1 = title +
+    /// description, 2 = title + description + body snippet. The entry re-embeds when its
+    /// history entry's version bumps past this.
+    public var textVersion: Int?
 
-    public init(url: String, title: String, vector: [Float]) {
+    public init(url: String, title: String, vector: [Float], textVersion: Int? = nil) {
         self.url = url
         self.title = title
         self.vector = vector
+        self.textVersion = textVersion
     }
 }
 

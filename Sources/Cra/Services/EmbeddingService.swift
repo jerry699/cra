@@ -52,12 +52,37 @@ final class EmbeddingService {
         }
     }
 
-    /// Embeds history titles that are not in the index yet. Called after launch and when the
+    /// Settings ▸ Max "clear": drops the whole semantic index. It is a CACHE — the next
+    /// rebuildIfNeeded re-embeds everything from history.json (~20 s for 400 pages). The
+    /// history itself and the tidy preferences are the user's data and are never touched.
+    func clearIndex() {
+        building = false
+        index = SemanticIndex(modelID: Self.modelID)
+        persist()
+        CraLog.note("Embeddings: index cleared (rebuilds from history on the next tick)")
+    }
+
+    /// The index file's size for the settings row.
+    var indexFileSize: Int {
+        (try? FileManager.default.attributesOfItem(atPath: Self.indexURL.path)[.size] as? Int) ?? 0
+    }
+
+    /// How many pages the index holds, for the settings row.
+    var documentCount: Int { index.documents.count }
+
+    /// Embeds history titles that are not in the index yet — plus entries whose text
+    /// version has bumped (P3 索引增肥): the embed text grows from "title + host" to
+    /// "+ meta description + body snippet", so recall works on what a page SAYS (content
+    /// words like 董事长 never appear in a title). Called after launch and when the
     /// history grows; a run over a day's new entries takes seconds (0.01-0.05 s per title).
     func rebuildIfNeeded(history: [HistoryEntry]) {
         guard !building, let modelURL = Self.modelURL, let helperURL = Self.helperURL else { return }
-        let known = index.urls
-        let pending = history.filter { !known.contains($0.url) && !$0.title.isEmpty }
+        let pending = history.filter { entry in
+            guard !entry.title.isEmpty else { return false }
+            if !index.urls.contains(entry.url) { return true }
+            let docVersion = index.documents.first(where: { $0.url == entry.url })?.textVersion ?? 0
+            return (entry.textVersion ?? 0) > docVersion
+        }
         guard !pending.isEmpty else { return }
         building = true
         Task { @MainActor in
@@ -65,13 +90,29 @@ final class EmbeddingService {
             CraLog.note(String(format: "Embeddings: indexing %d history entries", pending.count))
             let started = Date()
             var embedded = 0
+            var nilStreak = 0
             for entry in pending.prefix(2000) {
                 if Task.isCancelled { return }
                 let host = URL(string: entry.url)?.host() ?? ""
-                let text = "\(entry.title) \(host)"
+                var text = "\(entry.title) \(host)"
+                if let description = entry.description, !description.isEmpty { text += " " + description }
+                if let snippet = entry.contentSnippet, !snippet.isEmpty { text += " " + snippet }
+                // The embed context is 2048 tokens; a Chinese char is ~1 token. Overflows
+                // crash llama_decode and the helper dies — cap the text with margin.
+                if text.count > 1500 { text = String(text.prefix(1500)) }
+                let version = entry.textVersion
                 guard let vector = await inference.embed(text: text, model: modelURL,
-                                                         helper: helperURL, threads: 4, pooling: Self.poolingType) else { return }
-                index.upsert(SemanticDocument(url: entry.url, title: entry.title, vector: vector))
+                                                         helper: helperURL, threads: 4, pooling: Self.poolingType) else {
+                    nilStreak += 1
+                    if nilStreak >= 2 {
+                        CraLog.note("Embeddings: two failures in a row — backing off until the next tick")
+                        return
+                    }
+                    continue
+                }
+                nilStreak = 0
+                index.upsert(SemanticDocument(url: entry.url, title: entry.title, vector: vector,
+                                              textVersion: version))
                 embedded += 1
             }
             persist()
@@ -90,10 +131,15 @@ final class EmbeddingService {
     }
 
     /// Top semantic matches for a query; the command bar merges them with its keyword rows.
-    /// Below the floor a match is the nearest neighbour of a query with no true hit ("中年
-    /// 危机" against a banking page ≈ 0.2): returning it reads as a wrong answer, so weak
-    /// matches are withheld and the keyword rows answer instead.
+    /// Two gates keep the "no true hit" noise out:
+    /// - per-doc floor 0.35: a single weak match ("中年危机" vs a banking page ≈ 0.26).
+    /// - weak-anchor gate 0.45: rare alphanumeric queries ("yu7") score EVERYTHING into a
+    ///   flat 0.34-0.38 background band — measured, the TRUE page scored 0.380 while a
+    ///   noise page scored 0.384, so no static floor can separate them. When even the best
+    ///   match sits in that band, the query has no anchor in the index at all: withhold
+    ///   every semantic row and let the keyword rows answer.
     static let minimumScore: Float = 0.35
+    static let weakAnchorScore: Float = 0.45
 
     func search(_ query: String, limit: Int = 5) async -> [(url: String, title: String, score: Float)] {
         guard indexLoaded, !index.documents.isEmpty, query.count >= 2,
@@ -101,9 +147,13 @@ final class EmbeddingService {
         guard let vector = await inference.embed(text: query, model: modelURL, helper: helperURL, threads: 4, pooling: Self.poolingType) else {
             return []
         }
-        return index.search(query: vector, limit: limit)
+        let matches = index.search(query: vector, limit: limit)
             .filter { $0.score >= Self.minimumScore }
-            .map { (url: $0.document.url, title: $0.document.title, score: $0.score) }
+        guard let best = matches.first?.score, best >= Self.weakAnchorScore else {
+            CraLog.note(String(format: "Semantic: weak anchor (best %.2f) — withheld", matches.first?.score ?? 0))
+            return []
+        }
+        return matches.map { (url: $0.document.url, title: $0.document.title, score: $0.score) }
     }
 
     /// The entries the index knows, for the search integration to map back to history rows.

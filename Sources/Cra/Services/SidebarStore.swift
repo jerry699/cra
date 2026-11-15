@@ -736,8 +736,16 @@ final class SidebarStore {
     func rename(_ id: UUID, to title: String?) {
         guard var it = items[id] else { return }
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let old = it.title
         it.title = (trimmed?.isEmpty ?? true) ? nil : trimmed
         items[id] = it
+        // A renamed TAB GROUP re-teaches the model: every preference pointing at the old
+        // name follows the new one, or the next tidy would undo the user's rename.
+        if it.isTabGroup, let new = it.title, !new.isEmpty, let old, old != new,
+           let spaceKey = spaceID(ofItem: id) {
+            preferences[spaceKey]?.remapGroup(old: old, new: new)
+            preferences[spaceKey]?.save(to: Self.preferencesDirectory, spaceID: spaceKey)
+        }
         touch()
     }
 
@@ -966,7 +974,7 @@ final class SidebarStore {
                 if preferences[spaceKey] == nil {
                     preferences[spaceKey] = TidyPreferences.load(directory: Self.preferencesDirectory, spaceID: spaceKey)
                 }
-                preferences[spaceKey]?.record([(title: tab.title ?? "", group: groupTitle)])
+                preferences[spaceKey]?.recordMove(url: tab.tab?.url ?? "", title: tab.title ?? "", group: groupTitle)
                 preferences[spaceKey]?.save(to: Self.preferencesDirectory, spaceID: spaceKey)
             }
         }
@@ -2058,7 +2066,10 @@ final class SidebarStore {
     private var learningSuppressed = false
     static let preferencesDirectory = AppPaths.supportDir
     /// What ⌘Z puts back: the last tidy, until a tab closes or a group's header is used.
-    @ObservationIgnored private var lastTidy: (spaceID: UUID, todayBefore: [UUID], moved: [UUID])?
+    /// `lessons` holds the tab titles THIS run recorded, so ⌘Z retracts only those — a
+    /// single ⌘Z once wiped the WHOLE preference file and the model forgot every grouping
+    /// it had learned (the "昨天还能分类，今天不行" report).
+    @ObservationIgnored private var lastTidy: (spaceID: UUID, todayBefore: [UUID], moved: [UUID], lessons: [String])?
 
     /// Today's top-level tabs, outside any group: what Tidy sorts.
     func looseTodayTabs(_ sid: UUID) -> [SidebarItem] {
@@ -2142,28 +2153,34 @@ final class SidebarStore {
         }
         learningSuppressed = true
         defer { learningSuppressed = false }
-        lastTidy = moved.isEmpty ? nil : (sid, before, moved)
+        lastTidy = moved.isEmpty ? nil : (sid, before, moved, [])
         tidiedTabs[sid] = Set(tabs(under: today).map(\.id))
         // Teach the model: the accepted assignments become next run's few-shot preferences.
         if !moved.isEmpty {
-            var assignments: [(title: String, group: String)] = []
+            var assignments: [(url: String, title: String, group: String)] = []
             for (g, indices) in plan.joins.sorted(by: { $0.key < $1.key }) where groups.indices.contains(g) {
                 let name = groups[g].title ?? ""
                 for i in indices where tabIDs.indices.contains(i) {
-                    assignments.append((title: items[tabIDs[i]]?.title ?? "", group: name))
+                    assignments.append((url: items[tabIDs[i]]?.tab?.url ?? "", title: items[tabIDs[i]]?.title ?? "", group: name))
                 }
             }
             for p in plan.newGroups {
                 for i in p.tabs where tabIDs.indices.contains(i) {
-                    assignments.append((title: items[tabIDs[i]]?.title ?? "", group: p.name))
+                    assignments.append((url: items[tabIDs[i]]?.tab?.url ?? "", title: items[tabIDs[i]]?.title ?? "", group: p.name))
                 }
             }
             if preferences[sid] == nil {
                 preferences[sid] = TidyPreferences.load(directory: Self.preferencesDirectory, spaceID: sid)
             }
             preferences[sid] = (preferences[sid] ?? TidyPreferences())
-            preferences[sid]?.record(assignments)
+            // P5: every accepted assignment teaches BOTH the L1 title lesson and the L2
+            // domain rule (two moves of one host into one group become a domain rule).
+            for a in assignments {
+                preferences[sid]?.recordMove(url: a.url, title: a.title, group: a.group)
+            }
             preferences[sid]?.save(to: Self.preferencesDirectory, spaceID: sid)
+            // ⌘Z retracts exactly these lessons — nothing else.
+            lastTidy?.lessons = assignments.map(\.title)
         }
         touch()
     }
@@ -2188,10 +2205,13 @@ final class SidebarStore {
             items[today] = t
         }
         tidiedTabs[u.spaceID] = nil
-        // The user rejected that grouping: its lesson is retracted, so later runs don't repeat it.
-        preferences[u.spaceID]?.clear(groups: [])
-        preferences[u.spaceID] = nil
-        TidyPreferences().remove(directory: Self.preferencesDirectory, spaceID: u.spaceID)
+        // The user rejected that grouping: retract ONLY the lessons that run recorded —
+        // a single ⌘Z once deleted the whole preference file and the model forgot every
+        // grouping it had ever learned.
+        let lessons = u.lessons
+        preferences[u.spaceID] = TidyPreferences.load(directory: Self.preferencesDirectory, spaceID: u.spaceID)
+        preferences[u.spaceID]?.retract(titles: lessons)
+        preferences[u.spaceID]?.save(to: Self.preferencesDirectory, spaceID: u.spaceID)
         touch()
         return true
     }
@@ -2492,6 +2512,92 @@ final class SidebarStore {
         }
         historyFile.save(Array(history.values), delay: 5)
     }
+
+    /// P3 索引增肥: the page probe read this page's meta description and a body-text
+    /// snapshot a beat after load — file both into the entry so the semantic index embeds
+    /// what the page says (content words like 董事长 live in the body, never the title).
+    /// `textVersion` bumps so the index re-embeds once per gained field. No-op for pages
+    /// never recorded (incognito) and repeat probes.
+    func updateHistoryText(url: String, description: String?, snippet: String?) {
+        guard url.hasPrefix("http"), history[url] != nil else { return }
+        let entry = history[url]!
+        let newDescription = description ?? entry.description
+        let newSnippet = snippet ?? entry.contentSnippet
+        // Any real content change bumps the version (the snapshot text evolves — probes
+        // read more of a page over time), and the index re-embeds once per bump.
+        let changed = newDescription != entry.description || newSnippet != entry.contentSnippet
+        guard changed, newDescription?.isEmpty == false || newSnippet?.isEmpty == false else { return }
+        history[url]?.description = newDescription
+        history[url]?.contentSnippet = newSnippet
+        history[url]?.textVersion = (entry.textVersion ?? 0) + 1
+        historyFile.save(Array(history.values), delay: 5)
+    }
+
+    /// P5-L2: move the domain-rule pre-assigned tabs into their groups WITHOUT re-recording
+    /// (the rule already covers them; a re-record would only bump counts). TidyTabsService
+    /// calls this from outside, so the suppressed-learning flag stays internal.
+    func applyPreAssignment(_ moves: [(item: SidebarItem, group: String)], in sid: UUID) {
+        learningSuppressed = true
+        defer { learningSuppressed = false }
+        for (item, group) in moves {
+            if let g = tabGroups(in: sid).first(where: { $0.title == group }) {
+                moveItems([item.id], to: g.id, index: nil)
+            }
+        }
+    }
+
+    /// One-time bootstrap of the preference memory from the groups that exist: the ⌘Z wipe
+    /// bug emptied it, and without those group names as few-shot anchors the model drifted
+    /// to English topic names. Only seeds when the memory is genuinely empty.
+    func seedPreferences(spaceID: UUID, entries: [(item: SidebarItem, group: String)]) {
+        guard preferences[spaceID]?.entries.isEmpty != false else { return }
+        var prefs = TidyPreferences.load(directory: Self.preferencesDirectory, spaceID: spaceID)
+        guard prefs.entries.isEmpty else {
+            preferences[spaceID] = prefs
+            return
+        }
+        for e in entries {
+            prefs.recordMove(url: e.item.tab?.url ?? "", title: e.item.title ?? "", group: e.group)
+        }
+        preferences[spaceID] = prefs
+        prefs.save(to: Self.preferencesDirectory, spaceID: spaceID)
+        CraLog.note(String(format: "Tidy prefs: seeded %d entries from existing groups", entries.count))
+    }
+
+    /// Manual tab-group creation (the user's answer to "no matching group exists"): wraps
+    /// the given tab ids in a new group under Today, optionally pre-named. The moveItems
+    /// learning records the tab titles → the group name (P5), and the caller puts the new
+    /// group straight into rename mode. Returns the group's id.
+    @discardableResult
+    func createTabGroup(with ids: [UUID], in sid: UUID, named suggested: String? = nil) -> UUID? {
+        guard let space = spaces[sid], !ids.isEmpty else { return nil }
+        let name = suggested?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let g = SidebarItem.tabGroup(name?.isEmpty ?? true ? L10n.tr("New Group") : name!,
+                                     parent: space.todayContainerID)
+        items[g.id] = g
+        var t = items[space.todayContainerID]!
+        t.children.append(g.id)
+        items[space.todayContainerID] = t
+        // The move is a deliberate manual act: moveItems records the L1 title lesson and
+        // counts toward the L2 domain rule (P5) — the user's correction is the training.
+        for id in ids { moveItems([id], to: g.id, index: nil) }
+        touch()
+        return g.id
+    }
+
+    /// P3-R2 行为信号: the visible tab's URL accrues dwell seconds while the app is active —
+    /// "认真看完" vs "点进去秒退", a ranking signal no embedding can fake. In-memory
+    /// accumulation, saved on a slow debounce (the 3 s poll would otherwise save constantly).
+    private var dwellSaves = 0
+    func addDwell(url: String, seconds: Int) {
+        guard url.hasPrefix("http"), let e = history[url] else { return }
+        history[url]?.dwellTime = (e.dwellTime ?? 0) + seconds
+        dwellSaves += 1
+        if dwellSaves % 10 == 0 { historyFile.save(Array(history.values), delay: 5) }
+    }
+
+    /// The accumulated dwell seconds of a URL, for ranking.
+    func dwellTime(url: String) -> Int { history[url]?.dwellTime ?? 0 }
 
     func recordQuerySelection(query: String, url: String) {
         let q = query.lowercased().trimmingCharacters(in: .whitespaces)
