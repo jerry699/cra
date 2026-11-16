@@ -129,6 +129,18 @@ struct AdvancedPane: View {
                             get: { MCPServer.shared.allowsHistory }, set: { MCPServer.shared.allowsHistory = $0 }))
                             .toggleStyle(.arcSwitch).labelsHidden()
                     }
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Let agents upload local files").font(.system(size: 13))
+                            Text("An agent could hand any file on this Mac (like ~/.ssh/id_rsa) to a web page. Off unless you truly need it.")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    } trailing: {
+                        Toggle("Let agents upload local files", isOn: Binding(
+                            get: { MCPServer.shared.allowsUploads }, set: { MCPServer.shared.allowsUploads = $0 }))
+                            .toggleStyle(.arcSwitch).labelsHidden()
+                    }
                     ForEach(MCPServer.shared.agents) { agent in
                         SettingsCardDivider()
                         SettingsCardRow {

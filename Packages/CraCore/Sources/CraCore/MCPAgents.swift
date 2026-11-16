@@ -50,6 +50,10 @@ public enum MCPAgents {
 public struct MCPSettings: Codable, Equatable, Sendable {
     /// page_evaluate on (Settings ▸ Advanced ▸ Let agents run JavaScript in pages).
     public var allowsScripts = false
+    /// Audit fix 2026-11-16: page_upload can hand ANY local file to a web page's file input
+    /// (~/.ssh/id_rsa included) — default off like page_evaluate, opt-in with the warning
+    /// in Settings ▸ Advanced.
+    public var allowsUploads = false
     /// history_search on (Settings ▸ Advanced ▸ Let agents read your history).
     public var allowsHistory = false
     public var agents: [MCPAgent] = []
@@ -63,12 +67,14 @@ public struct MCPSettings: Codable, Equatable, Sendable {
         var off: Set<String> = []
         if !allowsScripts { off.insert("page_evaluate") }
         if !allowsHistory { off.insert("history_search") }
+        if !allowsUploads { off.insert("page_upload") }
         return off
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         allowsScripts = try c.decodeIfPresent(Bool.self, forKey: .allowsScripts) ?? false
+        allowsUploads = try c.decodeIfPresent(Bool.self, forKey: .allowsUploads) ?? false
         allowsHistory = try c.decodeIfPresent(Bool.self, forKey: .allowsHistory) ?? false
         agents = try c.decodeIfPresent([MCPAgent].self, forKey: .agents) ?? []
     }

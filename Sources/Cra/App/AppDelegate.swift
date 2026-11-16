@@ -534,10 +534,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return
         }
         if let u = URL(string: url), u.scheme?.lowercased() == "cra" {
-            if Self.isUserFacing(u) || UserDefaults.standard.bool(forKey: "scriptingURLs") {
+            if Self.isUserFacing(u) {
                 handleInternalURL(u)
             } else {
-                NSLog("Cra: ignored %@ from another app (defaults write dk.kildahl.cra scriptingURLs -bool YES allows it)", url)
+                // Audit fix 2026-11-16: the scripting backdoor (cra://debug → applescript/
+                // pageJS/installExtension) was guarded only by a UserDefaults key that any
+                // local process can set, letting a web page run AppleScript as Cra and skip
+                // the TCC consent prompt. Release builds close it entirely; debug builds
+                // keep the old opt-in for the test-copy workflow (docs/development.md).
+                #if DEBUG
+                if UserDefaults.standard.bool(forKey: "scriptingURLs") {
+                    handleInternalURL(u)
+                } else {
+                    NSLog("Cra: ignored %@ from another app (defaults write dk.kildahl.cra scriptingURLs -bool YES allows it)", url)
+                }
+                #else
+                NSLog("Cra: ignored %@ from another app (scripting URLs are debug-build only)", url)
+                #endif
             }
             return
         }

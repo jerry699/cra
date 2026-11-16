@@ -128,7 +128,14 @@ enum MaxRemote {
     private static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 30
-        config.connectionProxyDictionary = [:]
+        // Domestic endpoints are unreachable from proxy exits, so Max connects directly by
+        // default. Audit 2026-11-16: made escapable for users whose network NEEDS the
+        // proxy for everything (defaults write dk.kildahl.cra maxUseSystemProxy -bool YES).
+        if UserDefaults.standard.bool(forKey: "maxUseSystemProxy") {
+            config.connectionProxyDictionary = nil
+        } else {
+            config.connectionProxyDictionary = [:]
+        }
         return URLSession(configuration: config)
     }()
 
@@ -137,6 +144,12 @@ enum MaxRemote {
     /// way they treat a silent model: no tidy this round.
     static func ask(instructions: String, prompt: String, json: Bool) async -> String? {
         guard isConfigured, let url = URL(string: baseURL + "/chat/completions") else { return nil }
+        // Audit fix 2026-11-16: the Bearer key must not ride plaintext http. A custom
+        // http:// endpoint is declined (the domestic providers all serve https).
+        guard url.scheme?.lowercased() == "https" else {
+            CraLog.note("Max: declined a non-https endpoint (\(baseURL.prefix(40)))")
+            return nil
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 30

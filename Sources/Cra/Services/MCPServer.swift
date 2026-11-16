@@ -22,6 +22,11 @@ final class MCPServer {
         set { settings.allowsScripts = newValue }
     }
     /// history_search: off unless the user turns it on.
+    var allowsUploads: Bool {
+        get { settings.allowsUploads }
+        set { settings.allowsUploads = newValue }
+    }
+
     var allowsHistory: Bool {
         get { settings.allowsHistory }
         set { settings.allowsHistory = newValue }
@@ -237,7 +242,7 @@ final class MCPServer {
         guard asking[id] == nil else { return }
         let from = via.isEmpty ? "" : " It's asking from \(via)."
         let dialog = AppDialog(title: "Let \u{201C}\(name)\u{201D} use Cra?",
-                               message: "While it runs, it can open tabs, read your pages and act in them, signed in as you.\(from) You can take this back in Settings ▸ Advanced.",
+                               message: "While it runs, it can open tabs, read your pages, act in them signed in as you, and upload local files if you enable uploads.\(from) You can take this back in Settings ▸ Advanced.",
                                actions: [DialogAction("Allow"), DialogAction("Don\u{2019}t Allow", role: .cancel)])
         asking[id] = dialog
         let answer: (NSApplication.ModalResponse) -> Void = { [weak self] response in

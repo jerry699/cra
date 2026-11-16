@@ -14,6 +14,9 @@ public enum DiagnosticsRedaction {
         }
         for (pattern, template) in [(#"\b([A-Za-z][A-Za-z0-9+.-]*://)[^/\s"'<>)\]@]*@"#, "$1"),
                                     (#"\b((?:https?|wss?|ftp|chrome-extension)://[^/\s"'<>)\]]+)[/?#][^\s"'<>)\]]*"#, "$1/…"),
+                                    // Audit fix 2026-11-16: file:/data: URLs carry local paths
+                                    // (file:///Users/~/Documents/tax.pdf) — scheme only.
+                                    (#"\b(?:file|data)://[^\s"'<>)\]]*"#, "(local content)"),
                                     (#"(--auth-server-allowlist=)[^\s"]+"#, "$1(set by IT)")] {
             guard let re = try? NSRegularExpression(pattern: pattern) else { continue }
             s = re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: template)
