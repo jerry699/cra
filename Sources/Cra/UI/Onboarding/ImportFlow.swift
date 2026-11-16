@@ -196,7 +196,18 @@ final class ImportFlowModel {
         set { store.settings.blockAdsAndTrackers = newValue }
     }
 
-    func continueFromPrivacy() { go(.source) }
+    /// Dia's disclosure step, its other checkbox ("Help improve Dia by sharing content data"):
+    /// usage stats and crash reports together, off until ticked (CraCore Sharing).
+    var sharesToImproveCra: Bool {
+        get { store.settings.sharesToImproveCra }
+        set { store.settings.setSharesToImproveCra(newValue) }
+    }
+
+    /// Ticked or not, the row was the question: the sidebar's sharing card doesn't ask again.
+    func continueFromPrivacy() {
+        store.settings.askedToShare = true
+        go(.source)
+    }
 
     /// Skipping the import on first launch still shows the rest of the onboarding.
     func skipImport() {

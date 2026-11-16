@@ -14,8 +14,6 @@ enum SpacesManagerMetrics {
     static let plus: CGFloat = 29
     static let plusGap: CGFloat = 34
     static let trail: CGFloat = 37.5
-    /// What the page keeps beside the Spaces page, whatever the window's width (Arc 1.171).
-    static let pageRoom: CGFloat = 56
 
     /// The Library's width on this page: Arc widens the sidebar to fit every card.
     static func width(spaces n: Int) -> CGFloat {
@@ -191,7 +189,7 @@ private final class SpaceManagerCard: NSView {
         withObservationTracking {
             guard let s = store.space(spaceID) else { return }
             emoji.stringValue = s.emoji
-            symbol.image = s.symbol.flatMap { SidebarSymbols.image($0, size: 13, weight: .medium) }
+            symbol.image = SpaceIconImage.glyph(for: s, points: 13)
             title.stringValue = s.title
             background.palette = s.theme.palette
             colors = SidebarColors(s.theme.palette)
@@ -210,12 +208,12 @@ private final class SpaceManagerCard: NSView {
               let down = NSEvent.mouseEvent(with: .rightMouseDown, location: event.locationInWindow, modifierFlags: [],
                                             timestamp: event.timestamp, windowNumber: event.windowNumber, context: nil,
                                             eventNumber: 0, clickCount: 1, pressure: 1),
-              let m = SpaceMenu.make(spaceID: spaceID, store: store, ui: ui, actions: actions, anchor: self, rename: {}) else { return }
+              let m = SpaceMenu.make(spaceID: spaceID, store: store, ui: ui, actions: actions, anchor: self, from: .library, rename: {}) else { return }
         NSMenu.popUpContextMenu(m, with: down, for: self)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        SpaceMenu.make(spaceID: spaceID, store: store, ui: ui, actions: actions, anchor: self, rename: {})
+        SpaceMenu.make(spaceID: spaceID, store: store, ui: ui, actions: actions, anchor: self, from: .library, rename: {})
     }
 
     override func layout() {
@@ -277,7 +275,7 @@ private final class SpaceMoveHandle: NSView {
     }
 }
 
-/// The cards' row. Like the tab lists (SpaceListScrollView) it stays off responsive scrolling,
+/// The cards' row. Like the tab lists (SidebarListScrollView) it stays off responsive scrolling,
 /// which would take a gesture's events past the window's scroll monitor once it starts here:
 /// a swipe that starts with the cards at their end has to reach the monitor to leave the Library.
 final class SpacesStripScrollView: NSScrollView {

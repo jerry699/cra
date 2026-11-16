@@ -3,6 +3,8 @@
 # macOS arm64 and, when Cra is behind, opens (or updates) one "Chromium engine
 # update" issue saying how to build it. Run daily by .github/workflows/cef-updates.yml.
 #   scripts/check-cef-update.sh --dry-run   print instead of touching issues
+#   scripts/check-cef-update.sh --check     exit 1 when Cra is behind (release.sh and the
+#                                            release-tag hook: a release ships the newest CEF)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -13,11 +15,29 @@ LATEST="$(curl -fsSL https://cef-builds.spotifycdn.com/index.json |
 
 major() { cut -d. -f1 <<<"$1"; }
 chromium() { sed 's/.*chromium-//' <<<"$1"; }
+cef() { sed 's/+.*//' <<<"$1"; }
+newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
 echo "Pinned: $CEF_VERSION"
 echo "Latest: $LATEST"
-if [ "$LATEST" = "$CEF_VERSION" ] || [ "$(printf '%s\n%s\n' "$LATEST" "$CEF_VERSION" | sort -V | tail -1)" = "$CEF_VERSION" ]; then
+# Chromium decides first: security fixes land there. Cra can pin CEF's branch head on a newer
+# Chromium patch than Spotify's build (156.0.27 on .96), and a later CEF on the older patch is not
+# an update: building it would take Chromium back (#355). A newer CEF only counts on the same
+# Chromium. Check its CEF-only commits by hand with
+# gh api repos/chromiumembedded/cef/compare/<ours>...<theirs>.
+if newer "$(chromium "$LATEST")" "$(chromium "$CEF_VERSION")"; then
+  :
+elif [ "$(chromium "$LATEST")" = "$(chromium "$CEF_VERSION")" ] && newer "$(cef "$LATEST")" "$(cef "$CEF_VERSION")"; then
+  :
+else
+  if newer "$(cef "$LATEST")" "$(cef "$CEF_VERSION")"; then
+    echo "CEF $(cef "$LATEST") is on an older Chromium ($(chromium "$LATEST")) than Cra's ($(chromium "$CEF_VERSION")), so it doesn't count."
+  fi
   echo "Cra is up to date."
   exit 0
+fi
+if [ "${1:-}" = --check ]; then
+  echo "Cra is behind the newest stable CEF: build it with scripts/update-cef.sh $LATEST" >&2
+  exit 1
 fi
 
 if [ "$(major "$LATEST")" = "$(major "$CEF_VERSION")" ]; then

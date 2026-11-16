@@ -9,18 +9,29 @@ import UniformTypeIdentifiers
 final class SidebarUIState {
     /// The browser window this sidebar belongs to (its space and open tab, see WindowSession).
     @ObservationIgnored var windowID = UUID()
+    /// The tab whose last click in the sidebar went back to its pinned page from its favicon: the
+    /// second press of that double-click does nothing (#345). Kept per window: held on the row
+    /// view, it was gone by the second press of a real double-click.
+    @ObservationIgnored var iconWentBack: UUID?
     var renamingID: UUID?
+    /// Rename Space… chosen in the dock (#339): that space's header turns its name into a field.
+    var renamingSpaceID: UUID?
     /// The ⌘T bar is open for a new tab: the focused space's New Tab row is the active row,
     /// filled like the selected tab, which loses its fill (Arc: isCommandBarNewTabPlaceholderActive).
     var newTabPlaceholderActive = false
     var draggingID: UUID?
+    /// The tab that was open before the press that switched to the row being dragged: Arc shows it
+    /// again while the drag over the page offers a split, and splits the dragged tab with it.
+    var tabBeforePress: UUID?
     /// Loading progress per tab (0...1), fed by the browser manager.
     var progress: [UUID: Double] = [:]
     var loadedTabIDs: Set<UUID> = []
     /// Tabs using the camera or microphone (Arc's recording indicator).
     var capturingTabIDs: Set<UUID> = []
-    /// Tabs playing sound (Arc's speaker button).
+    /// Recently audible tabs, held for 2 s after sound stops so the speaker stays steady.
     var audibleTabIDs: Set<UUID> = []
+    /// Immediate sound state for favorite music notes.
+    var soundPlayingTabIDs: Set<UUID> = []
     /// The window's sidebar player (NowPlayingTrayView), fed by its BrowserManager.
     @ObservationIgnored let nowPlaying = NowPlaying()
     var canGoBack = false
@@ -173,6 +184,10 @@ struct TabNavState: Equatable {
     /// The service a WebKit page plays ("Spotify"; docs/protected-media.md), nil for Chromium's:
     /// its extension buttons dim and the Site Control Center says why.
     var protectedMedia: String?
+    /// Chromium's translate state for the page (#310): Arc's translate button and popover.
+    var translation: PageTranslation?
+    /// Pop-ups Chromium blocked on the page and not opened yet (#357): the blocked pop-ups button.
+    var blockedPopups = 0
 }
 
 /// Where a dragged tab or link would go in the split (Arc: SplitViewControllerLayout.DropTarget).
@@ -193,8 +208,13 @@ final class SidebarActions {
     var moveBlankWindow: (UUID) -> Void = { _ in }
     var goBack: () -> Void = {}
     var goForward: () -> Void = {}
+    /// Right-click (or hold) Back or Forward: the tab's history that way, hung under the button
+    /// (#416). The tab is a split pane's, or nil for the one in front.
+    var showBackForwardMenu: (UUID?, BackForwardMenu.Direction, NSView) -> Void = { _, _, _ in }
     var reload: () -> Void = {}
     var editSpace: (Space?) -> Void = { _ in }
+    /// Move to ▸ New Space… on picked tabs: the new space sheet, and the tabs go to the space it makes.
+    var newSpaceWith: ([UUID]) -> Void = { _ in }
     /// Arc's space menu: the icon picker under the header, the theme editor, a new profile for
     /// the space, the Library's Spaces page, and deleting this space (not the focused one).
     var changeSpaceIcon: (Space, NSView) -> Void = { _, _ in }
@@ -233,12 +253,19 @@ final class SidebarActions {
     var runExtension: (String) -> Void = { _ in }
     /// Toolbar Extensions button: the extensions menu, under the pointer.
     var showExtensionsMenu: () -> Void = {}
+    /// Arc's translate popover for a tab (#310), hung under its button (screen rect).
+    var showTranslate: (UUID, NSRect?) -> Void = { _, _ in }
+    /// The blocked pop-ups menu for a tab, hung from the button's frame on screen (#357).
+    var showBlockedPopups: (UUID, NSRect?) -> Void = { _, _ in }
     /// Split view: a pane's pinned extension or Extensions button. The pane takes the focus
     /// first, so the action and the Site Control Center describe its page (GitHub #178).
     var paneRunExtension: (UUID, String) -> Void = { _, _ in }
     var paneExtensionsMenu: (UUID) -> Void = { _ in }
     /// The developer bar's address field: a typed URL or search, in the selected tab.
     var loadTyped: (String) -> Void = { _ in }
+    /// The sidebar URL field edited in place (#344): Return with what was typed, in the selected
+    /// tab or, for another host from a pinned tab, a new one (SidebarAddressEdit.commit).
+    var commitAddress: (String) -> Void = { _ in }
     /// A typed URL or search in a new tab (⌘ + New Tab pastes the clipboard's text).
     var openTyped: (String) -> Void = { _ in }
 }

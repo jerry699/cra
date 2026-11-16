@@ -170,13 +170,15 @@ final class SiteControlCenterView: NSView {
         // Settings: three switch rows.
         let settings = SiteSectionView(title: L10n.tr("Settings"), hoverText: nil, colors: colors, onHeaderClick: {})
         let developer = store.settings.isDeveloperMode(url: url)
+        // Per site like Arc (#326); Settings ▸ Tabs keeps the default for the others.
+        let autoPiP = store.settings.allowsAutoPictureInPicture(url: url)
         let store = store, url = url
         var rowsSpec: [(String, String, String, Bool, () -> Void)] = [
             ("hammer.fill", L10n.tr("Developer Mode"), L10n.tr(developer ? "On" : "Off"), developer, { store.settings.toggleDeveloperMode(url: url) }),
             ("shield.fill", L10n.tr("Block Ads & Trackers"), L10n.tr(store.settings.blockAdsAndTrackers ? "On" : "Off"),
              store.settings.blockAdsAndTrackers, { store.settings.blockAdsAndTrackers.toggle() }),
-            ("gearshape.fill", L10n.tr("Automatic Picture-In-Picture"), L10n.tr(store.settings.autoPictureInPicture ? "Allowed" : "Disabled"),
-             store.settings.autoPictureInPicture, { store.settings.autoPictureInPicture.toggle() }),
+            ("gearshape.fill", L10n.tr("Automatic Picture-In-Picture"), L10n.tr(autoPiP ? "Allowed" : "Disabled"),
+             autoPiP, { store.settings.toggleAutoPictureInPicture(url: url) }),
         ]
         // Chromium's blocker doesn't see a WebKit page: no switch that does nothing there.
         if protectedMedia != nil { rowsSpec.remove(at: 1) }
@@ -529,6 +531,8 @@ private final class SiteSettingRow: SiteHoverView {
         s.textColor = colors.secondary
         s.frame = NSRect(x: 40 - SidebarText.inset, y: 17, width: 160 + 2 * SidebarText.inset, height: 16)
         addSubview(s)
+        // One button for VoiceOver, which an NSView isn't unless it says so.
+        setAccessibilityElement(true)
         setAccessibilityLabel("\(title), \(subtitle)")
         setAccessibilityRole(.button)
     }

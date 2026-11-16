@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 
 extension NSPasteboard.PasteboardType {
     static let craSidebarItem = NSPasteboard.PasteboardType(UTType.craSidebarItem.identifier)
+    /// A link's text, next to its `.URL` (Chromium and Safari write it).
+    static let urlName = NSPasteboard.PasteboardType("public.url-name")
 }
 
 /// A space's pinned and Today list, drawn by AppKit like Arc's sidebar (an AppKit list of
@@ -17,6 +19,7 @@ final class SpaceListView: NSView, NSDraggingSource {
     enum RowKey: Hashable {
         case item(UUID)
         case liveStatus(UUID)
+        case instantLinks(UUID)
         case placeholder
         case divider
         case newTab
@@ -27,6 +30,7 @@ final class SpaceListView: NSView, NSDraggingSource {
         case folder(FolderRowModel)
         case split(SplitRowModel)
         case liveStatus(LiveStatusModel)
+        case instantLinks(InstantLinksRowModel)
         case placeholder(active: Bool)
         case divider(hasToday: Bool, tidy: DividerTidy)
         case groupHeader(GroupHeaderRowModel)
@@ -53,7 +57,7 @@ final class SpaceListView: NSView, NSDraggingSource {
     let actions: SidebarActions
     let favicons: FaviconCache
     private(set) var palette: SpacePalette
-    private let scrollView = SpaceListScrollView()
+    private let scrollView = SidebarListScrollView()
     private let document = SpaceListDocument()
     private(set) var rows: [Row] = []
     /// Rows before the divider (pinned and its placeholder).
@@ -72,7 +76,7 @@ final class SpaceListView: NSView, NSDraggingSource {
     private var hairlineState = (top: false, bottom: false)
     private let pinnedHighlight = CALayer()
     private let todayHighlight = CALayer()
-    private let dropLine = CALayer()
+    private let dropLine = CAShapeLayer()
     private let jumpPill = SidebarJumpPill()
     private var syncQueued = false
     private var synced = false
@@ -141,11 +145,14 @@ final class SpaceListView: NSView, NSDraggingSource {
             l.opacity = 0
             document.layer?.addSublayer(l)
         }
-        dropLine.cornerRadius = 1
+        dropLine.fillColor = nil
+        dropLine.lineWidth = SidebarListMetrics.dropLineWidth
+        dropLine.actions = ["path": NSNull(), "strokeColor": NSNull()]
         dropLine.zPosition = 5
         dropLine.opacity = 0
         document.layer?.addSublayer(dropLine)
-        document.registerForDraggedTypes([.craSidebarItem])
+        // A link from a page or another app opens as a tab where it is let go (#419).
+        document.registerForDraggedTypes([.craSidebarItem, .URL, .string])
         autoscroller.anchor = document
         Self.all.add(self)
         sync()
@@ -267,7 +274,7 @@ final class SpaceListView: NSView, NSDraggingSource {
                     tabCount: expanded ? 0 : store.tabs(under: item.id).count,
                     liveBusy: refreshing.contains(item.id), liveError: item.liveFolder.flatMap(LiveFolderText.warning)?.help,
                     liveSignInURL: item.liveFolder.flatMap(LiveFolderText.warning)?.signInURL,
-                    liveHelp: LiveFolderText.refreshHelp(item.liveFolder), liveSource: item.liveFolder?.source,
+                    liveHelp: LiveFolderText.refreshHelp(item.liveFolder), liveIcon: item.liveFolder.flatMap { LiveFolderPluginStore.shared.entry(for: $0)?.icon },
                     symbol: item.folderSymbol))
                 out.append(row)
                 guard expanded else {
@@ -298,11 +305,12 @@ final class SpaceListView: NSView, NSDraggingSource {
                 let subtitle = tidyRename != nil ? TidyTitlesService.subtitle : tab.sidebarSubtitle(developerMode: developerMode)
                 // Arc's tidy titles: a known site's page shows a shorter title unless the tab has a name.
                 let title = item.title == nil ? TidyTitleRules.arc.tidy(item.displayTitle, url: tab.url) : item.displayTitle
-                let liveSource = tab.liveItemURL != nil && tab.customIconKey == nil ? store.liveFolder(containing: parent)?.liveFolder?.source : nil
+                let liveIcon = tab.liveItemURL != nil && tab.customIconKey == nil
+                    ? store.liveFolder(containing: parent)?.liveFolder.flatMap { LiveFolderPluginStore.shared.entry(for: $0)?.icon } : nil
                 row.content = .tab(TabRowModel(
                     id: item.id, depth: depth, pinned: pinned, title: title, customTitle: item.title != nil,
                     renameText: item.title ?? title, subtitle: subtitle,
-                    icon: img, flipIcon: flip, githubMark: liveSource == .github,
+                    icon: img, flipIcon: flip, liveIcon: liveIcon,
                     editing: renaming == item.id, selected: selected,
                     highlighted: picks.isEmpty ? selected && !placeholder : picks.contains(item.id),
                     capturing: capturing.contains(item.id), audible: audible.contains(item.id), muted: tab.muted, unread: item.isUnread,
@@ -310,7 +318,7 @@ final class SpaceListView: NSView, NSDraggingSource {
                     focusRing: focusID == item.id, developerMode: developerMode, peeked: peeked,
                     homeIcon: homeImg, homeFlipIcon: homeFlip,
                     peekIcon: ui.peekBadges[item.id].flatMap { icon($0.iconKey).0 },
-                    tidyRename: tidyRename, gitlabMark: liveSource == .gitlab))
+                    tidyRename: tidyRename))
                 out.append(row)
             } else if item.isSplit {
                 let children = store.children(of: item.id).filter(\.isTab)
@@ -365,6 +373,10 @@ final class SpaceListView: NSView, NSDraggingSource {
         out.append(Row(key: .divider, content: .divider(hasToday: !todayKids.isEmpty && !blank, tidy: tidy)))
         let atTop = store.settings.newTabButtonAtTop
         if atTop && showsNewTab { out.append(Row(key: .newTab, content: .newTab(active: placeholder))) }
+        // Instant Links' "Searching the web for you…" (#407): transient, at the top of Today.
+        for r in InstantLinksService.shared.pending(in: spaceID) {
+            out.append(Row(key: .instantLinks(r.id), content: .instantLinks(InstantLinksRowModel(id: r.id, failed: r.failed, current: r.current))))
+        }
         for item in store.children(of: space.todayContainerID) {
             add(item, depth: 0, pinned: false, parent: space.todayContainerID, index: todayKids.firstIndex(of: item.id) ?? 0)
         }
@@ -378,23 +390,12 @@ final class SpaceListView: NSView, NSDraggingSource {
     /// can't be read (Arc: "Sign back in to GitHub.", "Login with SSO to unlock this folder").
     private static func liveStatus(_ item: SidebarItem, hasTabs: Bool) -> (text: String, url: String?)? {
         guard let live = item.liveFolder, !hasTabs else { return nil }
-        // GitLab: the GitHub folder's lines, in GitLab's words.
-        if live.source == .gitlab {
-            switch live.lastError {
-            case .notSignedIn?: return ("Sign back in to GitLab.", live.signInURL)
-            case .some: return ("We’re having trouble connecting to GitLab; click here to see your Merge Requests.",
-                                live.serverURL.map { "\($0)/dashboard/merge_requests" })
-            case nil: return live.lastFetch == nil ? nil : ("Merge requests from you and your team will show up here automatically", nil)
-            }
-        }
-        switch live.lastError {
-        case .notSignedIn?: return ("Sign back in to GitHub.", live.signInURL)
-        case .some: return ("We’re having trouble connecting to GitHub; click here to see your Pull Requests.", "https://github.com/pulls")
-        case nil:
-            if let org = live.ssoOrganizations.first { return ("Login with SSO to unlock this folder", "https://github.com/orgs/\(org)/sso") }
-            if live.lastFetch == nil { return nil }
-            return ("Pull requests from you and your team will show up here automatically", nil)
-        }
+        guard let plugin = live.plugin else { return nil }
+        if live.lastError == .notSignedIn, let text = plugin.signInWarning { return (text, plugin.signIn?.url) }
+        if live.lastError != nil, let text = plugin.failureText { return (text, plugin.failureURL) }
+        if let text = plugin.snapshot?.warning { return (text, plugin.snapshot?.actions.first?.url) }
+        guard live.lastFetch != nil, let text = plugin.emptyText else { return nil }
+        return (text, nil)
     }
 
     /// Which list a drop lands in, when that pins or unpins the dragged item; that list
@@ -476,6 +477,7 @@ final class SpaceListView: NSView, NSDraggingSource {
         case .folder: return v is FolderRowView
         case .split: return v is SplitRowView
         case .liveStatus: return v is LiveStatusRowView
+        case .instantLinks: return v is InstantLinksRowView
         case .placeholder: return v is PinPlaceholderRowView
         case .divider: return v is DividerRowView
         case .groupHeader: return v is GroupHeaderRowView
@@ -489,6 +491,7 @@ final class SpaceListView: NSView, NSDraggingSource {
         case .folder: return FolderRowView(key: row.key, list: self, colors: colors)
         case .split: return SplitRowView(key: row.key, list: self, colors: colors)
         case .liveStatus: return LiveStatusRowView(key: row.key, list: self, colors: colors)
+        case .instantLinks: return InstantLinksRowView(key: row.key, list: self, colors: colors)
         case .placeholder: return PinPlaceholderRowView(key: row.key, list: self, colors: colors)
         case .divider: return DividerRowView(key: row.key, list: self, colors: colors)
         case .groupHeader: return GroupHeaderRowView(key: row.key, list: self, colors: colors)
@@ -502,6 +505,7 @@ final class SpaceListView: NSView, NSDraggingSource {
         case .folder(let m): (v as? FolderRowView)?.apply(m)
         case .split(let m): (v as? SplitRowView)?.apply(m)
         case .liveStatus(let m): (v as? LiveStatusRowView)?.apply(m)
+        case .instantLinks(let m): (v as? InstantLinksRowView)?.apply(m)
         case .placeholder(let active): (v as? PinPlaceholderRowView)?.apply(active: active)
         case .divider(let hasToday, let tidy): (v as? DividerRowView)?.apply(hasToday: hasToday, tidy: tidy)
         case .groupHeader(let m): (v as? GroupHeaderRowView)?.apply(m)
@@ -632,19 +636,34 @@ final class SpaceListView: NSView, NSDraggingSource {
         pinnedHighlight.opacity = highlightPinned ? 1 : 0
         todayHighlight.opacity = highlightToday ? 1 : 0
         if let line = dropLineSpec {
-            dropLine.backgroundColor = colors.textPrimary.withAlphaComponent(0.5).cgColor
+            dropLine.strokeColor = colors.textPrimary.withAlphaComponent(SidebarListMetrics.dropLineAlpha).cgColor
+            let ring = SidebarListMetrics.dropRing
+            let frame = NSRect(x: line.minX, y: line.y - ring / 2, width: max(ring, line.maxX - line.minX), height: ring)
             if dropLine.opacity == 0 {
                 CATransaction.setDisableActions(true)
-                dropLine.frame = NSRect(x: line.minX, y: line.y - 1, width: max(0, line.maxX - line.minX), height: 2)
+                dropLine.frame = frame
                 CATransaction.setDisableActions(false)
             } else {
-                dropLine.frame = NSRect(x: line.minX, y: line.y - 1, width: max(0, line.maxX - line.minX), height: 2)
+                dropLine.frame = frame
             }
+            dropLine.path = Self.dropLinePath(width: frame.width)
             dropLine.opacity = 1
         } else {
             dropLine.opacity = 0
         }
         CATransaction.commit()
+    }
+
+    /// Arc's insertion line is AppKit's between-rows drop indicator: a hollow ring where the row's
+    /// content starts, then the line (Arc 1.172.1, 2x capture, 13 Nov 2026, measured by Hritish
+    /// Mahajan in #422). Tab drags and link drops (#419) share it.
+    private static func dropLinePath(width: CGFloat) -> CGPath {
+        let ring = SidebarListMetrics.dropRing, stroke = SidebarListMetrics.dropLineWidth
+        let p = CGMutablePath()
+        p.addEllipse(in: CGRect(x: stroke / 2, y: stroke / 2, width: ring - stroke, height: ring - stroke))
+        p.move(to: CGPoint(x: ring, y: ring / 2))
+        p.addLine(to: CGPoint(x: width, y: ring / 2))
+        return p
     }
 
     // MARK: Scrolling
@@ -863,12 +882,40 @@ final class SpaceListView: NSView, NSDraggingSource {
             hovered = target
             target?.isHovered = true
             FolderPreviewController.shared.hover(target, in: self)
+            tabPreviewHover(target)
         }
         target?.hoverMoved(to: local)
-        let tip = scrolling ? nil : target?.tooltipTarget(at: local)
+        // A pinned tab with a Previews card shows the card instead of its name, as a favorite does.
+        let tip = scrolling || (target != nil && target === previewRow) ? nil : target?.tooltipTarget(at: local)
         if let old = tipTarget, old !== tip { ArcTooltipController.shared.mouseExited(old) }
         tipTarget = tip
         if let tip { ArcTooltipController.shared.mouseMoved(in: tip) }
+    }
+
+    /// The pinned tab whose Previews card is up or on its way.
+    private weak var previewRow: TabRowView?
+
+    /// Arc's Previews on a pinned tab ("Hover your mouse over an Arc Folder, Pinned, or Favorited
+    /// tab"): Gmail, Calendar or a site's recent pages (CraCore SidebarTabPreview), right of the
+    /// sidebar, not on the open tab.
+    private func tabPreviewHover(_ row: SidebarRowView?) {
+        if let old = previewRow, old !== row {
+            FavoritePreviewCard.shared.leave(old)
+            previewRow = nil
+        }
+        guard let tab = row as? TabRowView, tab !== previewRow, let m = tab.model, m.pinned, !m.selected, !m.editing,
+              ui.draggingID == nil, NSEvent.pressedMouseButtons == 0, let url = store.item(m.id)?.tab?.url,
+              SidebarTabPreview.kind(for: url, settings: store.settings) != nil else { return }
+        previewRow = tab
+        let id = m.id
+        FavoritePreviewCard.shared.hover(tab, target: .sidebarTab(
+            id, url: url, store: store, favicons: favicons, beside: self,
+            open: { [weak self] u in
+                guard let self else { return }
+                self.store.selectTab(id, window: self.ui.windowID)
+                (self.window?.windowController as? MainWindowController)?.loadInSelectedTab(u)
+            },
+            openNewTab: { [weak self] u in self?.actions.openURL(u) }))
     }
 
     // MARK: Clicks
@@ -887,6 +934,7 @@ final class SpaceListView: NSView, NSDraggingSource {
         if !flags.isEmpty {
             ui.pick(id, range: flags.contains(.shift), in: store)
         } else if event.clickCount == 2 {
+            CraLog.note("sidebar double-click: rename")
             ui.renamingID = id
         } else {
             ui.clearPicks(anchor: id)
@@ -972,7 +1020,51 @@ final class SpaceListView: NSView, NSDraggingSource {
 
     // MARK: Drop target
 
+    /// The tab a link dragged in from a page or another app would open (#419), read once per drag;
+    /// nil for a sidebar row's drag and for anything that isn't a web page's address.
+    private var linkDrag: (sequence: Int, tab: SidebarLinkDrop.Tab?)?
+    private func draggedLink(_ info: NSDraggingInfo) -> SidebarLinkDrop.Tab? {
+        if let l = linkDrag, l.sequence == info.draggingSequenceNumber { return l.tab }
+        let tab = Self.link(on: info.draggingPasteboard)
+        linkDrag = (info.draggingSequenceNumber, tab)
+        return tab
+    }
+
+    static func link(on pb: NSPasteboard) -> SidebarLinkDrop.Tab? {
+        guard pb.availableType(from: [.craSidebarItem]) == nil else { return nil }
+        return SidebarLinkDrop.tab(from: (pb.pasteboardItems ?? []).map {
+            SidebarLinkDrop.Item(url: $0.string(forType: .URL), name: $0.string(forType: .urlName), text: $0.string(forType: .string))
+        })
+    }
+
+    /// `cra://debug?dropLink`: where a link is let go, in the list's coordinates: on the upper
+    /// part of the row whose tab's address holds `text` (or the folder named `text`), on its middle
+    /// (`onto`), or below the last row.
+    func testDropPoint(row text: String?, onto: Bool) -> CGPoint? {
+        if let text {
+            guard let r = rows.first(where: { $0.itemID.flatMap(store.item).map { $0.tab?.url.contains(text) ?? ($0.isFolder && $0.title == text) } == true })
+            else { return nil }
+            return CGPoint(x: r.frame.midX, y: onto ? r.frame.midY : r.frame.minY + r.frame.height * 0.1)
+        }
+        return CGPoint(x: todayFrame.midX, y: (rows.map(\.frame.maxY).max() ?? todayFrame.maxY) + 40)
+    }
+
+    /// `cra://debug?dropLink`: where the insertion line for `drop` starts and ends, from the left of
+    /// a top-level row's favicon and from the row's right edge (Arc: 2 before, 3 inside).
+    func testLineInsets(_ drop: SidebarListDrop) -> String {
+        guard let line = drop.line else { return "none" }
+        let fmt = { (v: CGFloat) in String(format: "%g", Double(v)) }
+        return "lead=\(fmt(todayFrame.minX + CraMetrics.rowLeading - line.minX)) trail=\(fmt(todayFrame.maxX - line.maxX))"
+    }
+
     func dragUpdated(_ info: NSDraggingInfo, entered: Bool) -> NSDragOperation {
+        // A link has no row: it lands where a row would, between rows, in Pinned or at the end of Today.
+        if draggedLink(info) != nil {
+            autoscroller.update()
+            let drop = resolve(dragged: SidebarListDrop.link, at: document.convert(info.draggingLocation, from: nil))
+            if drop != ui.listDrop { ui.listDrop = drop }
+            return drop.target == nil ? [] : .copy
+        }
         // Rows here set draggingID when the drag starts; a drag from another window only says
         // what it carries through the pasteboard.
         if entered, let data = info.draggingPasteboard.data(forType: .craSidebarItem),
@@ -1003,6 +1095,10 @@ final class SpaceListView: NSView, NSDraggingSource {
 
     func performDrop(_ info: NSDraggingInfo) -> Bool {
         autoscroller.stop()
+        if let link = draggedLink(info) {
+            let point = document.convert(info.draggingLocation, from: nil)
+            return dropLink(link, drop: ui.listDrop.flatMap { $0.isLink ? $0 : nil } ?? resolve(dragged: SidebarListDrop.link, at: point)) != nil
+        }
         guard let id = ui.draggingID, store.item(id) != nil else { return false }
         let point = document.convert(info.draggingLocation, from: nil)
         let drop = ui.listDrop ?? resolve(dragged: id, at: point)
@@ -1027,6 +1123,20 @@ final class SpaceListView: NSView, NSDraggingSource {
         }
         ui.draggingID = nil
         return true
+    }
+
+    /// A link let go on the list opens there as a new tab, behind the page you're on (Arc 1.172.1, #419).
+    @discardableResult
+    func dropLink(_ link: SidebarLinkDrop.Tab, drop: SidebarListDrop) -> SidebarItem? {
+        ui.listDrop = nil
+        let place: (parent: UUID, index: Int)
+        switch drop.target {
+        case .insert(let parent, let index)?: place = (parent, index)
+        // Into a folder at the top, which stays as it was, as a tab dropped there goes (#266).
+        case .into(let folder)? where store.item(folder)?.isFolder == true: place = (folder, 0)
+        default: return nil
+        }
+        return store.createTab(url: link.url, title: link.title, in: spaceID, select: false, parent: place.parent, index: place.index, window: ui.windowID)
     }
 
     private func applyDrop(_ drop: SidebarListDrop) {
@@ -1063,12 +1173,15 @@ final class SpaceListView: NSView, NSDraggingSource {
 
     /// Top and bottom quarters of a row insert before/after it; the middle combines: a folder
     /// takes the item, a tab, pinned or not, makes a split in its place (the dragged tab goes on
-    /// the side of the row it hovers), a split row takes a pane.
+    /// the side of the row it hovers), a split row takes a pane. A link (`SidebarListDrop.link`)
+    /// combines with nothing: a tab's or split's middle takes nothing, a folder's middle takes it in
+    /// at the top (Arc 1.173.1, measured on a closed folder).
     func resolve(dragged id: UUID, at p: CGPoint) -> SidebarListDrop {
         guard let space = store.space(spaceID) else { return SidebarListDrop(draggedID: id) }
         let items = rows.filter { $0.itemID != nil }
         let group = ui.group(for: id, in: store)
         let isTab = store.item(id)?.isTab == true
+        let combines = id != SidebarListDrop.link
         let half = CraMetrics.rowSpacing / 2
         var target: SidebarListDrop.Target?
 
@@ -1090,6 +1203,9 @@ final class SpaceListView: NSView, NSDraggingSource {
                 target = .split(with: rid, leading: p.x < r.frame.midX)
             } else if middle && isTab && item.isSplit {
                 target = .into(rid)
+            } else if middle && !combines {
+                // Arc 1.173.1 takes nothing on a tab's middle (measured: no line, no tab, the tab kept its page).
+                target = nil
             } else {
                 target = f < 0.5 ? before : after
             }
@@ -1136,7 +1252,9 @@ final class SpaceListView: NSView, NSDraggingSource {
         guard let y else { return drop }
         // A group's tabs sit at its header's depth (Arc doesn't indent them).
         let depth = items.first { $0.itemID == parent }.map { $0.depth + (store.item(parent)?.isTabGroup == true ? 0 : 1) } ?? 0
-        drop.line = .init(y: y, minX: todayFrame.minX + CraMetrics.rowLeading + CGFloat(depth) * CraMetrics.indent, maxX: todayFrame.maxX - 6)
+        // Arc: the ring's outer edge 2 pt before the favicon, the line's end 3 pt inside the row.
+        drop.line = .init(y: y, minX: todayFrame.minX + CraMetrics.rowLeading - SidebarListMetrics.dropLead + CGFloat(depth) * CraMetrics.indent,
+                          maxX: todayFrame.maxX - SidebarListMetrics.dropTrail)
         drop.rowAbove = items.last { $0.frame.maxY <= y + 1 }?.itemID
         drop.rowBelow = items.first { $0.frame.minY >= y - 1 }?.itemID
         return drop
@@ -1146,17 +1264,27 @@ final class SpaceListView: NSView, NSDraggingSource {
 enum SidebarListMetrics {
     /// Rows either side of the insertion line ease this far apart.
     static let nudge: CGFloat = 3
+    /// The insertion line's ring (outer size) and stroke, and its ink over the sidebar: Arc 1.172.1
+    /// draws #EFEFEC over a #383830 fill, 92 % of the way to white (2x capture, 13 Nov 2026, #422).
+    static let dropRing: CGFloat = 8
+    static let dropLineWidth: CGFloat = 2
+    static let dropLineAlpha: CGFloat = 0.92
+    /// The ring starts this far before a row's favicon; the line stops this far inside the row.
+    static let dropLead: CGFloat = 2
+    static let dropTrail: CGFloat = 3
     /// SwiftUI's .snappy(duration: 0.22, extraBounce: 0), which the list's changes used.
     static let duration: TimeInterval = 0.22
     static let timing = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
 }
 
-/// The list's scroll view. Space swipes are read by the window controller's scroll monitor,
-/// which has to see every event of a gesture: responsive scrolling takes a gesture's events
-/// off that path once it starts over the list, and a horizontal gesture never scrolls a list.
+/// The scroll view of every list in the sidebar: a space's tabs and the Library's pages. Space
+/// and Library swipes are read by the window controller's scroll monitor, which has to see every
+/// event of a gesture: responsive scrolling takes a gesture's events off that path once it starts
+/// over the list, and the swipe then never arrives, or loses its end and stays between two pages
+/// (over Library ▸ Downloads, 9 Nov 2026). A horizontal gesture never scrolls a list.
 /// It goes on up instead: on the Library's Spaces page the cards scroll sideways under the
 /// fingers, or under Shift and a mouse wheel, over a card's list too (Arc 1.171).
-final class SpaceListScrollView: NSScrollView {
+final class SidebarListScrollView: NSScrollView {
     override class var isCompatibleWithResponsiveScrolling: Bool { false }
 
     override func scrollWheel(with event: NSEvent) {
@@ -1239,7 +1367,19 @@ final class SpaceListDocument: NSView {
     private var pointerIsOver: Bool {
         guard let w = window, w.isVisible, !NSApp.isHidden,
               visibleRect.contains(convert(w.mouseLocationOutsideOfEventStream, from: nil)) else { return false }
-        return NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0) == w.windowNumber
+        return Self.topWindowNumber(at: NSEvent.mouseLocation) == w.windowNumber
+    }
+
+    /// The window under the pointer is a synchronous window-server call (~1 ms), and AppKit asks for
+    /// tracking areas every frame of a space switch, once per space in the strip: 207 ms of the main
+    /// thread over six switches. The answer is kept while the pointer stays put, for 0.1 s at most.
+    private static var topWindow: (point: NSPoint, at: CFTimeInterval, number: Int)?
+    private static func topWindowNumber(at point: NSPoint) -> Int {
+        let now = CACurrentMediaTime()
+        if let t = topWindow, t.point == point, now - t.at < 0.1 { return t.number }
+        let number = NSWindow.windowNumber(at: point, belowWindowWithWindowNumber: 0)
+        topWindow = (point, now, number)
+        return number
     }
 
     override func mouseEntered(with event: NSEvent) { isMouseInside = true; list?.pointerMoved(event) }

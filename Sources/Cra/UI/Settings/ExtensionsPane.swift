@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Installed unpacked extensions in Dia's card idiom, with the add/manage buttons under the
-/// card the way Dia places "Advanced Settings" under its Privacy card.
+/// card the way Dia places "Advanced Settings" under its Privacy card, then the Live Folder plugins.
 struct ExtensionsPane: View {
     let actions: SettingsActions
     @Environment(SidebarStore.self) private var store
@@ -49,6 +49,8 @@ struct ExtensionsPane: View {
             SettingsFootnote(store.settings.chromeEngine
                              ? (extensions.needsRestart ? L10n.tr("Restart Cra to apply the change.") : L10n.tr("Extensions load when Cra starts."))
                              : L10n.tr("Extensions need the Chrome engine (Advanced pane)."))
+            // Live Folder plugins have no Arc tab either: they sit under the extensions.
+            PluginsPane().settingsNested().padding(.top, 20)
         }
     }
 

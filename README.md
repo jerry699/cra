@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra.dmg"><b>Download for macOS</b></a> ·
   <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra-Intel.dmg">Intel Mac</a> ·
+  <a href="https://crabrowser.app/iphone">iPhone beta</a> ·
   <a href="https://crabrowser.app">crabrowser.app</a> ·
   <a href="https://crabrowser.app/release-notes">What's new</a> ·
   <a href="https://crabrowser.app/help">Help</a>
@@ -47,6 +48,11 @@ Embedded Framework, so sites and Chrome extensions work as they do in Chrome.
   On an Intel Mac, download <a href="https://github.com/VictorKildahl/cra/releases/latest/download/Cra-Intel.dmg">Cra-Intel.dmg</a> instead.
 </p>
 
+<p align="center">
+  Or with Homebrew, on either kind of Mac:<br>
+  <code>brew install --cask victorkildahl/tap/cra</code>
+</p>
+
 ## Coming from Arc
 
 | Arc feature | Cra |
@@ -68,11 +74,11 @@ Embedded Framework, so sites and Chrome extensions work as they do in Chrome.
 | Private windows | ✅ |
 | Arc's keyboard shortcuts | ✅ |
 | Import from Arc | ✅ |
-| Easels | Not yet |
-| Boosts | Not yet |
+| Easels | ✅ |
+| Boosts | ✅ |
 | Peek | ✅ |
-| Notes | Not yet |
-| Arc Max | Tidy Tabs only, on the Mac's Apple Intelligence; nothing goes to a server |
+| Notes | Left out: Arc itself no longer makes new Notes |
+| Arc Max | Ask on Page, Instant Links, Tidy Tabs, Tidy Tab Titles, Tidy Downloads and 5-Second Previews, on the Mac's Apple Intelligence; only Instant Links' search queries leave the Mac, to the search engine |
 
 The [roadmap](https://crabrowser.app/roadmap) lists what's next.
 
@@ -122,8 +128,10 @@ Google Docs works. The [full list](https://crabrowser.app/shortcuts) is on the s
 
 ## Privacy and security
 
-Cra has no account and no server, and the app collects no analytics. Spaces, tabs and the
-archive are plain JSON in `~/Library/Application Support/Cra`. A built-in blocker stops
+Cra has no account, and it shares nothing about how you use it unless you turn that on:
+anonymous daily usage stats and crash reports, never the sites you visit
+([what they hold](docs/sharing.md)). Spaces, tabs and the archive are plain JSON in
+`~/Library/Application Support/Cra`. A built-in blocker stops
 requests to more than 22,000 ad and tracker domains.
 
 Pages run in Chromium's sandbox with site isolation, passwords and cookies are encrypted
@@ -144,13 +152,21 @@ everyone.
 
 <p align="center"><a href="https://crabrowser.app/support">Where the money goes</a></p>
 
+### iPhone
+
+Cra for iPhone, the open-source take on Arc Search, is in public beta on TestFlight: join at
+[crabrowser.app/iphone](https://crabrowser.app/iphone). It needs iOS 17; Browse for Me and
+Summarize run on the iPhone's own Apple Intelligence. Its code is in [`iOS/`](iOS) and its
+status in [docs/ios-parity.md](docs/ios-parity.md).
+
 ## Build from source
 
     scripts/build.sh          # fetches CEF on first run, builds build/Cra.app
     scripts/run.sh            # build if needed, then open
     scripts/dev.sh            # dev loop: debug CraDev.app, rebuilds + relaunches on save
 
-Needs Xcode 16+ and CMake (`brew install cmake`). [CONTRIBUTING.md](CONTRIBUTING.md)
+Needs Xcode 16+ and CMake (`brew install cmake`). The iPhone app builds with
+`scripts/ios.sh build` (Xcode 26 with the iOS platform, no Chromium). [CONTRIBUTING.md](CONTRIBUTING.md)
 covers sending a change, and [docs/development.md](docs/development.md) covers the code
 layout, scripting hooks and test instances.
 

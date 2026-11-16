@@ -9,16 +9,36 @@ public enum SpaceThemeVariants {
     /// to Auto stuck on one side. An imported Arc `single` stays on its side (ArcThemeImport, #171).
     public static func theme(key: [String], intensity: Double, noise: Double, appearance: String) -> SpaceTheme {
         var t: SpaceTheme
+        if key.isEmpty {
+            t = colourless(intensity: intensity, noise: noise, appearance: appearance)
+            t.key = key
+            return t
+        }
         switch appearance {
-        case "light": t = light(key: key, intensity: intensity, noise: noise)
-        case "dark": t = dark(key: key, intensity: intensity, noise: noise)
+        case "light": t = picked(key: key, intensity: intensity, noise: noise, appearance: "light")
+        case "dark": t = picked(key: key, intensity: intensity, noise: noise, appearance: "dark")
         default: t = SpaceTheme(light: light(key: key, intensity: intensity, noise: noise), dark: dark(key: key, intensity: intensity, noise: noise))
         }
         t.key = key
         return t
     }
 
-    /// The half shown while macOS is light, from the pad's colours: the colours themselves (Arc
+    /// Arc's colourless theme, what its editor saves with no colour on the pad ("Tap to pick a color
+    /// for this space", #300): the default space's two halves, base #C8CAFF / #FFE5E5 light and
+    /// #01021F / #1A001F dark, as ArcThemeImport draws them (pinned against Arc's own file by
+    /// `noColourIsArcsColourlessTheme`). Auto follows macOS; Light or Dark keeps that half. The
+    /// intensity slider still sets the light half's.
+    public static func colourless(intensity: Double, noise: Double, appearance: String) -> SpaceTheme {
+        let light = SpaceTheme(colors: ["#CDCDFC", "#FFE5E5"], intensity: intensity, noise: noise, appearance: "light", accent: "#C8CAFF")
+        let dark = SpaceTheme(colors: ["#2C273B", "#32263A"], intensity: 1, noise: noise, appearance: "dark", accent: "#010220")
+        switch appearance {
+        case "light": return light
+        case "dark": return dark
+        default: return SpaceTheme(light: light, dark: dark)
+        }
+    }
+
+    /// Auto's half shown while macOS is light, from the pad's colours: the colours themselves (Arc
     /// saves a colour picked in Light as that colour), lifted to Arc's default light half (HSL
     /// lightness 0.9, #8389FF → #C8CAFF) when they would read as a dark theme. One colour is Arc's
     /// one-dot theme (`blendedSingleColor`), a flat fill like an imported one (ArcThemeImport).
@@ -30,19 +50,45 @@ public enum SpaceThemeVariants {
         return t
     }
 
-    /// The half shown while macOS is dark, from the pad's colours: Arc's default dark half keeps the
-    /// key's hue at HSL lightness ≈ 0.064 (#8389FF → #01021F).
+    /// Auto's half shown while macOS is dark, from the pad's colours. A colour dark enough for a dark
+    /// theme stays itself, as Arc keeps every picked colour (offline Arc 1.172, 12 Nov 2026: black,
+    /// #1A1A1A, #333333 and navy were saved as themselves); a lighter one keeps its hue at HSL
+    /// lightness ≈ 0.064, as Arc's default dark half does (#8389FF → #01021F). Arc draws them over a
+    /// neutral grey, never a purple one (#392). One colour is Arc's one-dot theme over the dark
+    /// material (SpaceTheme.solid), at the slider's intensity like the light half.
     public static func dark(key: [String], intensity: Double, noise: Double) -> SpaceTheme {
-        let base = key.map { shade($0, lightness: 0.064) }
-        // Drawn the way ArcThemeImport draws Arc's opaque dark halves: ~27% of the colour over #2B2632.
+        let base = key.map(darkTone)
+        if base.count == 1 {
+            return SpaceTheme(colors: base + base, intensity: intensity, noise: noise, appearance: "dark", accent: base[0], solid: true)
+        }
+        // A gradient is opaque: each stop at Arc's solid-theme opacity for the intensity over the
+        // grey Arc's default dark half is drawn on (its top stop: 0.63 of #01021F over #5E5E5E).
+        let a = SpaceTheme.solidAlpha(intensity: intensity)
         let colors = base.map { hex in
             let k = HexColor.components(hex) ?? (0, 0, 0)
-            func ch(_ v: Double, _ b: Double) -> Int { Int((v * 255 * 0.27 + b).rounded()) }
-            return String(format: "#%02X%02X%02X", ch(k.r, 43), ch(k.g, 38), ch(k.b, 50))
+            func ch(_ v: Double) -> Int { Int((a * v * 255 + (1 - a) * neutralGrey).rounded()) }
+            return String(format: "#%02X%02X%02X", ch(k.r), ch(k.g), ch(k.b))
         }
-        // One colour stays one flat colour, without the gradient a lone stop gets (SpacePalette).
-        return SpaceTheme(colors: colors.count == 1 ? colors + colors : colors, intensity: 1, noise: noise, appearance: "dark",
-                          accent: base.first)
+        return SpaceTheme(colors: colors, intensity: 1, noise: noise, appearance: "dark", accent: base.first)
+    }
+
+    /// The grey under a dark gradient half (sRGB 0–255), fitted to Arc's default dark half.
+    static let neutralGrey = 94.0
+
+    /// A pad colour as the dark half uses it: itself when it already reads dark, else its hue darkened.
+    static func darkTone(_ hex: String) -> String {
+        (HexColor.luminance(hex) ?? 1) < 0.45 ? hex.uppercased() : shade(hex, lightness: 0.064)
+    }
+
+    /// Light or Dark, as Arc draws a picked colour on either appearance (offline Arc 1.172, 12 Nov
+    /// 2026): the pad's colours as they are, one colour Arc's one-dot fill, at the slider's intensity.
+    /// Arc lightens and darkens nothing: a light colour is a light sidebar with dark text and a dark
+    /// one a dark sidebar with white text, on Light and Dark alike (SpaceTheme.isDark, #392). Only
+    /// Auto's halves are lifted or darkened (`light`, `dark`), so an Auto space follows macOS (#155).
+    public static func picked(key: [String], intensity: Double, noise: Double, appearance: String) -> SpaceTheme {
+        var t = SpaceTheme(colors: key.map { $0.uppercased() }, intensity: intensity, noise: noise, appearance: appearance, accent: key.first?.uppercased())
+        if t.colors.count == 1 { t.colors.append(t.colors[0]); t.solid = true }
+        return t
     }
 
     /// The colour's HSL hue and saturation at another lightness.

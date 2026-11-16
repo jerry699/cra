@@ -12,8 +12,11 @@ enum SpaceProfileChoice: Hashable {
 struct SpaceEditorView: View {
     let existing: Space?
     let profiles: [BrowserProfile]
-    /// Title, icon, theme, profile; a new profile comes with its name.
-    let onSave: (String, SpaceIcon, SpaceTheme, SpaceProfileChoice, String) -> Void
+    /// The Search Engine picker's rows (#306) and the name of the default it falls back to.
+    let searchEngines: [ChromiumSearchEngine]
+    let defaultEngineName: String
+    /// Title, icon, theme, profile, a new profile's name, and the search engine's keyword (nil: default).
+    let onSave: (String, SpaceIcon, SpaceTheme, SpaceProfileChoice, String, String?) -> Void
     let onCancel: () -> Void
     let onPreview: (SpaceTheme) -> Void
 
@@ -24,16 +27,28 @@ struct SpaceEditorView: View {
     @State private var theme: SpaceTheme
     @State private var profile: SpaceProfileChoice
     @State private var newProfileName = ""
+    /// The engine's keyword; empty is the default.
+    @State private var searchEngine: String
 
     private static let emojis = ["🌱", "💼", "🏠", "🎨", "🧪", "📚", "🎮", "🎵", "🛒", "✈️", "💡", "🔥", "🌊", "🍕", "🐦", "🧑‍💻",
                                  "📈", "🧠", "❤️", "⭐️", "🌙", "☕️", "🏃", "📷", "🎬", "🧩", "🪴", "🏔️", "🛠️", "💰", "📝", "🎯"]
 
     /// `initialProfile` is a new space's starting profile (Arc: the focused space's).
     init(existing: Space?, profiles: [BrowserProfile], initialProfile: UUID? = nil,
-         onSave: @escaping (String, SpaceIcon, SpaceTheme, SpaceProfileChoice, String) -> Void, onCancel: @escaping () -> Void,
+         searchEngines: [ChromiumSearchEngine] = [], defaultEngineName: String = "Google",
+         onSave: @escaping (String, SpaceIcon, SpaceTheme, SpaceProfileChoice, String, String?) -> Void, onCancel: @escaping () -> Void,
          onPreview: @escaping (SpaceTheme) -> Void = { _ in }) {
         self.existing = existing
         self.profiles = profiles
+        self.defaultEngineName = defaultEngineName
+        // An engine no longer listed (removed on the settings page) still shows as the space's.
+        let own = existing?.searchEngine ?? ""
+        var engines = searchEngines
+        if !own.isEmpty, !engines.contains(where: { $0.keyword.lowercased() == own.lowercased() }) {
+            engines.append(ChromiumSearchEngine(name: own, keyword: own, url: ""))
+        }
+        self.searchEngines = engines
+        _searchEngine = State(initialValue: engines.first { $0.keyword.lowercased() == own.lowercased() }?.keyword ?? "")
         _profile = State(initialValue: .existing(existing == nil ? initialProfile : existing?.profileID))
         self.onSave = onSave
         self.onCancel = onCancel
@@ -62,6 +77,7 @@ struct SpaceEditorView: View {
                     }
                     Divider()
                     profileSection
+                    searchEngineSection
                     Spacer(minLength: 0)
                 }
                 .frame(width: 260)
@@ -74,7 +90,7 @@ struct SpaceEditorView: View {
                 Button("Cancel") { onCancel() }.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(existing == nil ? "Create Space" : "Save") {
-                    onSave(title.isEmpty ? "Space" : title, icon, theme, profile, trimmedProfileName)
+                    onSave(title.isEmpty ? "Space" : title, icon, theme, profile, trimmedProfileName, searchEngine.isEmpty ? nil : searchEngine)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled((title.trimmingCharacters(in: .whitespaces).isEmpty && existing == nil) || (profile == .new && trimmedProfileName.isEmpty))
@@ -122,19 +138,22 @@ struct SpaceEditorView: View {
         .help("Change Icon")
         .accessibilityLabel("Change Icon")
         .popover(isPresented: $pickingIcon, arrowEdge: .bottom) {
-            SpaceIconPicker(current: icon.emoji, currentSymbol: icon.symbol,
+            SpaceIconPicker(current: icon.emoji, currentSymbol: icon.symbol, currentImage: icon.image,
                             onPick: { icon = .emoji($0); pickingIcon = false },
                             onPickSymbol: { icon = .symbol($0); pickingIcon = false },
+                            onPickImage: { icon = .image($0); pickingIcon = false },
                             onRemove: { icon = .none; pickingIcon = false })
         }
     }
 
-    /// The icon as the sidebar draws it: an emoji, or a symbol in the space's text colour.
+    /// The icon as the sidebar draws it: an emoji, a symbol in the space's text colour, or the user's picture in its own colours.
     @ViewBuilder
     private func glyph(size: CGFloat, color: Color) -> some View {
         switch icon {
         case .emoji(let e): Text(e).font(.system(size: size))
         case .symbol(let name): Image(systemName: name).font(.system(size: size - 2, weight: .medium)).foregroundStyle(color)
+        case .image(let data):
+            if let image = SpaceIconImage.image(data, points: size + 2) { Image(nsImage: image) }
         case .none: EmptyView()
         }
     }
@@ -157,6 +176,21 @@ struct SpaceEditorView: View {
                 }
             }
             Text(profileNote).font(.system(size: 11)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// GitHub #306, not in Arc: the engine the command bar searches in this space.
+    private var searchEngineSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Search Engine", selection: $searchEngine) {
+                Text("Default (\(defaultEngineName))").tag("")
+                Divider()
+                ForEach(searchEngines, id: \.keyword) { e in Text(e.name).tag(e.keyword) }
+            }
+            Text("Searches from the command bar in this space go here. Default follows Settings.")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

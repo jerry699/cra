@@ -27,7 +27,7 @@ enum CraLog {
         }
         // Above 10: Chromium's DevTools pipe needs descriptors 3 and 4 free (CraCDPPipeSetUp),
         // and this file is opened before Chromium starts.
-        let fd = open(file.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o644)
+        let fd = open(file.path, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)  // audit fix: 0600, the log can hold URLs
         if fd >= 0 {
             let high = fcntl(fd, F_DUPFD_CLOEXEC, 10)
             close(fd)

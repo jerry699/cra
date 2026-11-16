@@ -1,12 +1,5 @@
 import Foundation
 
-enum CommandBarMode: Equatable {
-    /// ⌘T: commit creates a new tab in the current space.
-    case newTab
-    /// ⌘L: commit navigates the current tab.
-    case editURL
-}
-
 enum SuggestionKind: Equatable {
     case switchToTab(UUID)
     case archived(UUID)
@@ -68,7 +61,9 @@ final class SuggestionEngine {
 
     // MARK: Entry
 
-    func suggestions(for rawQuery: String, mode: CommandBarMode, currentTabID: UUID?) -> SuggestionResult {
+    /// `spaceShown` is the space the bar's window shows, which "Switch to" leaves out: a Little
+    /// Window's own target (#316); nil, the focused space.
+    func suggestions(for rawQuery: String, mode: CommandBarMode, currentTabID: UUID?, spaceShown: UUID? = nil) -> SuggestionResult {
         let query = rawQuery.trimmingCharacters(in: .whitespaces)
         let q = query.lowercased()
         var result = SuggestionResult(query: query)
@@ -91,7 +86,7 @@ final class SuggestionEngine {
             items.append(contentsOf: historyAndSemanticSuggestions(q, openURLs: searchIndex.openURLs))
             items.append(contentsOf: topDomainSuggestions(q))
         }
-        items.append(contentsOf: commandSuggestions(q, currentTabID: currentTabID))
+        items.append(contentsOf: commandSuggestions(q, currentTabID: currentTabID, spaceShown: spaceShown))
 
         // Learned: the user picked this URL for this query before.
         if let learned = store.ranking.queriesToSelected[q] {
@@ -163,11 +158,11 @@ final class SuggestionEngine {
 
     /// The bar scoped to actions (Tab on the empty field, Arc's typeTravel): commands, space
     /// switches and moves, the most used first, narrowed by what is typed.
-    func suggestions(forActionsMatching rawQuery: String, currentTabID: UUID?) -> SuggestionResult {
+    func suggestions(forActionsMatching rawQuery: String, currentTabID: UUID?, spaceShown: UUID? = nil) -> SuggestionResult {
         let query = rawQuery.trimmingCharacters(in: .whitespaces)
         let q = query.lowercased()
         var result = SuggestionResult(query: query)
-        let rows = actionRows(q, currentTabID: currentTabID).filter { row in
+        let rows = actionRows(q, currentTabID: currentTabID, spaceShown: spaceShown).filter { row in
             if case .command(let id) = row.suggestion.kind { return ActionSearchScope.lists(actionID: id) }
             return true
         }
@@ -215,7 +210,7 @@ final class SuggestionEngine {
     private var searchIndex: SearchIndex {
         if let index { return index }
         var i = SearchIndex()
-        let tabs = store.profileTabs(window: nil)
+        let tabs = commandBarTabs()
         i.tabs = tabs.compactMap { tab in tab.tab.map { (tab, Searchable(title: tab.displayTitle, url: $0.url)) } }
         i.openURLs = Set(tabs.compactMap { $0.tab?.url })
         i.archive = store.archive.prefix(400).compactMap { e in e.item.tab.map { (e, Searchable(title: e.item.displayTitle, url: $0.url)) } }
@@ -236,12 +231,14 @@ final class SuggestionEngine {
     private var enginesRead: (default: ChromiumSearchEngine, keywords: [ChromiumSearchEngine])?
 
     /// Chromium's, in the window's space's profile (an incognito window's are its Default's),
-    /// read when the bar opens.
+    /// read when the bar opens. The default is the space's own engine where it has one (#306).
     private var engines: (default: ChromiumSearchEngine, keywords: [ChromiumSearchEngine]) {
         if let enginesRead { return enginesRead }
-        let profile = store.profilePath(space: store.focusedSpaceID)
-        let read = (SearchEngines.shared.defaultEngine(profilePath: profile, legacy: store.settings.searchEngine),
-                    SearchEngines.shared.keywords(profilePath: profile))
+        let space = store.focusedSpaceID
+        let profile = store.profilePath(space: space)
+        let keywords = SearchEngines.shared.keywords(profilePath: profile)
+        let fallback = SearchEngines.shared.defaultEngine(profilePath: profile, legacy: store.settings.searchEngine)
+        let read = (ChromiumSearchEngine.forSpace(keyword: store.space(space)?.searchEngine, default: fallback, among: keywords), keywords)
         enginesRead = read
         return read
     }
@@ -336,6 +333,11 @@ final class SuggestionEngine {
 
     /// The command bar is open in an incognito window (it acts on the window in use).
     private var incognito: Bool { store.window().isIncognito }
+
+    /// The "New …" command the bar offers: the focused space's profile's choice (#375).
+    var newDocumentApp: NewDocumentApp? {
+        store.settings.newDocumentCommand(profileID: store.profileID(space: store.focusedSpaceID), incognito: incognito)
+    }
 
     private func tabSuggestions(_ q: String, excluding current: UUID?) -> [Suggestion] {
         var out: [Suggestion] = []
@@ -481,9 +483,9 @@ final class SuggestionEngine {
         return out
     }
 
-    private func commandSuggestions(_ q: String, currentTabID: UUID?) -> [Suggestion] {
+    private func commandSuggestions(_ q: String, currentTabID: UUID?, spaceShown: UUID?) -> [Suggestion] {
         guard q.count >= 2 else { return [] }
-        return actionRows(q, currentTabID: currentTabID).map { row in
+        return actionRows(q, currentTabID: currentTabID, spaceShown: spaceShown).map { row in
             var s = row.suggestion
             s.score += Double(min(row.uses, 10)) * 2
             return s
@@ -492,7 +494,7 @@ final class SuggestionEngine {
 
     /// Commands, space switches and moves the text names (all of them with nothing typed), each
     /// scored by its name alone, with how often it was run from the bar.
-    private func actionRows(_ q: String, currentTabID: UUID?) -> [(suggestion: Suggestion, uses: Int)] {
+    private func actionRows(_ q: String, currentTabID: UUID?, spaceShown: UUID?) -> [(suggestion: Suggestion, uses: Int)] {
         var out: [(suggestion: Suggestion, uses: Int)] = []
         func nameScore(_ name: String, triggers: [String]) -> Double {
             let n = name.lowercased()
@@ -512,11 +514,21 @@ final class SuggestionEngine {
                                    url: nil, faviconKey: nil, symbol: a.symbol ?? "command", trailing: a.primary?.display, score: s),
                         store.ranking.commandUsage[a.id] ?? 0))
         }
+        // The profile's "New documents" app as one command, "New Google Doc" (Arc, #375); none while it's "——".
+        if let doc = newDocumentApp {
+            let s = nameScore(doc.commandName, triggers: doc.triggers)
+            if s > 0 {
+                let id = NewDocumentApp.commandID
+                out.append((Suggestion(id: "cmd:\(id)", kind: .command(id), title: doc.commandName, subtitle: "Command",
+                                       url: nil, faviconKey: nil, symbol: "doc.badge.plus", trailing: nil, score: s),
+                            store.ranking.commandUsage[id] ?? 0))
+            }
+        }
         for space in incognito ? [] : store.orderedSpaces {
             let switchTitle = L10n.tr("Switch to %@", space.title)
             let s = max(nameScore("Switch to \(space.title)", triggers: [space.title.lowercased()]),
                         nameScore(switchTitle, triggers: [space.title.lowercased(), space.title]))
-            if s > 0 && space.id != store.focusedSpaceID {
+            if s > 0 && space.id != (spaceShown ?? store.focusedSpaceID) {
                 out.append((Suggestion(id: "space:\(space.id)", kind: .switchSpace(space.id), title: switchTitle,
                                        subtitle: L10n.tr("Space"), url: nil, faviconKey: nil, symbol: nil, trailing: space.emoji, score: s), 0))
             }
@@ -544,8 +556,16 @@ final class SuggestionEngine {
         return out
     }
 
+    /// The open tabs ⌘T searches: the profile's, or the window's space's with Settings ▸ Advanced
+    /// "Search only the current space’s tabs" (#307). A tab open in another space
+    /// then doesn't hide its history row either.
+    private func commandBarTabs() -> [SidebarItem] {
+        TabSearchScope.commandBarTabs(store.profileTabs(window: nil), space: { self.store.spaceID(ofItem: $0.id) },
+                                      windowSpace: store.focusedSpaceID, currentSpaceOnly: store.settings.commandBarCurrentSpaceOnly)
+    }
+
     private func recentSuggestions(excluding current: UUID?) -> [Suggestion] {
-        let tabs = store.profileTabs(window: nil).filter { $0.id != current }
+        let tabs = commandBarTabs().filter { $0.id != current }
             .sorted { ($0.tab?.timeLastActiveAt ?? .distantPast) > ($1.tab?.timeLastActiveAt ?? .distantPast) }
             .prefix(7)
         var out: [Suggestion] = tabs.map { tab in

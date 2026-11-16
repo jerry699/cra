@@ -19,6 +19,14 @@ public enum SiteLinks {
         case helpMenu = "help-menu"
         /// "Learn more" on the site control center's protected-media card.
         case protectedMedia = "protected-media"
+        /// "Learn more" under onboarding's sharing row and in Settings ▸ Privacy.
+        case privacy
+        /// "here" on the command bar's search-suggestions banner (#314).
+        case commandBarNotice = "command-bar-notice"
+        /// "What’s sent" on the sidebar's "Help improve Cra" card.
+        case sharingCard = "sharing-card"
+        /// The link a user sends from Settings' first tab ▸ Share Cra with a Friend.
+        case share
     }
 
     /// `url` with Cra's tag when it points at crabrowser.app; any other URL (GitHub, a typo)

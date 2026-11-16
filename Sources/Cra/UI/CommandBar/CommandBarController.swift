@@ -28,6 +28,8 @@ final class CommandBarController {
     /// The space whose palette colours the selected row and the info badge (CraCore CommandBarTones).
     var theme: SpaceTheme?
     var focusedSpaceID: UUID?
+    /// The space "Switch to" leaves out when it isn't the focused one: a Little Window's (#316).
+    var spaceShown: UUID?
     var spaceName: (UUID) -> String = { _ in "" }
     /// Arc's scoped search: Tab on "youtube" scopes the bar to YouTube, on "%" to the space's open
     /// tabs, on the empty field to the browser's actions (a pill before the field) until Backspace
@@ -37,6 +39,8 @@ final class CommandBarController {
     private var scopeTyped = ""
     /// The URL ⌘L opened with (the page's), nil for ⌘T.
     private(set) var openedPrefill: String?
+    /// Rows that open or change under a still pointer don't take the selection from the top row (#382).
+    @ObservationIgnored private var hoverGate = HoverGate()
 
     unowned let engine: SuggestionEngine
     unowned let store: SidebarStore
@@ -45,7 +49,16 @@ final class CommandBarController {
     var onOpenInBackground: (Suggestion?, String) -> Bool = { _, _ in false }
     /// Opens the row as a split pane beside the current tab; false when it can't go there.
     var onOpenInSplit: (Suggestion?, String) -> Bool = { _, _ in false }
+    /// Shift-Return on a search (Instant Links, #407): the phrase and the engine the bar searched with.
+    /// Nil where the host has no space to open results in (a Little Window).
+    var onInstantLinks: ((String, ChromiumSearchEngine) -> Void)?
     var onClose: () -> Void = {}
+    /// Arc's search-suggestions notice (CraCore SearchSuggestionsNotice, #314): the (i) at the field's end
+    /// opens a banner in the bottom row's place for this ⌘T.
+    private(set) var noticePressed = false
+    /// The banner's Search Settings… and its "here" (Cra's privacy page).
+    var onNoticeSettings: () -> Void = {}
+    var onNoticeLearnMore: () -> Void = {}
 
     init(engine: SuggestionEngine, store: SidebarStore) {
         self.engine = engine
@@ -72,8 +85,10 @@ final class CommandBarController {
         allowCompletion = false
         selectedIndex = 0
         previewText = nil
-        result = engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID)
+        noticePressed = false
+        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
         isOpen = true
+        if onInstantLinks != nil { InstantLinksService.shared.prewarm(store) }
     }
 
     /// Replace the typed text (scripting / tests).
@@ -90,11 +105,11 @@ final class CommandBarController {
         if let scope {
             switch scope {
             case .site(let site):
-                result = engine.suggestions(for: newQuery, in: site)
+                result = listed(engine.suggestions(for: newQuery, in: site))
             case .tabs:
-                result = engine.suggestions(for: newQuery, inTabsOf: focusedSpaceID ?? store.focusedSpaceID, currentTabID: store.selectedTabID)
+                result = listed(engine.suggestions(for: newQuery, inTabsOf: focusedSpaceID ?? store.focusedSpaceID, currentTabID: store.selectedTabID))
             case .actions:
-                result = engine.suggestions(forActionsMatching: newQuery, currentTabID: store.selectedTabID)
+                result = listed(engine.suggestions(forActionsMatching: newQuery, currentTabID: store.selectedTabID, spaceShown: spaceShown))
             }
             selectedIndex = 0
             previewText = nil
@@ -110,7 +125,7 @@ final class CommandBarController {
             guard let self, self.isOpen, self.query == typed else { return }
             self.relist()
         }
-        result = engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID)
+        result = listed(engine.suggestions(for: newQuery, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
         if !allowCompletion { result.inlineCompletion = nil }
         selectedIndex = 0
         previewText = nil
@@ -120,7 +135,7 @@ final class CommandBarController {
     private func relist() {
         guard scope == nil else { return }
         let selectedID = result.items.indices.contains(selectedIndex) ? result.items[selectedIndex].id : nil
-        result = engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID)
+        result = listed(engine.suggestions(for: query, mode: mode, currentTabID: store.selectedTabID, spaceShown: spaceShown))
         if !allowCompletion { result.inlineCompletion = nil }
         if let i = result.items.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = i
@@ -203,6 +218,36 @@ final class CommandBarController {
         onCommit(selected, typed, mode)
     }
 
+    /// Shift-Return (Instant Links): on a search row, with the feature on and Apple Intelligence able,
+    /// the bar closes and the model plans what was typed. Anything else is Return.
+    func commitInstantLinks() {
+        guard let (selected, typed) = committed() else { return }
+        if let onInstantLinks, InstantLinksService.shared.isAvailable(store), let phrase = instantLinksPhrase(selected) {
+            // Before close(): the row needs to know whether the New Tab row is the open one.
+            onInstantLinks(phrase, engine.searchEngine)
+            close()
+            return
+        }
+        close()
+        onCommit(selected, typed, mode)
+    }
+
+    /// What Shift-Return searches: what was typed (never the inline completion Return would take), or a
+    /// search suggestion's text; nil for any other row.
+    private func instantLinksPhrase(_ selected: Suggestion?) -> String? {
+        guard scope == nil else { return nil }
+        let text: String
+        if let selected {
+            guard selected.kind == .search else { return nil }
+            text = selected.id == "typed" ? query : selected.title
+        } else {
+            guard !SuggestionEngine.looksLikeURL(query) else { return nil }
+            text = query
+        }
+        let phrase = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return phrase.isEmpty ? nil : phrase
+    }
+
     /// ⌘Return (Arc): the row's page opens in a new background tab and the bar stays open with
     /// what was typed, so the next ⌘Return opens another. Rows that open no page, and hosts with
     /// no tabs to open (a Little Window), take it as Return.
@@ -234,6 +279,63 @@ final class CommandBarController {
     func commit(_ suggestion: Suggestion) {
         close()
         onCommit(suggestion, query, mode)
+    }
+
+    private var suggestionsOn: Bool { store.settings.searchSuggestions }
+    private var noticeDismissed: Bool { store.prefs.searchSuggestionsNoticeDismissed }
+
+    var showsNoticeBadge: Bool {
+        let offersSite = scope == nil && previewText == nil && result.scope != nil && result.scope != .actions
+        return SearchSuggestionsNotice.showsBadge(suggestionsOn: suggestionsOn, dismissed: noticeDismissed, bannerShown: noticePressed,
+                                                  scoped: scope != nil, offersSite: offersSite)
+    }
+
+    var showsNoticeBanner: Bool {
+        SearchSuggestionsNotice.showsBanner(suggestionsOn: suggestionsOn, dismissed: noticeDismissed, bannerShown: noticePressed)
+    }
+
+    /// Row places the panel is sized for: the rows and the banner.
+    var rowPlaces: Int { SearchSuggestionsNotice.rowPlaces(rows: result.items.count, banner: showsNoticeBanner) }
+
+    /// The (i): the banner takes the last row's place.
+    func showNotice() {
+        guard showsNoticeBadge else { return }
+        noticePressed = true
+        result = listed(result)
+        if selectedIndex >= result.items.count { selectedIndex = max(0, result.items.count - 1) }
+    }
+
+    /// Dismiss: the banner and the badge go for good, and the last row comes back.
+    func dismissNotice() {
+        store.prefs.searchSuggestionsNoticeDismissed = true
+        noticePressed = false
+        relist()
+    }
+
+    func openNoticeSettings() {
+        close()
+        onNoticeSettings()
+    }
+
+    func openNoticeLearnMore() {
+        close()
+        onNoticeLearnMore()
+    }
+
+    /// The pointer is over row `index`: it selects the row once the pointer has moved since the
+    /// rows last changed (CraCore HoverGate, #382).
+    func hover(row index: Int) {
+        guard hoverGate.isHover(pointerAt: NSEvent.mouseLocation), selectedIndex != index else { return }
+        selectedIndex = index
+    }
+
+    /// What the engine listed, less the last row while the banner has its place.
+    private func listed(_ r: SuggestionResult) -> SuggestionResult {
+        hoverGate.listChanged(pointerAt: NSEvent.mouseLocation)
+        var r = r
+        let n = SearchSuggestionsNotice.rowsListed(r.items.count, maxRows: SuggestionEngine.maxRows, banner: showsNoticeBanner)
+        if n < r.items.count { r.items.removeLast(r.items.count - n) }
+        return r
     }
 
     func close() {

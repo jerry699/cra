@@ -8,15 +8,15 @@ extension MainWindowController {
         let popover = NSPopover()
         popover.behavior = .transient
         let id = space.id, store = self.store
-        let set: (String, String?) -> Void = { [weak popover] emoji, symbol in
+        let set: (SpaceIcon) -> Void = { [weak popover] icon in
             guard var s = store.space(id) else { return }
-            s.emoji = emoji
-            s.symbol = symbol
+            s.icon = icon
             store.updateSpace(s)
             popover?.performClose(nil)
         }
-        let picker = SpaceIconPicker(current: space.emoji, currentSymbol: space.symbol, onPick: { set($0, nil) },
-                                     onPickSymbol: { set("", $0) }, onRemove: { set("", nil) })
+        let picker = SpaceIconPicker(current: space.emoji, currentSymbol: space.symbol, currentImage: space.iconImage,
+                                     onPick: { set(.emoji($0)) }, onPickSymbol: { set(.symbol($0)) },
+                                     onPickImage: { set(.image($0)) }, onRemove: { set(.none) })
         // A fixed size: NSPopover placed itself for the hosting view's first, larger size and then
         // shrank toward its bottom-left corner, which left it 52 pt low with the arrow off-centre.
         let host = NSHostingController(rootView: picker)
@@ -26,6 +26,11 @@ extension MainWindowController {
         popover.contentSize = NSSize(width: 272, height: 272)
         guard let content = anchor.window?.contentView else { return }
         var rect = anchor.convert((anchor as? SpaceHeaderView)?.iconRect ?? anchor.bounds, to: content)
+        // From the dock (#339) Arc opens it above the bar, its arrow pointing down at the icon.
+        if anchor is SpaceCellView {
+            popover.show(relativeTo: rect, of: content, preferredEdge: content.isFlipped ? .minY : .maxY)
+            return
+        }
         // Arc's arrow tip sits a point higher, at the icon box's last row.
         rect.origin.y += content.isFlipped ? -1 : 1
         popover.show(relativeTo: rect, of: content, preferredEdge: content.isFlipped ? .maxY : .minY)

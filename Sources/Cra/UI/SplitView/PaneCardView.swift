@@ -12,6 +12,10 @@ final class PaneCardView: NSView {
     let toolbarHost: NSView
     /// Where the Chromium view lives (or where the page window is positioned).
     let webArea = NSView()
+    let pageTopGrabber = WindowContentGrabber()
+    /// Chrome's bars over the page, which Cra draws for the Chromium engine (PageInfoBar): above the page, which
+    /// gets the rest of the web area.
+    let infoBarStrip = InfoBarStrip()
     /// Hairline under the toolbar when the pane has no page (Arc draws it on the tinted card).
     private let hairline = NSView()
     /// The card behind the toolbar, in the toolbar's colour. A card with a page paints nothing else:
@@ -22,11 +26,40 @@ final class PaneCardView: NSView {
     /// them as a light rim in every rounded corner.
     private let pageBackground = NSView()
     var showToolbar = true { didSet { needsLayout = true } }
+    /// Settings ▸ Tabs ▸ "Hide the toolbar until the pointer reaches the top of the page"
+    /// (ToolbarAutoHide): the bar takes no room above the page. It floats over the page's top
+    /// edge, slid out of the card until `toolbarRevealed`. A card without a page keeps its bar,
+    /// which is all it has.
+    var floatsToolbar = false {
+        didSet {
+            guard floatsToolbar != oldValue else { return }
+            if !floatsToolbar { toolbarRevealed = false }
+            needsLayout = true
+        }
+    }
+    private(set) var toolbarRevealed = false
+    /// Whether the bar floats right now: asked to, and there is a page to float over.
+    var toolbarIsFloating: Bool { floatsToolbar && showToolbar && hasPage && !transparent }
+    /// What the bar takes from the top of the card: its height, or nothing while it floats or is hidden.
+    var barInset: CGFloat { showToolbar && !toolbarIsFloating ? toolbarHeight : 0 }
+    /// A line under the floating bar, which has the page behind it instead of an edge of its own.
+    private let floatingEdge = NSView()
     var toolbarHeight: CGFloat = CraMetrics.toolbarHeight {
         didSet { if toolbarHeight != oldValue { needsLayout = true; onToolbarHeightChange?() } }
     }
     /// The shell lays the page windows out again when the bar's height changes.
     var onToolbarHeightChange: (() -> Void)?
+    /// Arc's Zap shelf (BoostZap): a bar under the page, which ends above it.
+    var bottomBar: NSView? {
+        didSet {
+            guard bottomBar !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let bottomBar { addSubview(bottomBar) }
+            needsLayout = true
+            onToolbarHeightChange?()
+        }
+    }
+    var bottomBarHeight: CGFloat { bottomBar == nil ? 0 : CGFloat(BoostZap.shelfHeight) }
     /// Arc's developer bar (PaneToolbarView): its colour behind the bar, and its 40 pt height.
     var developerBar: NSColor? {
         didSet {
@@ -44,7 +77,7 @@ final class PaneCardView: NSView {
         }
     }
     /// White page card, or Arc's tinted translucent empty pane.
-    var hasPage = true { didSet { refreshBackground(); syncShadow() } }
+    var hasPage = true { didSet { refreshBackground(); syncShadow(); if floatsToolbar, hasPage != oldValue { needsLayout = true } } }
     var isDark = false { didSet { refreshBackground() } }
     /// The page's own background ("#RRGGBB"; Arc's canvas until it reports one). The page window
     /// trails the card by a frame or more while the window is resized quickly, and a page that is
@@ -59,7 +92,13 @@ final class PaneCardView: NSView {
     /// The no-tab stand-in: toolbar on the gradient, no card at all.
     var transparent = false { didSet { refreshBackground(); syncShadow() } }
     /// While a pane is being dragged open/closed its page keeps its last size.
-    var frozenWebBounds: NSRect?
+    var frozenWebBounds: NSRect? { didSet { if frozenWebBounds == nil { frozenPageInWindow = nil } } }
+    /// The page's final frame in the window while the sidebar slides. Cleared with `frozenWebBounds`.
+    var frozenPageInWindow: NSRect?
+    var pageBounds: NSRect {
+        if let f = frozenPageInWindow, window != nil { return webArea.convert(f, from: nil) }
+        return frozenWebBounds ?? webArea.bounds
+    }
     /// The page is on screen in another window: Arc keeps the tab selected here and shows a
     /// blurred snapshot of it (BlurredItemContent) until this window is used again.
     var elsewhereSnapshot: NSImage? {
@@ -91,6 +130,7 @@ final class PaneCardView: NSView {
             if shadowView.superview !== superview { superview.addSubview(shadowView, positioned: .below, relativeTo: self) }
         } else {
             shadowView.removeFromSuperview()
+            pageTopGrabber.removeFromSuperview()
         }
         syncShadow()
     }
@@ -135,6 +175,8 @@ final class PaneCardView: NSView {
         toolbarBackground.wantsLayer = true
         hairline.wantsLayer = true
         hairline.isHidden = true
+        floatingEdge.wantsLayer = true
+        floatingEdge.isHidden = true
         elsewhereView.wantsLayer = true
         elsewhereView.layer?.contentsGravity = .resizeAspectFill
         elsewhereView.layer?.cornerCurve = .continuous
@@ -143,8 +185,10 @@ final class PaneCardView: NSView {
         addSubview(pageBackground)
         addSubview(elsewhereView)
         addSubview(webArea)
+        addSubview(infoBarStrip)
         addSubview(toolbarBackground)
         addSubview(hairline)
+        addSubview(floatingEdge)
         addSubview(toolbarHost)
         ring.isHidden = true
         ring.layer?.cornerRadius = cornerRadius
@@ -176,18 +220,58 @@ final class PaneCardView: NSView {
         pageBackground.layer?.backgroundColor = (hasPage && !transparent ? page : NSColor.clear).cgColor
         hairline.isHidden = hasPage || transparent || !showToolbar
         hairline.layer?.backgroundColor = NSColor(white: isDark ? 1 : 0, alpha: 0.08).cgColor
+        floatingEdge.layer?.backgroundColor = NSColor(white: 0, alpha: 0.14).cgColor
+    }
+
+    /// Slides the floating bar out over the page's top, or back out of the card.
+    func setToolbarRevealed(_ revealed: Bool, animated: Bool) {
+        guard toolbarRevealed != revealed else { return }
+        toolbarRevealed = revealed
+        guard toolbarIsFloating else { return }
+        guard animated, window != nil else { needsLayout = true; layoutSubtreeIfNeeded(); return }
+        let frames = barFrames()
+        if revealed { toolbarHost.isHidden = false; toolbarBackground.isHidden = false; floatingEdge.isHidden = false }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = revealed ? ToolbarAutoHide.revealDuration : ToolbarAutoHide.hideDuration
+            ctx.timingFunction = CAMediaTimingFunction(name: revealed ? .easeOut : .easeIn)
+            toolbarHost.animator().frame = frames.bar
+            toolbarBackground.animator().frame = frames.bar
+            floatingEdge.animator().frame = frames.edge
+        }, completionHandler: { [weak self] in
+            // A bar that is out of the card is hidden too, so nothing in it takes the keyboard.
+            MainActor.assumeIsolated { self?.needsLayout = true }
+        })
+    }
+
+    /// Where the bar and the line under it sit: at the card's top, or just above it while a
+    /// floating bar is put away.
+    private func barFrames() -> (bar: NSRect, edge: NSRect) {
+        let b = bounds
+        let th: CGFloat = showToolbar ? toolbarHeight : 0
+        let away = toolbarIsFloating && !toolbarRevealed
+        let y = away ? b.height + 1 : b.height - th
+        return (NSRect(x: 0, y: y, width: b.width, height: th), NSRect(x: 0, y: y - 1, width: b.width, height: 1))
     }
 
     override func layout() {
         super.layout()
         let b = bounds
-        let th: CGFloat = showToolbar ? toolbarHeight : 0
-        toolbarHost.isHidden = th == 0
-        toolbarHost.frame = NSRect(x: 0, y: b.height - th, width: b.width, height: th)
-        toolbarBackground.frame = toolbarHost.frame
+        let floating = toolbarIsFloating
+        // What the page gives up to the bar; a floating bar lies over the page instead.
+        let th: CGFloat = barInset
+        let frames = barFrames()
+        let barAway = !showToolbar || (floating && !toolbarRevealed)
+        toolbarHost.isHidden = barAway
+        toolbarHost.frame = frames.bar
+        toolbarBackground.isHidden = floating && !toolbarRevealed
+        toolbarBackground.frame = frames.bar
+        floatingEdge.isHidden = !floating || !toolbarRevealed
+        floatingEdge.frame = frames.edge
         hairline.frame = NSRect(x: 0, y: b.height - th - 1, width: b.width, height: 1)
         hairline.isHidden = hasPage || transparent || th == 0
-        webArea.frame = NSRect(x: 0, y: 0, width: b.width, height: max(0, b.height - th))
+        let bh = bottomBarHeight
+        webArea.frame = NSRect(x: 0, y: bh, width: b.width, height: max(0, b.height - th - bh))
+        bottomBar?.frame = NSRect(x: 0, y: 0, width: b.width, height: bh)
         // The page window rounds the card's corners itself. Its stand-in fill keeps 1 pt clear of
         // every rounded edge: the same radius on the inset rect stays at least 1 pt inside the
         // page's curve, so the page's edge pixels only ever blend with the gradient behind the card.
@@ -203,8 +287,12 @@ final class PaneCardView: NSView {
         elsewhereView.frame = fill
         elsewhereView.layer?.cornerRadius = pageBackground.layer?.cornerRadius ?? 0
         elsewhereView.layer?.maskedCorners = pageBackground.layer?.maskedCorners ?? []
-        let wb = frozenWebBounds ?? webArea.bounds
-        EmbeddedPages.place(webArea.subviews, in: wb)
+        let barHeight = min(infoBarStrip.height, webArea.frame.height)
+        infoBarStrip.isHidden = barHeight == 0
+        infoBarStrip.frame = NSRect(x: webArea.frame.minX, y: webArea.frame.maxY - barHeight, width: webArea.frame.width, height: barHeight)
+        var page = pageBounds
+        page.size.height = max(0, page.height - barHeight)  // the web area isn't flipped: the bars take its top
+        EmbeddedPages.place(webArea.subviews, in: page)
         ring.frame = b
     }
 

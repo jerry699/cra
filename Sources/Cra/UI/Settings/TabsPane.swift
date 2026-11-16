@@ -1,120 +1,135 @@
 import SwiftUI
 
-/// Dia's Tabs pane is a two-column form: "General:" checkboxes, "Tab Groups:" checkboxes and
-/// "Tab Cleanup:" with a checkbox that enables a duration popup. Cra keeps the groups it has
-/// behaviour for.
+/// Settings ▸ Tabs. Dia draws this pane as a two-column form of checkboxes, whose titles didn't
+/// say what each one did. Cra gives every setting a line saying what it changes, and the ones
+/// that change how Cra looks a picture of it, the way Arc's Max pane draws a feature. The address
+/// bar picks between onboarding's two layout pictures. Links have a pane of their own, as in Arc.
 struct TabsPane: View {
     @Environment(SidebarStore.self) private var store
 
     var body: some View {
         @Bindable var store = store
-        SettingsFormPane {
-            SettingsFormRow(label: L10n.tr("General:")) {
-                SettingsCheckbox(title: L10n.tr("Add new tabs to the top"), isOn: $store.settings.newTabsAtTop)
-                SettingsCheckbox(title: L10n.tr("Show the New Tab button above tabs"), isOn: $store.settings.newTabButtonAtTop)
-                SettingsCheckbox(title: L10n.tr("Haptic feedback when reordering tabs"), isOn: $store.settings.hapticFeedbackOnReorder)
-                SettingsCheckbox(title: L10n.tr("Preview a folder’s tabs when hovering over it"), isOn: $store.settings.folderPreviews)
-                // Arc: Settings ▸ General ▸ Previews (Gmail's unread mail on its favorite).
-                SettingsCheckbox(title: L10n.tr("Preview unread Gmail when hovering its favorite"), isOn: $store.settings.favoritePreviews)
-                SettingsCheckbox(title: L10n.tr("Show toolbar above the page"), isOn: $store.settings.showToolbar)
-                SettingsCheckbox(title: L10n.tr("Pages fill the window edge to edge"), isOn: $store.settings.edgeToEdgeContent)
-                SettingsCheckbox(title: L10n.tr("Enable Picture in Picture when you leave a video tab"), isOn: $store.settings.autoPictureInPicture)
+        SettingsCardPane {
+            // #305: onboarding's "Choose where the address bar goes". Arc keeps it in View ▸ Show Toolbar.
+            SettingsHeader("Address bar")
+            SettingsFeatureCard {
+                HStack(spacing: 12) {
+                    ForEach(AddressBarPlacement.allCases, id: \.self) { placement in
+                        AddressBarTile(placement: placement, selection: $store.settings.addressBarPlacement)
+                    }
+                }
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity)
             }
-            // Arc's single-space mode ("Hide Space Header" on the space's menu), for people who
-            // don't use spaces.
-            SettingsFormRow(label: L10n.tr("Spaces:")) {
-                SettingsCheckbox(title: L10n.tr("Show the space header with only one space"), isOn: $store.settings.showSpaceHeaderOnSingleSpace)
-                Text(L10n.tr("Off hides the space’s name and its icon at the bottom of the sidebar while you have one space."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            SettingsFootnote("\(KeyBindingRegistry.shared.action("toggleToolbar")?.primary?.display ?? "⇧⌘D") in any window, or the View menu’s Show Toolbar, switches it too.")
+            SettingsFeatureCard {
+                // GitHub #344, not in Arc: Arc's sidebar address opens the command bar on a click.
+                SettingsToggleRow("Edit the address in the sidebar",
+                                  detail: "Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. \(KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L") still opens the command bar.",
+                                  isOn: $store.settings.editAddressInPlace,
+                                  enabled: store.settings.addressBarPlacement == .sidebar)
+            }
+            .padding(.top, 12)
+
+            // Settings that change how Cra looks carry a picture of the change.
+            SettingsHeader("Sidebar").padding(.top, 20)
+            SettingsFeatureCard {
+                SettingsSwitchRow("New tabs at the top",
+                                  detail: "A new tab goes above your other tabs instead of below them.",
+                                  isOn: $store.settings.newTabsAtTop) { SettingsArt.newTabsAtTop }
+                SettingsCardDivider()
+                SettingsSwitchRow("New Tab button above tabs",
+                                  detail: "The + New Tab row sits at the top of the tab list, where you can always reach it.",
+                                  isOn: $store.settings.newTabButtonAtTop) { SettingsArt.newTabButtonAtTop }
+                SettingsCardDivider()
+                SettingsSwitchRow("Colorful favorite outline",
+                                  detail: "The open favorite gets a rim in its logo’s colors instead of a plain one.",
+                                  isOn: $store.settings.favoriteLogoOutline) { SettingsArt.favoriteLogoOutline }
+                SettingsCardDivider()
+                // Arc's single-space mode ("Hide Space Header" on the space's menu), for people who
+                // don't use spaces.
+                SettingsSwitchRow("Space header with one space",
+                                  detail: "Show the space’s name at the top and its icon at the bottom of the sidebar, even while you have only one space.",
+                                  isOn: $store.settings.showSpaceHeaderOnSingleSpace) { SettingsArt.spaceHeader }
+            }
+
+            SettingsHeader("Pages").padding(.top, 20)
+            SettingsFeatureCard {
+                SettingsSwitchRow("Edge to edge",
+                                  detail: "Pages fill the window, with no margin or rounded corners around them.",
+                                  isOn: $store.settings.edgeToEdgeContent) { SettingsArt.edgeToEdge }
+                SettingsCardDivider()
+                // Not in Arc (#404): the toolbar floats over the page (ToolbarAutoHide).
+                SettingsSwitchRow("Hide the toolbar until you need it",
+                                  detail: "The page takes the toolbar’s room. Move the pointer to the top of the page and the toolbar slides in over it.",
+                                  isOn: $store.settings.autoHideToolbar,
+                                  enabled: store.settings.addressBarPlacement == .toolbar) { SettingsArt.autoHideToolbar }
+            }
+
+            SettingsHeader("Tabs and Favorites").padding(.top, 20)
+            SettingsFeatureCard {
                 // #154: Arc's favorites, one set per profile.
-                SettingsCheckbox(title: L10n.tr("Share Favorites across Spaces with the same profile"),
-                                 isOn: Binding(get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }))
-                Text(L10n.tr("Spaces on one profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsToggleRow("Share Favorites across Spaces",
+                                  detail: "Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy.",
+                                  isOn: Binding(get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }))
             }
-            // Arc's Links pane: the Little Arc switch and "Choose where links open inside
-            // Arc." with an "Air Traffic Control…" button.
-            SettingsFormRow(label: L10n.tr("Links:")) {
-                SettingsCheckbox(title: L10n.tr("Links from other apps open in a Little Window"), isOn: $store.settings.openExternalLinksInLittleWindow)
-                // Arc's "Open Little Arc when I press ⌥⌘N" (#195): New Little Window's shortcut from any app.
-                SettingsCheckbox(title: L10n.tr("Open a Little Window when I press %@ in any app",
-                                                KeyBindingRegistry.shared.action("newLittleWindow")?.primary?.display ?? "⌥⌘N"),
-                                 isOn: $store.settings.littleWindowShortcutEverywhere)
-                // Arc: "Archive Little Arcs after:" 1 hour, 6 hours (default), 12 hours.
-                HStack(spacing: 6) {
-                    Text(L10n.tr("Archive Little Windows after:"))
-                    Picker("", selection: $store.settings.littleWindowArchiveAfter) {
-                        ForEach(LittleWindowArchive.allCases, id: \.self) { Text(L10n.tr($0.label)).tag($0) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                }
-                SettingsCheckbox(title: L10n.tr("Open a Peek window when clicking on links to other sites"), isOn: $store.settings.peekLinksToOtherSites)
-                SettingsCheckbox(title: L10n.tr("In every tab, not only Favorites and Pinned tabs"), isOn: $store.settings.peekInEveryTab)
-                    .disabled(!store.settings.peekLinksToOtherSites)
-                    .padding(.leading, 20)
-                SettingsCheckbox(title: L10n.tr("Open a Peek window when clicking on links with Shift held"), isOn: $store.settings.peekOnShiftClick)
-                // Off as in Arc, whose "Open Link in New Tab" keeps the page in front (#276).
-                SettingsCheckbox(title: L10n.tr("“Open Link in New Tab” switches to the new tab"), isOn: $store.settings.openLinksInForeground)
-                Text(L10n.tr("Off, the page you’re reading stays in front, as in Arc. ⌘-click opens a link behind the page and ⇧⌘-click switches to it, whatever this says."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    Button(L10n.tr("Air Traffic Control…")) { showsAirTrafficControl = true }
-                    Text(routesSummary).font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Text(L10n.tr("Choose which space links from other apps open in."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-            }
-            SettingsFormRow(label: L10n.tr("Tab Cleanup:")) {
-                HStack(spacing: 6) {
-                    SettingsCheckbox(title: L10n.tr("Archive tabs I haven’t used in:"), isOn: $store.settings.autoArchiveEnabled)
-                    Picker("", selection: $store.settings.autoArchive) {
-                        ForEach(AutoArchiveThreshold.allCases) { Text(L10n.tr($0.label)).tag($0) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .disabled(!store.settings.autoArchiveEnabled)
-                }
+
+            SettingsHeader("Memory").padding(.top, 20)
+            SettingsFeatureCard {
                 // Tab sleeping (GitHub #153): Arc's 4 hours and nothing more unless you ask.
-                HStack(spacing: 6) {
-                    SettingsCheckbox(title: L10n.tr("Force tabs out of memory after:"), isOn: $store.settings.tabSleepTimerEnabled)
-                    Picker("", selection: $store.settings.tabSleepAfter) {
-                        ForEach(TabSleepThreshold.allCases) { Text(L10n.tr($0.label)).tag($0) }
+                SettingsToggleRow("Free memory from unused tabs",
+                                  detail: "A tab you haven’t used for a while is forced out of memory and reloads when you open it.",
+                                  isOn: $store.settings.tabSleepTimerEnabled) {
+                    SettingsInlinePicker(label: "After", selection: $store.settings.tabSleepAfter, enabled: store.settings.tabSleepTimerEnabled) {
+                        ForEach(TabSleepThreshold.allCases) { Text($0.label).tag($0) }
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    .disabled(!store.settings.tabSleepTimerEnabled)
                 }
-                SettingsCheckbox(title: L10n.tr("Force tabs out of memory when the Mac is short of memory"),
-                                 isOn: $store.settings.tabSleepOnMemoryPressure)
-                Text(tabSleepNote).font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsCardDivider()
+                SettingsToggleRow("Free memory when the Mac runs short",
+                                  detail: "While macOS is short of memory, the tabs hidden longest are forced out of it, a few at a time.",
+                                  isOn: $store.settings.tabSleepOnMemoryPressure)
             }
-        }
-        .sheet(isPresented: $showsAirTrafficControl) {
-            AirTrafficControlView().environment(store)
+            SettingsFootnote(tabSleepNote)
         }
     }
 
-    @State private var showsAirTrafficControl = false
-
-    /// Says what a forced-out tab costs, and which tabs stay, before the user finds out.
+    /// Says which tabs stay in memory, before the user finds out.
     private var tabSleepNote: String {
         let s = store.settings
-        let note = L10n.tr("A tab forced out of memory reloads when you open it. Tabs playing sound, recording or holding text you typed stay.")
+        let note = "Tabs playing sound, recording or holding text you typed stay in memory."
         guard s.tabSleepTimerEnabled, TabSleepPolicy.timer(s.tabSleepAfter).keepsRecentTabs else { return note }
         return note + (s.tabSleepOnMemoryPressure
                        ? " " + L10n.tr("So do the 10 tabs you used last, unless the Mac is short of memory.")
                        : " " + L10n.tr("So do the 10 tabs you used last."))
     }
+}
 
-    private var routesSummary: String {
-        switch store.settings.linkRoutes.count {
-        case 0: return ""
-        case 1: return L10n.tr("1 route")
-        case let n: return L10n.tr("%d routes", n)
+/// One of the two address bar layouts: onboarding's picture (Dia's TabLayout artwork) with a
+/// ring when picked, its name and where that puts the address bar underneath.
+private struct AddressBarTile: View {
+    let placement: AddressBarPlacement
+    @Binding var selection: AddressBarPlacement
+    @Environment(\.colorScheme) private var scheme
+
+    private static let width: CGFloat = 150
+
+    var body: some View {
+        let selected = selection == placement
+        let k = Self.width / 230
+        VStack(spacing: 4) {
+            LayoutArt(toolbar: placement == .toolbar, selected: selected, dark: scheme == .dark)
+                .frame(width: 230, height: 180)
+                .scaleEffect(k, anchor: .topLeading)
+                .frame(width: 230 * k, height: 180 * k, alignment: .topLeading)
+            Text(placement.title).font(.system(size: 13, weight: selected ? .semibold : .regular))
+            Text(placement.detail).font(.system(size: 11)).foregroundStyle(.secondary)
         }
+        .contentShape(Rectangle())
+        .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { selection = placement } }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(placement.title): the address bar \(placement.detail.lowercased())")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { selection = placement }
     }
 }

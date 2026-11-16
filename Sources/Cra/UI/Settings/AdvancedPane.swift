@@ -1,10 +1,10 @@
 import CraCEF
 import SwiftUI
 
-/// Dia's Advanced pane is a form: "General:" (Automatically update), "Sounds:", "Address Bar:"
-/// (a routing popup) and "When quitting Dia:" (Warn before quitting + a restore popup). Cra
-/// has no chat sounds; its page engine, search engine, import and version rows live here
-/// instead.
+/// Settings ▸ Advanced: Dia's Advanced pane (Automatically update, Address Bar routing, When
+/// quitting) plus Arc's Advanced switches (sound effects, theme data, window dragging, Boosts)
+/// and Cra's own (page engine, import and export, local agents). None of them changes how Cra
+/// looks, so each is a plain row (name, what it does, control); About closes the pane.
 struct AdvancedPane: View {
     let actions: SettingsActions
     @Environment(SidebarStore.self) private var store
@@ -12,93 +12,190 @@ struct AdvancedPane: View {
     var body: some View {
         @Bindable var store = store
         @Bindable var updater = SoftwareUpdater.shared
-        SettingsFormPane {
-            SettingsFormRow(label: L10n.tr("General:")) {
-                SettingsCheckbox(title: L10n.tr("Automatically update Cra"), isOn: $updater.automaticallyUpdates)
-                    .disabled(!updater.isAvailable)
-                HStack(spacing: 8) {
-                    Button(L10n.tr("Check for Updates…")) { updater.checkForUpdates(nil) }
-                        .disabled(!updater.isAvailable)
-                    Text(updater.lastCheckSummary).font(.system(size: 11)).foregroundStyle(.secondary)
+        let newLittleWindow = KeyBindingRegistry.shared.action("newLittleWindow")?.primary?.display ?? "⌥⌘N"
+        SettingsCardPane {
+            // Arc's Advanced (Arc 1.172.2, GitHub #372): three cards of switches on coloured tiles, then buttons.
+            // Its Shared Quotes switch isn't in Cra (the links it makes are arc.net's).
+            SettingsCard {
+                SettingsTileRow("Play Cra sound effects", symbol: "speaker.wave.2.fill", tile: .blue, isOn: $store.settings.soundEffects)
+                SettingsCardDivider()
+                SettingsTileRow("Haptic feedback when reordering tabs", symbol: "hand.tap.fill", tile: .blue, isOn: $store.settings.hapticFeedbackOnReorder)
+            }
+            SettingsCard {
+                SettingsTileRow("When opening Cra, restore windows from previous session", symbol: "macwindow", tile: .green, isOn: $store.settings.restoreWindows)
+                SettingsCardDivider()
+                SettingsTileRow("Allow window dragging from the top of webpages", symbol: "rectangle.topthird.inset.filled", tile: .green, isOn: $store.settings.pageTopWindowDrag)
+                SettingsCardDivider()
+                SettingsTileRow("Show full URL when Toolbar is enabled", symbol: "ellipsis.rectangle", tile: .red, isOn: $store.settings.toolbarShowsFullURL)
+            }
+            .padding(.top, 9)
+            SettingsCard {
+                SettingsTileRow("Enable Picture in Picture when you leave a video tab", symbol: "play.square", tile: .purple, isOn: $store.settings.autoPictureInPicture)
+                SettingsCardDivider()
+                SettingsTileRow("Allow websites to get your theme data", symbol: "paintpalette.fill", tile: .purple, isOn: $store.settings.shareThemeWithWebsites)
+                SettingsCardDivider()
+                SettingsTileRow("Enable Boosts on websites you visit", symbol: "paintbrush.fill", tile: .purple, isOn: $store.settings.boostsEnabled)
+            }
+            .padding(.top, 9)
+            HStack(spacing: 16) {
+                Button("More Settings…") { actions.openURL("chrome://settings") }
+                ResetTranslatedSitesButton(reset: actions.resetTranslatedSitePrompts)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 14)
+
+            SettingsHeader("Cra").padding(.top, 20)
+            SettingsFeatureCard {
+                // The switch is Arc's General ▸ "Automatically update my Arc".
+                SettingsPlainRow("Updates",
+                                 detail: "Cra downloads new versions in the background and installs them the next time it opens (General).",
+                                 trailing: { EmptyView() }) {
+                    HStack(spacing: 8) {
+                        Button("Check for Updates…") { updater.checkForUpdates(nil) }
+                            .disabled(!updater.isAvailable)
+                        Text(updater.lastCheckSummary).foregroundStyle(.secondary)
+                    }
                 }
-                SettingsCheckbox(title: L10n.tr("Chrome engine for pages (extensions, Chrome DevTools)"), isOn: $store.settings.chromeEngine)
-                Text(L10n.tr("Restart Cra to apply an engine change.")).font(.system(size: 11)).foregroundStyle(.secondary)
+                SettingsCardDivider()
+                SettingsToggleRow("Chrome engine for pages",
+                                  detail: "Pages run on Chromium, with Chrome extensions and Chrome DevTools. Takes effect when Cra restarts.",
+                                  isOn: $store.settings.chromeEngine)
             }
-            SettingsFormRow(label: L10n.tr("Address Bar:")) {
-                SearchEnginePicker(store: store, openURL: actions.openURL)
-                SettingsCheckbox(title: L10n.tr("Show search suggestions"), isOn: $store.settings.searchSuggestions)
+
+            // The search engine and its suggestions are in Profiles, where Arc has them.
+            SettingsHeader("Command bar").padding(.top, 20)
+            SettingsFeatureCard {
+                // GitHub #307, not in Arc: ⌘T finds tabs in the window's space only.
+                SettingsToggleRow("Only this space’s tabs",
+                                  detail: "The command bar finds open tabs in the space you’re in, not in all your spaces.",
+                                  isOn: $store.settings.commandBarCurrentSpaceOnly)
             }
-            SettingsFormRow(label: L10n.tr("Sounds:")) {
-                // Arc: Settings ▸ Advanced "Play Arc sound effects".
-                SettingsCheckbox(title: L10n.tr("Play Cra sound effects"), isOn: $store.settings.soundEffects)
-            }
-            SettingsFormRow(label: L10n.tr("Websites:")) {
-                // Arc: Settings ▸ Advanced "Allow websites to get your theme data" (--arc-palette-* variables).
-                SettingsCheckbox(title: L10n.tr("Allow websites to get your theme data"), isOn: $store.settings.shareThemeWithWebsites)
-                // Arc: "Allow window dragging from the top of webpages" (with the toolbar hidden).
-                SettingsCheckbox(title: L10n.tr("Allow window dragging from the top of webpages"), isOn: $store.settings.pageTopWindowDrag)
-                // Arc: "Enable Boosts on websites you visit".
-                SettingsCheckbox(title: L10n.tr("Enable Boosts on websites you visit"), isOn: $store.settings.boostsEnabled)
-            }
-            SettingsFormRow(label: L10n.tr("When quitting Cra:")) {
-                SettingsCheckbox(title: L10n.tr("Warn before quitting"), isOn: $store.settings.warnBeforeQuitting)
-                    .disabled(store.settings.keepInMenuBar)
-                // GitHub #231, not in Arc: ⌘Q puts Cra in the menu bar instead of quitting.
-                SettingsCheckbox(title: L10n.tr("Keep Cra in the menu bar"), isOn: $store.settings.keepInMenuBar)
-                Text(L10n.tr("⌘Q closes Cra’s windows and pages but leaves it running in the menu bar, so %@ opens a Little Window at once. Quit it from the menu bar.",
-                             KeyBindingRegistry.shared.action("newLittleWindow")?.primary?.display ?? "⌥⌘N"))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                // Arc: Settings ▸ Advanced "When opening Arc, restore windows from previous session".
-                SettingsCheckbox(title: L10n.tr("When opening Cra, restore windows from previous session"), isOn: $store.settings.restoreWindows)
+
+            SettingsHeader("Opening and quitting").padding(.top, 20)
+            SettingsFeatureCard {
                 // Not in Arc (X DM 7 Nov 2026): Arc opens on the tab in use last.
-                SettingsCheckbox(title: L10n.tr("When opening Cra, start on a new tab"), isOn: $store.settings.startOnNewTab)
+                SettingsToggleRow("Start on a new tab",
+                                  detail: "When Cra opens, it starts on a new tab instead of the tab you used last.",
+                                  isOn: $store.settings.startOnNewTab)
+                SettingsCardDivider()
+                // GitHub #231, not in Arc: ⌘Q puts Cra in the menu bar instead of quitting.
+                SettingsToggleRow("Keep Cra in the menu bar",
+                                  detail: "⌘Q closes Cra’s windows and pages but leaves it running in the menu bar, so \(newLittleWindow) opens a Little Window at once. Quit it from the menu bar.",
+                                  isOn: $store.settings.keepInMenuBar)
             }
-            SettingsFormRow(label: L10n.tr("Import:")) {
-                Button(L10n.tr("Import from Another Browser…")) { actions.importData() }
-                let names = ImportSource.allCases.filter { $0.kind != .safari && $0.isAvailable }.map(\.name)
-                Text(names.isEmpty
-                     ? L10n.tr("Bring bookmarks, open tabs, passwords and sign-ins over from Safari.")
-                     : L10n.tr("Bring spaces, tabs, folders, favorites, passwords, sign-ins and extensions over from %@, Safari and more.",
-                               names.joined(separator: ", ")))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+
+            SettingsHeader("Your data").padding(.top, 20)
+            SettingsFeatureCard {
+                SettingsPlainRow("Import from another browser",
+                                   detail: importDetail,
+                                   trailing: { Button("Import…") { actions.importData() } })
+                SettingsCardDivider()
+                SettingsPlainRow("Export spaces and pinned tabs",
+                                   detail: "Save every space’s favorites, pinned tabs and folders as a bookmarks file that Chrome, Safari, Firefox and other browsers can import.",
+                                   trailing: { Button("Export…") { SidebarExport.run(store, in: NSApp.keyWindow) } })
             }
-            SettingsFormRow(label: L10n.tr("Export:")) {
-                Button(L10n.tr("Export Spaces and Pinned Tabs…")) { SidebarExport.run(store, in: NSApp.keyWindow) }
-                Text(L10n.tr("Save every space's favorites, pinned tabs and folders as a bookmarks file that Chrome, Safari, Firefox and other browsers can import."))
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+
+            SettingsHeader("Agents").padding(.top, 20)
+            SettingsFeatureCard {
+                SettingsToggleRow("Allow local agents to control Cra",
+                                  detail: "AI agents on this Mac can read pages and act using your signed-in sessions, through MCP.",
+                                  isOn: Binding(get: { MCPServer.shared.enabled }, set: { MCPServer.shared.setEnabled($0) })) {
+                    Text(MCPServer.shared.status)
+                    if MCPServer.shared.enabled {
+                        Text("Last tool: \(MCPServer.shared.lastTool.isEmpty ? "None" : MCPServer.shared.lastTool)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if MCPServer.shared.enabled {
+                    SettingsCardDivider()
+                    MCPAgentTiles()
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Let agents run JavaScript in pages").font(.system(size: 13))
+                            Text("A script can read anything a page holds, including passwords Cra fills in.")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    } trailing: {
+                        Toggle("Let agents run JavaScript in pages", isOn: Binding(
+                            get: { MCPServer.shared.allowsScripts }, set: { MCPServer.shared.allowsScripts = $0 }))
+                            .toggleStyle(.arcSwitch).labelsHidden()
+                    }
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        Text("Let agents read your history").font(.system(size: 13))
+                    } trailing: {
+                        Toggle("Let agents read your history", isOn: Binding(
+                            get: { MCPServer.shared.allowsHistory }, set: { MCPServer.shared.allowsHistory = $0 }))
+                            .toggleStyle(.arcSwitch).labelsHidden()
+                    }
+                    SettingsCardDivider()
+                    SettingsCardRow {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Let agents upload local files").font(.system(size: 13))
+                            Text("An agent could hand any file on this Mac (like ~/.ssh/id_rsa) to a web page. Off unless you truly need it.")
+                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                        }
+                    } trailing: {
+                        Toggle("Let agents upload local files", isOn: Binding(
+                            get: { MCPServer.shared.allowsUploads }, set: { MCPServer.shared.allowsUploads = $0 }))
+                            .toggleStyle(.arcSwitch).labelsHidden()
+                    }
+                    ForEach(MCPServer.shared.agents) { agent in
+                        SettingsCardDivider()
+                        SettingsCardRow {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(agent.via.isEmpty ? agent.name : "\(agent.name) in \(agent.via)").font(.system(size: 13))
+                                Text(agent.allowed ? "Allowed" : "Not allowed").font(.system(size: 11)).foregroundStyle(.secondary)
+                            }
+                        } trailing: {
+                            Button("Forget") { MCPServer.shared.forget(agent) }
+                        }
+                    }
+                }
             }
-            SettingsFormRow(label: L10n.tr("About:")) {
-                Text("Cra \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")").font(.system(size: 13))
-                Text("Chromium \(CraCEFRuntime.chromiumVersion()) · CEF \(CraCEFRuntime.cefVersion())")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
-                Text(AppPaths.supportDir.path).font(.system(size: 11)).foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+
+            SettingsHeader("About").padding(.top, 20)
+            SettingsFeatureCard {
+                HStack(spacing: 14) {
+                    BrandMark(size: 48)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Cra \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text(EngineVersion.label(chromium: CraCEFRuntime.chromiumVersion(), cef: CraCEFRuntime.cefVersion()))
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(AppPaths.supportDir.path).font(.system(size: 11)).foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(14)
             }
         }
+    }
+
+    private var importDetail: String {
+        let names = ImportSource.allCases.filter { $0.kind != .safari && $0.isAvailable }.map(\.name)
+        return names.isEmpty
+            ? "Bring bookmarks, open tabs, passwords and sign-ins over from Safari."
+            : "Bring spaces, tabs, folders, favorites, passwords, sign-ins and extensions over from \(names.joined(separator: ", ")), Safari and more."
     }
 }
 
 /// Chromium's default search engine, the one chrome://settings/searchEngines sets (Arc: Settings ▸
 /// Profiles ▸ Default Search Engine, beside "Search Settings"): its built-in engines and whichever is
 /// the default. The page adds, edits and removes the rest.
-private struct SearchEnginePicker: View {
+struct SearchEnginePicker: View {
     let store: SidebarStore
-    let openURL: (String) -> Void
     @State private var engines: [ChromiumSearchEngine] = []
     @State private var selected = ""
 
     var body: some View {
-        HStack(spacing: 8) {
-            Picker("", selection: Binding(get: { selected }, set: pick)) {
-                ForEach(engines, id: \.keyword) { Text($0.name).tag($0.keyword) }
-            }
-            .labelsHidden()
-            .fixedSize()
-            Button(L10n.tr("Manage Search Engines…")) { openURL(SearchEngines.settingsPage) }
+        Picker("Search engine", selection: Binding(get: { selected }, set: pick)) {
+            ForEach(engines, id: \.keyword) { Text($0.name).tag($0.keyword) }
         }
+        .labelsHidden()
+        .fixedSize()
         .onAppear(perform: reload)
     }
 
@@ -114,5 +211,21 @@ private struct SearchEnginePicker: View {
         guard let engine = engines.first(where: { $0.keyword == keyword }) else { return }
         SearchEngines.shared.setDefault(engine, store: store)
         selected = keyword
+    }
+}
+
+/// Arc's "Reset Translated-site Prompts", which says nothing when it is done: the label turns to "Done"
+/// for two seconds instead.
+private struct ResetTranslatedSitesButton: View {
+    let reset: () -> Void
+    @State private var done = false
+
+    var body: some View {
+        Button(done ? "Done" : "Reset Translated-site Prompts") {
+            reset()
+            done = true
+            Task { try? await Task.sleep(for: .seconds(2)); done = false }
+        }
+        .disabled(done)
     }
 }

@@ -10,13 +10,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CEF_VERSION="${CEF_VERSION:-156.0.26+g8ea0c73+chromium-156.0.8078.88}"
+CEF_VERSION="${CEF_VERSION:-156.0.27+ga10dae3+chromium-156.0.8078.96}"
 # Follow the host CPU by default (macosarm64 / macosx64); CEF_ARCH overrides.
 # Note: Spotify's CEF builds index names the Intel platform "macosx64".
 ARCH="${CEF_ARCH:-$([ "$(uname -m)" = arm64 ] && echo macosarm64 || echo macosx64)}"
 NAME="cef_binary_${CEF_VERSION}_${ARCH}_minimal"
 # Bump the suffix (codecs2, …) when the build changes but CEF_VERSION does not.
-CEF_RELEASE="${CEF_RELEASE:-cef-${CEF_VERSION%%+*}-codecs5}"
+CEF_RELEASE="${CEF_RELEASE:-cef-${CEF_VERSION%%+*}-codecs7}"
 DIR="${CEF_DIR:-vendor/cef}"
 URL="${CEF_URL:-https://github.com/VictorKildahl/cra/releases/download/${CEF_RELEASE}/cef_binary_${ARCH}_minimal.tar.bz2}"
 
@@ -31,7 +31,7 @@ if [ ! -d "$DIR/Release" ]; then
   echo "Downloading ${NAME} from ${URL%/*}..."
   rm -rf "$DIR-download"
   mkdir -p "$DIR-download"
-  curl -fL --progress-bar -o "$DIR-download/${NAME}.tar.bz2" "$URL"
+  python3 scripts/download-cef.py "$URL" "$DIR-download/${NAME}.tar.bz2"
   tar -xjf "$DIR-download/${NAME}.tar.bz2" -C "$DIR-download"
   rm -rf "$DIR"
   mv "$DIR-download/${NAME}" "$DIR"

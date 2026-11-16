@@ -6,7 +6,7 @@ Notes for working on the code. How to send a change is in
 
 ## Build
 
-    scripts/build.sh          # fetches CEF on first run, builds build/Cra.app
+    scripts/build.sh          # fetches the engine on first run, builds build/Cra.app
     scripts/build.sh debug    # debug build
     scripts/run.sh            # build if needed, then open; --rebuild [debug] forces a build
     scripts/dev.sh            # dev loop: debug CraDev.app, rebuilds + relaunches on save (~4 s)
@@ -17,25 +17,35 @@ Notes for working on the code. How to send a change is in
 `just build debug` runs `scripts/build.sh debug`. CI calls the scripts directly, and so can
 you.
 
-Requirements: macOS 14+ on Apple silicon, Xcode 16+, CMake (`brew install cmake`), about
-1 GB of disk for CEF and the build products. `CRA_ARCH=x86_64 scripts/build.sh` cross-compiles the
+Requirements: macOS 14+ on Apple silicon, Xcode 16+, about 1 GB of disk for the engine and the
+build products. `CRA_ARCH=x86_64 scripts/build.sh` cross-compiles the
 Intel app into `build/x86_64/Cra.app` (another ~1 GB); every release ships both.
 
-`scripts/fetch-cef.sh` pins the CEF version and downloads it into `vendor/cef` (not
-committed). It fetches Cra's own CEF build, made by `scripts/build-cef.sh` with H.264/AAC
-and the patches in `scripts/cef-patches` and published as a `cef-*` release by
-`scripts/publish-cef.sh`; `CEF_URL` points it at Spotify's stock build instead. A daily workflow (`.github/workflows/cef-updates.yml`) opens an
-issue when a newer stable CEF is out; `scripts/update-cef.sh` moves the pin.
+Cra runs on Chrome's own framework with a thin layer of Cra's code built into it: the engine
+([chromium-engine.md](chromium-engine.md)). `scripts/fetch-engine.sh` pins its version and downloads it into
+`vendor/engine` (not committed), from an `engine-*` release that `scripts/publish-engine.sh` publishes.
+`scripts/build-chromium.sh` builds it from a Chrome stable tag (~45 GB, 2–4 h a CPU) with the layer, Cra's
+patches and ungoogled-chromium's in `engine/chromium` (`apply.sh` puts them in the tree);
+`CRA_ENGINE_OUT=<out dir> scripts/build.sh` builds the app on such a local build. `scripts/check-engine-update.sh`
+says when Chrome has a newer stable; a release needs the newest.
+
+`CRA_ENGINE=cef scripts/build.sh` still builds on CEF: `scripts/fetch-cef.sh` downloads Cra's CEF build
+(`scripts/build-cef.sh`, `scripts/cef-patches`, published by `scripts/publish-cef.sh`) into `vendor/cef`, and
+`Sources/CraCEF/CraCEF.mm` is the bridge.
 
 ## Layout
 
 - `Sources/Cra` — the app: `App` (delegate, key bindings), `Services` (sidebar store,
   persistence, import, updates, extensions, live folders), `UI` (sidebar, command bar, split
   view, windows, settings, onboarding)
-- `Sources/CraCEF` — Objective-C++ bridge between Swift and CEF
-- `Sources/CraHelper` — Chromium subprocess executable
+- `Sources/CraCEF` — the bridge's header (`include/CraCEF.h`), which Swift sees; on the engine it is
+  implemented inside Chrome's framework (`engine/chromium/cra`), on CEF by `CraCEF.mm`
+- `engine/chromium` — the engine's layer, Chrome hooks, patches and branding
+- `Sources/CraHelper` — CEF's Chromium subprocess (the engine has Chrome's own helpers)
 - `Sources/Cra/Services/WebKit` — the WebKit page that DRM services open in
   ([protected-media.md](protected-media.md))
+- `iOS/` — the iPhone app (UIKit on WebKit, matching Arc Search), its widgets, share
+  extension and UI tests; [ios.md](ios.md) has its layout and `scripts/ios.sh`
 - `Packages/CraCore` — models and decisions with no AppKit or Chromium (the sidebar model,
   settings and the other data-folder files, Air Traffic Control, live folder data, key chords,
   space themes, Arc theme import, the favorites grid), visible in every `Sources/Cra` file.
@@ -45,12 +55,28 @@ issue when a newer stable CEF is out; `scripts/update-cef.sh` moves the pin.
 - `scripts/` — build, release, CEF and test tooling; `scripts/clips` records release clips
 - `docs/arc-reverse-engineering.md` — what was learned from Arc and how
 - `docs/release.md` — signing, notarization and the release workflow
-- `vendor/cef` — CEF binary distribution (fetched, not committed)
+- `vendor/engine` — the engine (fetched, not committed); `vendor/cef` for CEF builds
 
 Data lives in `~/Library/Application Support/Cra`: the sidebar and archive as JSON,
 `keybindings.json`, each tab's back and forward list in `PageHistory/`, cached favicons, the logs
 and a Chromium profile folder. Delete it to
 start over.
+
+Settings ▸ General ▸ Sync keeps `sidebar.json`, `settings.json` (minus each Mac's own fields,
+`AppSettings.forSync`) and `keybindings.json` the same on the user's Macs, through iCloud
+(`Documents/Cra` in the app's iCloud Documents container; docs/release.md says how the signed
+build gets the entitlement) or through a folder a file provider syncs: `SettingsSyncService`
+writes them with a `manifest.json` into a `Cra` folder there and applies a newer bundle another
+Mac wrote (`SettingsSync` in CraCore decides). A file still downloading is waited for; files
+from different writes (hashes that don't match the manifest, #378) are waited for one to two
+minutes (`SyncMixWait`), then the Mac writes a whole bundle again; a file the manifest names that
+is gone with no placeholder is put right the same way, after one minute on the Mac that wrote the
+manifest and ten on another. A Mac that hasn't synced in the folder yet never writes over another
+Mac's bundle: it waits for that Mac, then asks. A newer Cra's bundle is never written over. `cra://debug?sync=<label>` logs what the last look found. `sync.json` in the data
+folder holds the location and the last bundle written or applied. To try it on one Mac, run a second instance on another
+`CRA_DATA_DIR` with `CRA_SYNC_DEVICE=<name>` (a Mac is known in the folder by a hash of its
+hardware UUID, which two instances share);
+`CRA_SYNC_ICLOUD_DIR=<folder>` makes both treat that folder as the iCloud container.
 
 `cra.log` is Cra's own log: each tab's page opening, showing, loading, failing to load (with
 the net error and the extension that set the proxy) and closing, and three seconds after a tab
@@ -103,15 +129,51 @@ to Markdown or `docs/` alone runs nothing.
 - `scripts/test-folder-glyph.sh`: the standalone folder component's real AppKit layers and image
   pixels: emblems follow the front panel's perspective, keep their colors and proportions, and
   update at 1x/Retina. No CEF or visible window; coverage uses the same harness as `scripts/test.sh`.
+- `scripts/test-window-content-grabber.sh`: the page-top grabber on AppKit windows:
+  clicks reach the page immediately, non-arrow cursors keep the gesture, native resize edges and rounded corners stay free,
+  a child page's drag starts in its browser window's coordinates, and the page stays outside WindowServer's native drag region.
+- `scripts/test-link-summary-share.sh`: 5-Second Previews' Copy as Image (`LinkSummaryShareImage`)
+  against Arc's own copy of a card: size at 3x, the picture's inset, the dashed line's pattern and place,
+  the footer colour.
+- `scripts/test-link-summary-panel.sh`: 5-Second Previews' card window (`LinkSummaryPanel`) off screen with
+  a stub service: the loading card, the answer growing in under the link, the small card above its link, closing.
+- `scripts/test-emoji-label.sh`: a space's emoji label in the dock and the space header, drawn
+  clipped to its frame and with the cell's text cut at the baseline, as macOS 27 draws it: `EmojiLabel`
+  shows the emoji's whole picture, in the same place (#399).
+- `scripts/test-music-notes.sh`: the production note sprites over fixed white and black backgrounds
+  at 1x and 2x, checking light-theme contrast and the dark-theme tint without CEF or a visible window.
+- `scripts/test-live-folder-plugins.sh`: the real `CraPluginHost` (sandboxed JavaScriptCore) and
+  the bundled GitHub, GitLab and Jira providers in `resources/live-folder-plugins`, through
+  `LiveFolderPluginProcess` with made-up session responses: permissions, timeouts, and each
+  provider's parsing and sign-in cases (`Tests/LiveFolderProviderTests.swift`).
+- `scripts/test-key-bindings.sh`: `KeyBindingRegistry`'s command list on a `keybindings.json` of its
+  own: the live folder plugins' commands after New Folder, and shortcuts kept through a synced file,
+  a reset and Reset All.
 - `scripts/test-sidebar-creation-menu.sh`: the sidebar + menu's real window and view off screen:
   rows and keys, clicks on enabled and disabled rows, Arc's open and close timings, and the +
   turning into an × on its spring.
+- `scripts/test-back-forward-menu.sh`: Back and Forward's history menu (#416) off screen: rows,
+  keys, clicks, titles cut where Arc cuts them, the window growing from its tail, a click on the
+  button closing it, and the button's hold (⌃-click stays a plain click).
 - `scripts/test-easel-canvas.sh`: the real `EaselSheetView` in an off-screen window, driven with
   synthetic mouse and key events: one click picks a text block, a double click edits it, Return and
-  Escape end editing, Delete removes it, its size pill follows a drag.
+  Escape end editing, Delete removes it, its size pill follows a drag. Undo and Redo, copy and
+  paste, the object and canvas menus, the colour picker, a pasted address as a link card, the
+  alignment guides and a live capture (through a fake `EaselLive`); every kind of item drawn into
+  an sRGB bitmap and its pixels compared with Arc's colours. Then `EaselBrowser` against a stub
+  `CraBrowser`: Peek's opaque canvas, the clear page and dark bar it reports to the tab that takes
+  it over with ⤢, and the capture menu's New Easel and Send To… writing their easel files.
+  `Tests/Scenarios/easel.scenario` checks the rest in the app: `cra://debug?easelLive=<s>` (a
+  capture's live page draws onto its card), `easelLink=<url>` (a link card reads its page),
+  `easelDraw=1` and `easelPick=<n>` (the picker and the object menu).
 - `scripts/test-perf.sh`: the performance recorder on a real main run loop: injected stalls,
   hang files with a `sample` stack, the session marker, ownership, the recording switch
   ([performance.md](performance.md)).
+- `scripts/perf/rounds.sh` + `scripts/perf/report.py`: memory, idle CPU and wakeups, new tab and
+  tab switch timings of builds side by side, interleaved, in background copies; not part of
+  `scripts/test.sh` (about 7 minutes a build a round). How to read them: [speed.md](speed.md).
+- `python3 Tests/test_cef_download.py`: offline checks for direct downloads, API fallback,
+  checksum and metadata failures, and custom URLs; included in `scripts/test.sh`.
 - `scripts/lint.py`: Cra's own rules (testing.md), checked by `scripts/test.sh`.
 - `Tests/smoke-launch.sh [app]`: starts the app on a throwaway data folder with no pages,
   with a page opened, then with it restored, and quits it like ⌘Q after a settings write.
@@ -132,7 +194,7 @@ sleep does: notes Chromium's audio service), `wake=1` (what waking the Mac does:
 re-read their tabs' sound, a tab-sleeping pass runs and cra.log says whether the audio service lived), `stall=<ms>` (blocks the main
 thread), `perfReport=<path>` (the recorder's perf.json now), `systemAppearance=light|dark|system`
 (the appearance Auto space themes follow, without changing the Mac's), `themeEditor=1` (Edit
-Theme Color… for the focused space), `sidebarShown=<label>` (whether the window shows its sidebar,
+Theme Color… for the focused space), `toolbar=out|in|sample|at:<x>,<y>|<label>` (the floating toolbar of Settings ▸ Tabs ▸ "Hide the toolbar until you need it": put it out or in, look at the pointer once, or say what a pointer at that point from the window's top left is to it, then log `toolbar <command>: floats=… out=… inset=… page=… hangs=…`), `findBar=<label>` (whether the find bar shows and how far its panel is from the focused page's top and trailing edges: `findBar <label>: visible=… top=… trailing=… size=…`), `sidebarShown=<label>` (whether the window shows its sidebar,
 and the View menu's Hide/Show Sidebar row: its title and the key it answers to, an App Shortcut's
 when one names it), `relaunch=1`, `quit=1`, and `nowPlaying=state|toggle|next|previous|pip|dismiss` (the sidebar player's
 newest card, then a `Cra nowPlaying[<label>] <host> playing=… prev=… next=… video=… pip=…` line per card
@@ -193,6 +255,18 @@ without Apple Intelligence would. `cra://debug?tidy=1` runs Tidy on the window's
 hovering the divider, `cra://debug?undoTidy=1` is ⌘Z's undo and `cra://debug?settingsPane=max`
 opens Settings on a pane.
 
+Opening ⌘T with Instant Links on prewarms a model session, kept until the next Instant Links run. Instant Links (#407) uses the same test model: its plan is `InstantLinks.plainPlan`, the phrase as
+one search, after the 1.6 s pause. `CRA_INSTANT_LINKS_SEARCH=<url with {searchTerms}>` loads that page in the hidden
+search page and reads it with Google's script, as if it were Google (`Tests/Fixtures/Pages/instant-links.html` is
+shaped like Google's results). `CRA_INSTANT_LINKS_FAIL=1` makes the model and the fallback both give no plan,
+so the row shows its error, and `CRA_INSTANT_LINKS_MODEL_FAIL=1` makes the test model throw, so the fallback runs.
+While a scenario runs, `cra://debug?instantLinksFail=none|plan|model` changes both,
+`cra://debug?instantLinksSetting=on|off` is Settings ▸ Max ▸ Instant Links and `cra://debug?instantLinksDismiss=1` is
+the error row's ✕. `cra://debug?instantLinks=<label>` logs the row and the last run: rows, status, current (the
+selected-row fill), plan (format/searches/counts), opened, fellback, and Today's and Pinned's items in order (a page's
+`result=` number, `+` between a split's panes, `"title"{…}` for a folder, `*` on the selected tab).
+`cra://debug?key=` now sends the key to the ⌘T bar's panel while it is open, so a scenario can press Shift-Return.
+
 `cra://debug?dragEnd=<text>` ends a drag of the window's tab whose URL holds the text, let go
 with nothing taking it, the way a drag out of the sidebar ends: outside every Cra window it opens
 in a new Blank Window (`&at=x,y` picks the point, from the screen's top left).
@@ -208,6 +282,8 @@ the way to check a menu without the pointer. The menu shows up on screen. While 
 it is an AXMenu child of the app: each item's `AXMenuItemCmdChar`, `AXMenuItemCmdModifiers`
 and `AXMenuItemMarkChar` give its shortcut and checkmark, and AXCancel closes it (a posted
 Esc doesn't). The first menu after a launch can close before AX sees it, so open it again.
+`cra://debug?spaceMenu=<label>` logs the rows of the open space's header menu without showing
+it (`&window=incognito` for the newest incognito window's).
 
 The sidebar's tab list and space pager are AppKit (`UI/Sidebar/List`): rows are plain
 layer-backed views rebuilt from the store when it changes, a swipe moves the pager's layers
@@ -219,6 +295,14 @@ from their Chrome window into the card, like Arc and Dia, and the Chrome window 
 empty, click-through and never key. Pages go back into their window while DevTools is open.
 `CRA_EMBED_PAGES=0` (or `defaults write dk.kildahl.cra embedPages -bool NO`) keeps pages in
 their own child windows, the hosting before 0.1.17, for comparing the two.
+
+DevTools are a Chromium window too, made 10 pt square in a corner of the screen. Whoever owns
+the page hangs it over the page's area and lays the page's window over the room the docked
+frontend leaves (`DevToolsPlaceholder` in CraCore, `DevToolsWindowChrome`): `MainWindowController`
+for a pane, `LittleWindowController` for a Little Window and a Peek (#348).
+`cra://debug?inspectAt=x,y` is Inspect in the page's right-click menu (`&target=little` for the
+newest Little Window or Peek) and `cra://debug?devToolsShown=<label>` logs where each Little
+Window's DevTools are.
 
 ### Cleaning up after test copies
 
@@ -275,3 +359,7 @@ zip into `build/dist`, for Apple silicon and Intel. Pushing a `v*` tag runs the 
 publishes a release. Releases with UI changes get short clips on the release notes first
 (`scripts/clips`, `.claude/skills/release-clips`). See [release.md](release.md) for the
 one-time certificate setup.
+
+## MCP
+
+See [Agents in Cra (MCP)](mcp.md) for setup, tools and access boundaries.

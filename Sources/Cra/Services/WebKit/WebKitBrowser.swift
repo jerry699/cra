@@ -38,6 +38,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     private var audibleHold = AudibleHold()
     private var audibleOff: DispatchWorkItem?
     private var capturing = false
+    /// Muted before the web view existed (a popup host's): applied in makeWebView (#387).
+    private var audioMuted = false
     /// The service this page opened for ("Spotify"), kept while it signs in elsewhere: what the
     /// toast, the Site Control Center and the dimmed extension buttons name (PageEngines).
     var serviceName = ""
@@ -46,6 +48,9 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     private var inPictureInPicture = false
     private var pictureInPicturePlaying = false
     private var hoverURL = ""
+    /// Page.getNavigationHistory's entry ids for this page's back-forward items (#416).
+    private var historyIDs: [ObjectIdentifier: Int] = [:]
+    private var historyItems: [Int: WKBackForwardListItem] = [:]
     private var findQuery = ""
     private var findCount = 0
     private var findIndex = 0
@@ -145,6 +150,7 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         webView = web
         created = true
         observe(web)
+        if audioMuted { setAudioMuted(true) }
     }
 
     /// The popup WebKit opens for window.open in an opener page: it must be a web view made with
@@ -249,6 +255,11 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     override var isPictureInPicturePlaying: Bool { pictureInPicturePlaying }
     override var isCapturingMedia: Bool { capturing }
     override var isAudible: Bool { audibleHold.audible }
+    /// WebKit reports no media session: the sidebar player follows the audible hold.
+    override var reportsMediaSession: Bool { false }
+    /// WebKit has no Chromium media session to call a sound uncontrollable: its sounds are the page's media
+    /// (`audibleHold`), and they make a card (the Chromium engine's own pages default to uncontrollable).
+    override var hasUncontrollableSound: Bool { false }
 
     /// Once per change of the three, as CEF's OnLoadingStateChange (each of them is observed).
     @MainActor
@@ -337,6 +348,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences,
                  decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        // Before WebKit's download: an Option-clicked link with `download` opens a pane, as in Chromium.
+        if opensLittleWindow(action) || opensSplit(action) { return decisionHandler(.cancel, preferences) }
         if action.shouldPerformDownload { return decisionHandler(.download, preferences) }
         guard let url = action.request.url else { return decisionHandler(.allow, preferences) }
         let scheme = url.scheme?.lowercased() ?? ""
@@ -434,6 +447,24 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         webView.reload()
     }
 
+    /// ⌥⌘-click with Settings ▸ Links' "⌥⌘-click opens a Little Window" on: a Little Window, as in a Chromium tab
+    /// (#373). WebKit hands over the click's own keys, so it is just now.
+    private func opensLittleWindow(_ action: WKNavigationAction) -> Bool {
+        guard action.navigationType == .linkActivated, action.buttonNumber != 2, let url = action.request.url?.absoluteString
+        else { return false }
+        return delegate?.browser?(self, opensLittleWindowForURL: url, clickModifiers: UInt(action.modifierFlags.rawValue), clickAge: 0) == true
+    }
+
+    /// Option-click on a link (Arc) or ⌘⌥-click (Chromium): a pane beside this page, as in a
+    /// Chromium tab (#298). Not where the delegate has no split (a Little Window).
+    private func opensSplit(_ action: WKNavigationAction) -> Bool {
+        guard action.navigationType == .linkActivated, action.buttonNumber != 2, let url = action.request.url?.absoluteString,
+              LinkSplitClick.opensSplit(url, modifiers: action.modifierFlags.rawValue),
+              delegate?.responds(to: #selector(CraBrowserDelegate.browser(_:requestsSplitPaneWithURL:))) == true else { return false }
+        delegate?.browser?(self, requestsSplitPaneWithURL: url)
+        return true
+    }
+
     // MARK: Windows and popups
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction,
@@ -444,6 +475,7 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         if AppLinkPrompt.handle(url, from: self, userGesture: true) { return nil }
         // A target=_blank link: a new tab without an opener, like Chrome's noopener default.
         if action.navigationType == .linkActivated {
+            if opensLittleWindow(action) || opensSplit(action) { return nil }
             let mods = action.modifierFlags
             if mods.contains(.command) || action.buttonNumber == 2 {
                 delegate?.browser(self, requestsNewTabWithURL: url, inBackground: !mods.contains(.shift))
@@ -593,8 +625,10 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         }
     }
 
-    /// WebKit's page mute (Safari's tab mute), else every media element.
+    /// WebKit's page mute (Safari's tab mute), else every media element. Before the web view
+    /// exists it waits for makeWebView.
     override func setAudioMuted(_ muted: Bool) {
+        audioMuted = muted
         MainActor.assumeIsolated {
             guard let web = webView else { return }
             let sel = NSSelectorFromString("_setPageMuted:")
@@ -604,6 +638,16 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
             } else {
                 web.evaluateJavaScript("document.querySelectorAll('video,audio').forEach(m => m.muted = \(muted))", in: nil, in: Self.world) { _ in }
             }
+        }
+    }
+
+    /// WebKit's own page mute state (_mediaMutedState's audio bit), else what Cra asked for.
+    override func isAudioMuted() -> Bool {
+        MainActor.assumeIsolated {
+            let sel = NSSelectorFromString("_mediaMutedState")
+            guard let web = webView, let m = class_getInstanceMethod(type(of: web), sel) else { return audioMuted }
+            typealias Fn = @convention(c) (AnyObject, Selector) -> UInt
+            return unsafeBitCast(method_getImplementation(m), to: Fn.self)(web, sel) & 1 != 0
         }
     }
 
@@ -800,6 +844,16 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
                 web.configuration.websiteDataStore.removeData(ofTypes: types, modifiedSince: .distantPast) { [weak self] in
                     self?.reply(completion, "{}", nil)
                 }
+            case "Page.getNavigationHistory":
+                reply(completion, navigationHistory(web.backForwardList), nil)
+            case "Page.navigateToHistoryEntry":
+                let id = Self.object(params)["entryId"] as? Int ?? -1
+                let list = web.backForwardList
+                guard let item = historyItems[id], (list.backList + list.forwardList).contains(where: { $0 === item }) else {
+                    return reply(completion, nil, "no history entry \(id)")
+                }
+                web.go(to: item)
+                reply(completion, "{}", nil)
             case "Cra.setFreezingVote", "Cra.load":
                 // WebKit decides when a hidden page sleeps; tab sleeping closes the page instead.
                 reply(completion, "{}", nil)
@@ -808,6 +862,27 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
                 reply(completion, nil, "\(method) is not available in a WebKit page")
             }
         }
+    }
+
+    /// Page.getNavigationHistory as Chromium answers it, from WebKit's back-forward list: the
+    /// pages oldest first, `currentIndex` the one showing. An item keeps its id while it lives.
+    @MainActor
+    private func navigationHistory(_ list: WKBackForwardList) -> String {
+        guard let current = list.currentItem else { return #"{"currentIndex":0,"entries":[]}"# }
+        let items = list.backList + [current] + list.forwardList
+        var live: [ObjectIdentifier: Int] = [:]
+        var byID: [Int: WKBackForwardListItem] = [:]
+        let entries: [[String: Any]] = items.map { item in
+            let key = ObjectIdentifier(item)
+            let id = historyIDs[key] ?? ((historyIDs.values.max() ?? 0) + live.count + 1)
+            live[key] = id
+            byID[id] = item
+            return ["id": id, "url": item.url.absoluteString, "title": item.title ?? ""]
+        }
+        historyIDs = live
+        historyItems = byID
+        let object: [String: Any] = ["currentIndex": list.backList.count, "entries": entries]
+        return (try? JSONSerialization.data(withJSONObject: object)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 
     /// Completions come on the main queue, a turn later, as CraCEF's do.
@@ -947,15 +1022,6 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
             let op = web.printOperation(with: NSPrintInfo.shared)
             op.view?.frame = web.bounds
             op.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
-        }
-    }
-
-    /// Chromium's view-source: page, in a new tab.
-    override func viewSource() {
-        MainActor.assumeIsolated {
-            let url = currentURL
-            guard url.hasPrefix("http") else { return }
-            delegate?.browser(self, requestsNewTabWithURL: "view-source:" + url, inBackground: false)
         }
     }
 

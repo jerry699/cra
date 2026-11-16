@@ -14,10 +14,21 @@ final class SidebarView: NSView {
 
     /// The URL field's sliders button (screen rect), nil while the toolbar has it.
     var siteControlsButtonFrameOnScreen: NSRect? { topBar.siteControlsButtonFrameOnScreen }
+    /// The URL field's "Translation Available" (screen rect), nil while it isn't shown (#310).
+    var translateFrameOnScreen: NSRect? { topBar.translateFrameOnScreen }
+    /// The URL field's "Pop-ups Blocked" (#357), on the translate line's place.
+    var blockedPopupsFrameOnScreen: NSRect? { topBar.translateFrameOnScreen }
+    /// Scenario hook (#310): what the URL field's translate line says, nil while it isn't shown.
+    var debugTranslateLine: String? { topBar.debugTranslateLine }
     /// Scenario hooks (#226): the URL field as if the pointer were over the header, and a press on
     /// one of its buttons. nil while the toolbar has the address.
     func debugURLFieldHover(_ on: Bool) -> [ToolbarComposition.Item]? { topBar.debugURLFieldHover(on) }
     func debugURLFieldPress(_ item: ToolbarComposition.Item) -> Bool { topBar.debugURLFieldPress(item) }
+    func debugURLFieldClick() -> String { topBar.debugURLFieldClick() }
+    var debugURLFieldState: String { topBar.debugURLFieldState }
+    /// The URL field edited in place puts the address back (#344).
+    func endAddressEditing() { topBar.endAddressEditing() }
+    func debugURLFieldType(_ text: String, commit: Bool) -> Bool { topBar.debugURLFieldType(text, commit: commit) }
     private let pager: SpacePagerView
     private let trayHost: DownloadsTrayView
     private let player: NowPlayingTrayView
@@ -145,16 +156,18 @@ final class SidebarView: NSView {
     private var bannerHeight: CGFloat = 0
 
     /// DownloadsTrayMask: the tab list is hidden from 3 pt above the downloads list's first row
-    /// and fades back in over the 170 pt above that.
+    /// and fades back in over the 170 pt above that. This mask also clips the pager, leaving
+    /// `MusicNotes.overhang` above the top favorites for notes to rise under the URL field.
     private func updateTrayMask(open: Bool, rows: Int) {
         let h = max(pager.bounds.height, 1)
         let clearTop = max(0, h - DownloadsTrayMetrics.listHeight(rows: rows) - 1)
         let fadeTop = max(0, clearTop - DownloadsTrayMetrics.fade)
+        let over = MusicNotes.overhang
         CATransaction.begin()
         CATransaction.setAnimationDuration(open ? 0.18 : 0.13)
         if !open { CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut)) }
-        trayMask.frame = pager.bounds
-        trayMask.locations = [0, NSNumber(value: Double(fadeTop / h)), NSNumber(value: Double(clearTop / h)), 1]
+        trayMask.frame = NSRect(x: 0, y: -over, width: pager.bounds.width, height: pager.bounds.height + over)
+        trayMask.locations = [0, NSNumber(value: Double((fadeTop + over) / (h + over))), NSNumber(value: Double((clearTop + over) / (h + over))), 1]
         let opaque = NSColor.black.cgColor, clear = NSColor.clear.cgColor
         trayMask.colors = open ? [opaque, opaque, clear, clear] : [opaque, opaque, opaque, opaque]
         CATransaction.commit()
@@ -345,9 +358,26 @@ final class SidebarTopBarView: NSView {
     }
 
     func debugURLFieldPress(_ item: ToolbarComposition.Item) -> Bool { !pill.isHidden && pill.debugPress(item) }
+
+    /// Scenario hooks (#344): a click on the URL field, then what it shows ("editing <text>" or
+    /// "not editing"); typing into the field being edited, then Return or Escape.
+    func debugURLFieldClick() -> String {
+        guard !pill.isHidden else { return "hidden" }
+        pill.click()
+        return pill.editingText.map { "editing \($0)" } ?? "not editing"
+    }
+    func debugURLFieldType(_ text: String, commit: Bool) -> Bool { !pill.isHidden && pill.debugType(text, commit: commit) }
+    func endAddressEditing() { pill.endEditing(commit: false) }
+    var debugURLFieldState: String { pill.isHidden ? "hidden" : pill.editingText.map { "editing \($0)" } ?? "not editing" }
     private var syncQueued = false
 
-    var preferredHeight: CGFloat { CraMetrics.titleAreaHeight + (compact ? 2 + 36 + 8 : 0) }
+    var preferredHeight: CGFloat { CraMetrics.titleAreaHeight + (compact ? 2 + pill.height + 8 : 0) }
+
+    var translateFrameOnScreen: NSRect? {
+        guard !pill.isHiddenOrHasHiddenAncestor, let window, let f = pill.translateFrame else { return nil }
+        return window.convertToScreen(pill.convert(f, to: nil))
+    }
+    var debugTranslateLine: String? { pill.isHidden ? nil : pill.translateTitle }
 
     init(store: SidebarStore, ui: SidebarUIState, actions: SidebarActions) {
         self.store = store
@@ -355,6 +385,7 @@ final class SidebarTopBarView: NSView {
         self.actions = actions
         super.init(frame: .zero)
         pill.actions = actions
+        pill.onCommit = { [weak actions] in actions?.commitAddress($0) }
         addSubview(pill)
         sync()
     }
@@ -363,7 +394,7 @@ final class SidebarTopBarView: NSView {
 
     override var isFlipped: Bool { true }
 
-    // The floating panel and the window place the toggle differently in fullscreen.
+    // Moving between the window and the floating panel lays the header out again.
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
@@ -382,7 +413,7 @@ final class SidebarTopBarView: NSView {
 
     private func button(_ key: String, symbol: String, help: String, size: CGFloat, height: CGFloat, iconSize: CGFloat,
                         weight: NSFont.Weight = .regular, active: Bool?, enabled: Bool = true, animated: Bool = false,
-                        action: @escaping () -> Void) -> SidebarGlyphButton {
+                        history: BackForwardMenu.Direction? = nil, action: @escaping () -> Void) -> SidebarGlyphButton {
         let b = buttons[key] ?? {
             let b = SidebarGlyphButton(symbol: symbol, size: size, height: height, iconSize: iconSize, weight: weight, help: help, colors: colors, action: action)
             buttons[key] = b
@@ -394,11 +425,13 @@ final class SidebarTopBarView: NSView {
         b.active = active
         b.enabled = enabled
         b.action = action
+        b.secondaryAction = history.map { direction in { [weak self] view in self?.actions.showBackForwardMenu(nil, direction, view) } }
         return b
     }
 
     private func apply() {
         let wasCompact = compact
+        let wasHeight = preferredHeight
         compact = !store.settings.showToolbar
         colors = SidebarColors(store.focusedSpace(window: ui.windowID).theme.palette)
         let tab = store.selectedTab(window: ui.windowID)
@@ -424,17 +457,17 @@ final class SidebarTopBarView: NSView {
             : button("toggle", symbol: "sidebar.left", help: help, size: 32, height: 32, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
         var shown = narrow ? [] : [toggle]
         if narrow {
-            shown.append(button("nback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoBack) { [weak self] in self?.actions.goBack() })
-            shown.append(button("nforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoForward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("nback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("nforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("more", symbol: morePanel == nil ? "ellipsis" : "xmark", help: "More options", size: 28, height: 28, iconSize: 15,
                                 weight: .semibold, active: active) { [weak self] in self?.toggleMorePanel() })
         } else if compact {
-            shown.append(button("back", symbol: "arrow.left", help: "Go Back (⌘[)", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoBack) { [weak self] in self?.actions.goBack() })
-            shown.append(button("forward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoForward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("back", symbol: "arrow.left", help: "Go Back (⌘[)", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("forward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("reload", symbol: reloadSymbol, help: "Refresh (⌘R)", size: 32, height: 32, iconSize: 15, active: active, animated: true) { [weak self] in self?.actions.reload() })
         } else if devNav {
-            shown.append(button("dback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoBack) { [weak self] in self?.actions.goBack() })
-            shown.append(button("dforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoForward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("dback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("dforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("dreload", symbol: reloadSymbol, help: "Refresh (⌘R)", size: 24, height: 24, iconSize: 15, active: nil, animated: true) { [weak self] in self?.actions.reload() })
         }
         for (k, b) in buttons where !shown.contains(where: { $0 === b }) {
@@ -453,6 +486,7 @@ final class SidebarTopBarView: NSView {
         }
         (chevron as? DevMenuChevron)?.tint = colors.textTertiary
         pill.isHidden = !compact
+        if !compact { pill.endEditing(commit: false) }
         if compact {
             let url = tab?.tab?.url ?? ""
             let host = URL(string: url)?.host ?? ""
@@ -467,11 +501,27 @@ final class SidebarTopBarView: NSView {
                                              ext.badge(for: $0, profile: profile, tab: tab?.id), tint: colors.textSecondary))
                 }
             }
+            let translation = tab.flatMap { ui.navState(for: $0.id).translation }
+            // Blocked pop-ups (#357) take the translate line while they wait: they go with the
+            // page's next navigation.
+            let popups = tab.map { ui.navState(for: $0.id).blockedPopups } ?? 0
+            let line = popups > 0 ? BlockedPopups.buttonTitle(count: popups)
+                : translation?.offersTranslation == true ? (narrowWidth ? "Translate" : "Translation Available") : nil
             pill.show(text: text, url: url, hasTab: tab != nil, colors: colors, active: active,
-                      pinned: pinned, protectedMedia: tab.flatMap { ui.navState(for: $0.id).protectedMedia })
+                      pinned: pinned, protectedMedia: tab.flatMap { ui.navState(for: $0.id).protectedMedia },
+                      translate: line,
+                      tabID: tab?.id,
+                      // An empty split pane has no address: the bar's "Search or Enter URL…" fills it.
+                      editInPlace: store.settings.editAddressInPlace && tab?.isEmptyTab != true)
+            let tabID = tab?.id
+            pill.onTranslate = { [weak self] in
+                guard let self, let tabID else { return }
+                if popups > 0 { self.actions.showBlockedPopups(tabID, self.translateFrameOnScreen) }
+                else { self.actions.showTranslate(tabID, self.translateFrameOnScreen) }
+            }
         }
         needsLayout = true
-        if wasCompact != compact { superview?.superview?.needsLayout = true }
+        if wasCompact != compact || wasHeight != preferredHeight { superview?.superview?.needsLayout = true }
     }
 
     override func layout() {
@@ -480,9 +530,10 @@ final class SidebarTopBarView: NSView {
         // A drag across 212 pt swaps the header's layout (#287).
         if SidebarHeaderLayout.isNarrow(width: Double(w)) != narrowWidth { apply() }
         // Row 1: 71 pt for the traffic lights, then the toggle. In fullscreen the lights are gone and
-        // Arc draws it from 20 pt in (glyph 20–38.5 pt); the floating panel draws stand-in lights.
+        // Arc draws it from 20 pt in (glyph 20–38.5 pt), in the floating panel too (#315); a windowed
+        // floating panel draws stand-in lights.
         // It moves left to stay 2 pt clear of ← when the sidebar is just wide enough for both.
-        let lights = !fullscreen || window?.parent != nil
+        let lights = !fullscreen
         let nav = toggleShown ? Array(rowButtons.dropFirst()) : rowButtons
         let afterLights: CGFloat = lights ? 6 + 71 + 2 : 13
         if toggleShown, let t = rowButtons.first {
@@ -502,7 +553,7 @@ final class SidebarTopBarView: NSView {
                     b.frame = NSRect(x: box.x, y: CraMetrics.titleRowCenter - 1 - box.size / 2, width: box.size, height: box.size)
                 }
             }
-            pill.frame = NSRect(x: 8, y: CraMetrics.titleAreaHeight + 2, width: w - 16, height: 36)
+            pill.frame = NSRect(x: 8, y: CraMetrics.titleAreaHeight + 2, width: w - 16, height: pill.height)
         } else if devNav, !narrow {
             let y = CraMetrics.titleRowCenter - 14
             var x = w - 6
@@ -604,7 +655,7 @@ private final class DevMenuChevron: NSView {
 }
 
 /// The URL pill on the sidebar's second row while the toolbar is hidden.
-final class SidebarURLPill: NSView {
+final class SidebarURLPill: NSView, NSTextFieldDelegate {
     var actions: SidebarActions?
     var showAccessories = false { didSet { if showAccessories != oldValue { refreshAccessories(animated: true) } } }
     private let label = NSTextField.sidebarLabel(size: 13)
@@ -615,6 +666,19 @@ final class SidebarURLPill: NSView {
     private var hovering = false { didSet { if hovering != oldValue { refreshFill() } } }
     private var colors = SidebarColors()
     private var hasTab = false
+    private var url = ""
+    private var tabID: UUID?
+    /// Settings ▸ Tabs "Edit the address in the sidebar" (#344): a click edits in place.
+    private var editInPlace = false
+    /// The address field while it is edited in place (#344), and the tab it edits.
+    private var field: NSTextField?
+    private(set) var editingTab: UUID?
+    private var savedSelectionAttributes: [NSAttributedString.Key: Any]?
+    private var resignObserver: NSObjectProtocol?
+    /// Return in the field, with what was typed.
+    var onCommit: (String) -> Void = { _ in }
+    /// Scenarios (cra://debug?hover=SidebarURLPill): the pill as the pointer leaves it hovered (#293).
+    func debugHover() { hovering = true }
     private var model: (pinned: [(String, String, NSImage?)], active: Bool)?
 
     override init(frame: NSRect) {
@@ -625,9 +689,11 @@ final class SidebarURLPill: NSView {
         layer?.cornerCurve = .continuous
         label.lineBreakMode = .byTruncatingMiddle
         addSubview(label)
+        translateLine.isHidden = true
         tip.followsCursor = true
         tip.autoresizingMask = [.width, .height]
         addSubview(tip)
+        addSubview(translateLine)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -635,9 +701,31 @@ final class SidebarURLPill: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
+    /// Arc's "Translation Available" under the address (#310): a second line in the field, the
+    /// address's left edge, 17 pt tall, opening the translate popover. Arc 1.17x AX (10 Nov): the
+    /// address at 6 pt from the field's top, the line at 23 pt, the tab list 2 pt under it.
+    private let translateLine = TranslateLineButton()
+    var onTranslate: () -> Void = {}
+    var translateTitle: String? { translateLine.isHidden ? nil : translateLine.title }
+    var translateFrame: NSRect? { translateLine.isHidden ? nil : translateLine.frame }
+    /// 36 pt, or 42 with the translate line.
+    var height: CGFloat { translateLine.isHidden ? 36 : 42 }
+
     func show(text: String, url: String, hasTab: Bool, colors: SidebarColors, active: Bool,
-              pinned: [(String, String, NSImage?)], protectedMedia: String? = nil) {
+              pinned: [(String, String, NSImage?)], protectedMedia: String? = nil, translate: String? = nil,
+              tabID: UUID? = nil, editInPlace: Bool = false) {
+        // Another tab, or the option turned off, ends the edit; the same tab loading keeps it.
+        if field != nil, tabID != editingTab || !editInPlace { endEditing(commit: false) }
+        self.editInPlace = editInPlace
+        self.url = url
+        self.tabID = tabID
+        field?.textColor = colors.textPrimary
         self.protectedMedia = protectedMedia
+        translateLine.isHidden = translate == nil
+        translateLine.title = translate ?? ""
+        translateLine.tint = colors.textSecondary
+        translateLine.hoverTint = colors.textPrimary
+        translateLine.action = { [weak self] in self?.onTranslate() }
         self.colors = colors
         self.hasTab = hasTab
         tip.text = url
@@ -650,7 +738,7 @@ final class SidebarURLPill: NSView {
     }
 
     private func refreshFill() {
-        layer?.backgroundColor = (hovering ? colors.selectedFill : colors.pillFill).cgColor
+        layer?.backgroundColor = (hovering || field != nil ? colors.pillHoverFill : colors.pillFill).cgColor
     }
 
     /// Whether the pins go in this field (else in the grid over the favorites), for its width.
@@ -665,7 +753,7 @@ final class SidebarURLPill: NSView {
         accessories.forEach { $0.removeFromSuperview() }
         accessories = []
         shownItems = []
-        guard showAccessories, hasTab, let m = model, let actions else { needsLayout = true; return }
+        guard showAccessories, hasTab, field == nil, let m = model, let actions else { needsLayout = true; return }
         pinsInField = PinnedExtensionGrid.fitsInURLField(count: m.pinned.count, fieldWidth: bounds.width)
         let icons = Dictionary(m.pinned.map { ($0.0, $0.2) }, uniquingKeysWith: { a, _ in a })
         for item in ToolbarComposition.urlFieldAccessories(pinnedExtensions: m.pinned.map(\.0), fieldWidth: bounds.width) {
@@ -679,7 +767,12 @@ final class SidebarURLPill: NSView {
                 b.menuProvider = { ExtensionStore.shared.entries.first { $0.extensionID == id }.map(ExtensionsMenu.iconMenu) }
                 accessories.append(b)
             case .copyURL:
-                let copy = SidebarGlyphButton(symbol: "link", size: 28, height: 28, iconSize: 14, weight: .regular, help: "Copy URL (⇧⌘C)", colors: colors) { actions.performAction("copyURL") }
+                let copy = SidebarGlyphButton(symbol: "link", size: 28, height: 28, iconSize: 14, weight: .regular, help: "Copy URL (⇧⌘C)", colors: colors) {}
+                // Arc confirms a click here in place as well as with the toast; ⇧⌘C only toasts (#361).
+                copy.action = { [weak copy] in
+                    actions.performAction("copyURL")
+                    copy?.playCopyCheck(glyphSize: 14)
+                }
                 copy.active = m.active
                 accessories.append(copy)
             case .extensions:
@@ -719,8 +812,14 @@ final class SidebarURLPill: NSView {
         }
         let x: CGFloat = 12
         let lh = label.intrinsicContentSize.height
-        label.frame = NSRect(x: x - SidebarText.inset, y: (h - lh) / 2, width: max(0, right - x) + 2 * SidebarText.inset, height: lh)
+        let labelY = translateLine.isHidden ? (h - lh) / 2 : 6 + (18 - lh) / 2
+        label.frame = NSRect(x: x - SidebarText.inset, y: labelY, width: max(0, right - x) + 2 * SidebarText.inset, height: lh)
         tip.frame = NSRect(x: 0, y: 0, width: right, height: h)
+        field?.frame = label.frame
+        if !translateLine.isHidden {
+            let tw = min(translateLine.fittingWidth, max(0, right - x))
+            translateLine.frame = NSRect(x: x, y: 23, width: tw, height: 17)
+        }
     }
 
     override func updateTrackingAreas() {
@@ -733,7 +832,95 @@ final class SidebarURLPill: NSView {
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        actions?.openCommandBar(hasTab ? .editURL : .newTab)
+        click()
+    }
+
+    /// Arc opens the command bar; with #344's option the address is edited where it is.
+    func click() {
+        switch SidebarAddressEdit.click(editInPlace: editInPlace, hasTab: hasTab) {
+        case .editInPlace: beginEditing()
+        case .commandBarEditURL: actions?.openCommandBar(.editURL)
+        case .commandBarNewTab: actions?.openCommandBar(.newTab)
+        }
+    }
+
+    var isEditing: Bool { field != nil }
+    var editingText: String? { field?.stringValue }
+
+    /// The full URL becomes editable where the host is drawn, all of it selected, as the
+    /// developer bar's address does (ToolbarURLButton.beginEditing). The buttons step aside.
+    func beginEditing() {
+        guard field == nil, let window else { return }
+        let f = NSTextField(string: url)
+        f.isBordered = false
+        f.drawsBackground = false
+        f.focusRingType = .none
+        f.font = label.font
+        f.textColor = colors.textPrimary
+        f.cell?.isScrollable = true
+        f.cell?.wraps = false
+        f.delegate = self
+        f.setAccessibilityLabel("Address")
+        field = f
+        editingTab = tabID
+        label.isHidden = true
+        tip.isHidden = true
+        refreshAccessories(animated: false)
+        refreshFill()
+        layoutSubtreeIfNeeded()
+        f.frame = label.frame
+        addSubview(f)
+        window.makeKey()
+        window.makeFirstResponder(f)
+        if let editor = f.currentEditor() as? NSTextView {
+            // The window's field editor is shared: put its selection colours back afterwards.
+            savedSelectionAttributes = editor.selectedTextAttributes
+            editor.selectedTextAttributes = [.backgroundColor: colors.textPrimary.withAlphaComponent(0.2), .foregroundColor: colors.textPrimary]
+            editor.insertionPointColor = colors.textPrimary
+            editor.selectAll(nil)
+        }
+        // A click into the page (its own window) ends the edit, like a click elsewhere in the sidebar.
+        resignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.endEditing(commit: false) }
+        }
+    }
+
+    /// Return loads what was typed; Escape, or anything else that ends the edit, puts the address back.
+    func endEditing(commit: Bool) {
+        guard let f = field else { return }
+        field = nil
+        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        resignObserver = nil
+        let text = f.stringValue
+        if let editor = f.currentEditor() as? NSTextView, let saved = savedSelectionAttributes { editor.selectedTextAttributes = saved }
+        savedSelectionAttributes = nil
+        if f.currentEditor() != nil { f.window?.makeFirstResponder(nil) }
+        f.removeFromSuperview()
+        label.isHidden = false
+        tip.isHidden = false
+        refreshAccessories(animated: false)
+        refreshFill()
+        if commit { onCommit(text) }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertNewline(_:)): endEditing(commit: true)
+        // A field editor reads Esc as complete: (word completion), ⌘. as cancelOperation:.
+        case #selector(NSResponder.cancelOperation(_:)), #selector(NSResponder.complete(_:)): endEditing(commit: false)
+        default: return false
+        }
+        return true
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) { endEditing(commit: false) }
+
+    /// Scenario hook (#344): type into the field being edited, then Return (or Escape).
+    func debugType(_ text: String, commit: Bool) -> Bool {
+        guard let f = field else { return false }
+        f.stringValue = text
+        endEditing(commit: commit)
+        return true
     }
 
     /// Runs the shown button's own action, as a click on it would (scenario hook, #226).
@@ -745,6 +932,64 @@ final class SidebarURLPill: NSView {
         default: return false
         }
         return true
+    }
+}
+
+/// The URL field's "Translation Available" line (#310): plain text in the field's secondary ink,
+/// the primary on hover, that opens Arc's translate popover. Arc's AX frame is 122 × 17 pt, the
+/// width of the title in 12 pt.
+final class TranslateLineButton: NSView {
+    var action: () -> Void = {}
+    private let label = NSTextField.sidebarLabel(size: 12)
+    var tint = NSColor.secondaryLabelColor { didSet { refresh() } }
+    var hoverTint = NSColor.labelColor { didSet { refresh() } }
+    private var hovering = false { didSet { refresh() } }
+    var title: String {
+        get { label.stringValue }
+        set {
+            label.stringValue = newValue
+            setAccessibilityLabel(newValue)
+            needsLayout = true
+        }
+    }
+    /// The title's own width (Arc's button is as wide as its text).
+    var fittingWidth: CGFloat {
+        ceil((label.stringValue as NSString).size(withAttributes: [.font: label.font ?? .systemFont(ofSize: 12)]).width) + 1
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(label)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    private func refresh() { label.textColor = hovering ? hoverTint : tint }
+
+    override func layout() {
+        super.layout()
+        let h = label.intrinsicContentSize.height
+        label.frame = NSRect(x: -SidebarText.inset, y: (bounds.height - h) / 2, width: bounds.width + 2 * SidebarText.inset, height: h)
+    }
+
+    override func accessibilityPerformPress() -> Bool { action(); return true }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for t in trackingAreas where t.owner === self { removeTrackingArea(t) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { action() }
     }
 }
 
@@ -767,7 +1012,7 @@ final class SpaceDockView: NSView {
     private var focused: UUID?
     private var incognito = false
     private var colors = SidebarColors()
-    private var hovered: UUID? { didSet { if hovered != oldValue { refreshCells() } } }
+    private var hovered: UUID? { didSet { if hovered != oldValue { hoverChanged() } } }
     private var reorder: (id: UUID, from: Int, to: Int, start: NSPoint, moved: Bool)?
     private var syncQueued = false
 
@@ -864,11 +1109,43 @@ final class SpaceDockView: NSView {
         needsLayout = true
     }
 
-    private func refreshCells() {
+    /// Scenarios (cra://debug?hover=SpaceCellView,n): that space hovered as if the pointer were on
+    /// it, until the pointer moves (#252: a squeezed dot takes the wide cell and shows its icon).
+    func debugHover(_ cell: SpaceCellView) {
+        hovered = cells.first { $0.value === cell }?.key
+        // The readout the space-dots-hover scenario checks: what each cell draws, at what width.
+        let ws = cellWidths
+        let drawn = order.enumerated().map { i, id in "\(cells[id]?.markLabel ?? "?")@\(String(format: "%g", ws[i]))" }
+        let order = order
+        let place = { (id: UUID?) in id.flatMap { order.firstIndex(of: $0) }.map { "\($0 + 1)" } ?? "-" }
+        CraLog.note("space dock: hovered \(place(hovered)), wide \(place(wide)): \(drawn.joined(separator: " "))")
+    }
+
+    /// A squeezed dock hands its wide cell to the hovered space (#252): the cells slide over
+    /// Arc's ~0.2 s while the icons trade places.
+    private func hoverChanged() {
+        guard SpaceDock.isSqueezed(count: order.count, room: room), reorder == nil else { return refreshCells() }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            ctx.allowsImplicitAnimation = true
+            refreshCells(animated: true)
+            placeCells(animated: true)
+        }
+    }
+
+    /// The space in a squeezed dock's wide cell: the hovered one, else the open one (#252). A
+    /// pressed space keeps it, so the release still lands in its cell; a dragged one gives it back.
+    private var wide: UUID? {
+        SpaceDock.wide(open: focused, hovered: reorder.map { $0.moved ? nil : $0.id } ?? hovered)
+    }
+
+    private func refreshCells(animated: Bool = false) {
         let squeezed = SpaceDock.isSqueezed(count: order.count, room: room)
+        let wide = wide
         for (id, c) in cells {
             c.setState(selected: id == focused, hovered: hovered == id && reorder == nil, pressed: reorder?.id == id,
-                       squeezed: squeezed, colors: colors)
+                       wide: id == wide, squeezed: squeezed, colors: colors, animated: animated)
         }
     }
 
@@ -876,10 +1153,10 @@ final class SpaceDockView: NSView {
     private var room: CGFloat { max(0, bounds.width - 63) }
 
     /// SpaceDock's widths, Arc's: 34 pt each until the share drops under 22, then the open space
-    /// keeps 22 and the others split the rest. The strip stays centred, so it never runs past the
-    /// buttons.
+    /// (or the hovered one, #252) keeps 22 and the others split the rest. The strip stays centred,
+    /// so it never runs past the buttons.
     private var cellWidths: [CGFloat] {
-        SpaceDock.widths(count: order.count, open: focused.flatMap { order.firstIndex(of: $0) }, room: room)
+        SpaceDock.widths(count: order.count, open: wide.flatMap { order.firstIndex(of: $0) }, room: room)
     }
 
     /// Left edges of the cells, in order.
@@ -889,7 +1166,7 @@ final class SpaceDockView: NSView {
         return ws.map { w in defer { x += w }; return x }
     }
 
-    /// The width a dragged space moves by per cell (the cells other than the open one).
+    /// The width a dragged space moves by per cell (the cells other than the wide one).
     private var pitch: CGFloat { cellWidths.min() ?? Self.cell.width }
 
     override func layout() {
@@ -972,6 +1249,7 @@ final class SpaceDockView: NSView {
         let p = point(event)
         let dx = p.x - r.start.x
         if !r.moved && abs(dx) < 3 && abs(p.y - r.start.y) < 3 { return }
+        let started = !r.moved
         r.moved = true
         let w = pitch
         let clamped = min(max(dx, -CGFloat(r.from) * w), CGFloat(order.count - 1 - r.from) * w)
@@ -979,6 +1257,8 @@ final class SpaceDockView: NSView {
         let changed = to != r.to
         r.to = to
         reorder = r
+        // A drag gives a squeezed dock's wide cell back to the open space (#252).
+        if started { refreshCells() }
         if changed {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.2
@@ -1023,41 +1303,49 @@ final class SpaceDockView: NSView {
         }
     }
 
+    /// Arc 1.172.2: the header's whole space menu, for the space whose icon was clicked (#339).
+    /// Change Space Icon… points its popover down at that icon.
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let i = index(at: point(event)), let space = store.space(order[i]) else { return nil }
-        let store = self.store, ui = self.ui, actions = self.actions
-        let m = NSMenu()
-        m.autoenablesItems = false
-        MenuItems.add(m, action: "editSpace") { actions.editSpace(space) }
-        m.addItem(.separator())
-        MenuItems.add(m, "Move Left") { if let i = store.spaceOrder.firstIndex(of: space.id) { store.moveSpace(space.id, to: max(0, i - 1)) } }
-        MenuItems.add(m, "Move Right") { if let i = store.spaceOrder.firstIndex(of: space.id) { store.moveSpace(space.id, to: i + 1) } }
-        m.addItem(.separator())
-        MenuItems.add(m, action: "deleteSpace") {
-            store.focusSpace(space.id, window: ui.windowID)
-            actions.performAction("deleteSpace")
+        guard let i = index(at: point(event)), let cell = cells[order[i]] else { return nil }
+        let id = order[i], ui = self.ui
+        return SpaceMenu.make(spaceID: id, store: store, ui: ui, actions: actions, anchor: cell, from: .dock) {
+            ui.renamingSpaceID = id
         }
-        return m
     }
 }
 
 /// One space in the dock: its emoji or symbol, dimmed and desaturated unless selected, hovered or
-/// pressed, or Arc's dot: for a space with no icon, and for every space but the open one when the
-/// dock is squeezed (#252). A tab dragged onto it moves there; held over it, Arc switches to that
+/// pressed, or Arc's dot: for a space with no icon, and for every space but the one in the wide
+/// cell when the dock is squeezed (#252): the open space, or the hovered one while there is one.
+/// A tab dragged onto it moves there; held over it, Arc switches to that
 /// space so the tab can be carried into its list.
 final class SpaceCellView: NSView, ArcTooltipTarget {
     private let spaceID: UUID
     private let store: SidebarStore
     private let ui: SidebarUIState
-    private let emoji = NSTextField.sidebarLabel(size: 13)
+    private let emoji = EmojiLabel.sidebar(size: 13)
     private let emojiHolder = NSView()
     /// An Icon-tab glyph (Space.symbol) in the emoji's place.
     private let symbol = NSImageView()
     private var symbolName: String?
+    /// A picture the user chose (Space.iconImage) in the emoji's place. It sits in `emojiHolder`, so
+    /// it gets the same dimming and desaturation as an emoji while the cell isn't lit, and shows in
+    /// its own colours while it is.
+    private let picture = NSImageView()
+    private var pictureData: Data?
     /// Arc's dot, outside `emojiHolder` so its own ink sets how faint it is.
     private let dot = CALayer()
     private var icon = SpaceIcon.none
     private var mark = SpaceDockMark.dot(diameter: SpaceDock.dotDiameter)
+    /// What the cell draws, for the dock's debug readout: the emoji, the symbol's name or `dot8`.
+    var markLabel: String {
+        switch mark {
+        case .emoji(let e): return e
+        case .symbol(let s): return s
+        case .image: return "image"
+        case .dot(let d): return "dot\(Int(d))"
+        }
+    }
     private var title = ""
     private var selected = false
     private var colors = SidebarColors()
@@ -1095,23 +1383,42 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         needsLayout = true
     }
 
-    /// `squeezed`: the dock is too narrow for icons, so every space but the open one is a dot.
-    func setState(selected: Bool, hovered: Bool, pressed: Bool, squeezed: Bool, colors: SidebarColors) {
+    /// `squeezed`: the dock is too narrow for icons, so every space but the one in the `wide` cell
+    /// is a dot. `animated`: the hovered space took the wide cell, so the icon and dot cross-fade
+    /// as the cells slide.
+    func setState(selected: Bool, hovered: Bool, pressed: Bool, wide: Bool, squeezed: Bool, colors: SidebarColors,
+                  animated: Bool = false) {
         self.selected = selected
         self.colors = colors
-        lit = selected || hovered || pressed
-        let mark = SpaceDock.mark(for: icon, isOpen: selected, squeezed: squeezed)
-        if mark != self.mark { self.mark = mark; needsLayout = true }
+        lit = SpaceDock.isLit(isOpen: selected, hovered: hovered, pressed: pressed, isWide: wide, squeezed: squeezed)
+        let mark = SpaceDock.mark(for: icon, isOpen: wide, squeezed: squeezed)
+        if mark != self.mark {
+            self.mark = mark
+            needsLayout = true
+            if animated {
+                let fade = CATransition()
+                fade.type = .fade
+                fade.duration = 0.2
+                layer?.add(fade, forKey: "mark")
+            }
+        }
         switch mark {
         case .emoji(let e):
             emoji.stringValue = e
             showSymbol(nil)
+            showPicture(nil)
         case .symbol(let name):
             emoji.stringValue = ""
             showSymbol(name)
+            showPicture(nil)
+        case .image(let data):
+            emoji.stringValue = ""
+            showSymbol(nil)
+            showPicture(data)
         case .dot:
             emoji.stringValue = ""
             showSymbol(nil)
+            showPicture(nil)
         }
         emojiHolder.isHidden = { if case .dot = mark { return true } else { return false } }()
         dot.isHidden = !emojiHolder.isHidden
@@ -1120,7 +1427,8 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         emojiHolder.alphaValue = lit ? 1 : 0.45
         symbol.contentTintColor = colors.textPrimary
         emojiHolder.layer?.filters = lit ? nil : [CIFilter(name: "CIColorControls", parameters: ["inputSaturation": 0.2])!]
-        refreshFill(hovered || pressed)
+        // Arc fills a hovered cell only when the dock has room; a squeezed one shows the icon instead.
+        refreshFill(pressed || (hovered && !squeezed))
     }
 
     private func showSymbol(_ name: String?) {
@@ -1129,6 +1437,14 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         symbol.image = name.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
         symbol.isHidden = name == nil
         if symbol.superview == nil { symbol.imageScaling = .scaleNone; emojiHolder.addSubview(symbol) }
+    }
+
+    private func showPicture(_ data: Data?) {
+        guard pictureData != data else { return }
+        pictureData = data
+        picture.image = data.flatMap { SpaceIconImage.image($0, points: 16) }
+        picture.isHidden = data == nil
+        if picture.superview == nil { picture.imageScaling = .scaleNone; emojiHolder.addSubview(picture) }
     }
 
     /// Arc's hovered/pressed cell on a dark space: white at ~7.8%, 6 pt corners.
@@ -1145,8 +1461,9 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
         let size: CGFloat = 13
         if emoji.font?.pointSize != size { emoji.font = .systemFont(ofSize: size) }
         let h = emoji.intrinsicContentSize.height
-        emoji.frame = NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h)
+        emoji.frame = emoji.frameHoldingInk(NSRect(x: 0, y: (bounds.height - h) / 2, width: bounds.width, height: h))
         symbol.frame = bounds
+        picture.frame = bounds
         symbol.symbolConfiguration = .init(pointSize: size - 2, weight: .medium)
         if case .dot(let d) = mark {
             dot.bounds = CGRect(x: 0, y: 0, width: d, height: d)

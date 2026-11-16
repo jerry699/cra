@@ -45,6 +45,21 @@ enum SidebarMenus {
         NSPasteboard.general.setString(string, forType: .string)
     }
 
+    /// UserDefaults key: "Never show me this again." was ticked on the share warning.
+    static let skipsShareWarningKey = "skipsShareLinkWarning"
+
+    /// Arc asks before it makes a share link (AppDialog.shareLink): Copy Link to Folder goes on,
+    /// Cancel or Escape stops; ticking "Never show me this again." and going on skips it from then on.
+    private static func confirmShare(over window: NSWindow?, _ share: @escaping () -> Void) {
+        guard !UserDefaults.standard.bool(forKey: skipsShareWarningKey), let window = window ?? AppDialog.parentWindow else { share(); return }
+        let dialog = AppDialog.shareLink()
+        dialog.present(over: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            if dialog.isSuppressed { UserDefaults.standard.set(true, forKey: skipsShareWarningKey) }
+            share()
+        }
+    }
+
     // MARK: Tab groups
 
     /// Arc's Tab Group Context Menu: "Remove header" (the tabs stay, loose) — plus the
@@ -64,14 +79,7 @@ enum SidebarMenus {
         let store = list.store, ui = list.ui, actions = list.actions
         let id = m.id
         let menu = menu()
-        let group = list.closeGroup(for: id)
-        if group.count > 1 {
-            folderItems(menu, ui.group(for: id, in: store), list: list)
-            menu.addItem(.separator())
-            add(menu, L10n.tr("Close %d Tabs", group.count)) { list.closeTabs(group) }
-            add(menu, L10n.tr("Deselect All")) { ui.clearPicks() }
-            return menu
-        }
+        if list.closeGroup(for: id).count > 1 { return picked(ui.group(for: id, in: store), clicked: id, list: list) }
         guard let item = store.item(id), let tab = item.tab else { return menu }
         if m.pinned {
             add(menu, action: "pinTab", L10n.tr("Unpin Tab")) { store.unpinTab(id) }
@@ -155,6 +163,87 @@ enum SidebarMenus {
         return menu
     }
 
+    /// The menu on a tab that is one of several picked with ⌘/⇧-click (#356): Arc's rows for every
+    /// pick at once, from PickedTabsMenu. `ids` are the picks in sidebar order, `clicked` the row.
+    static func picked(_ ids: [UUID], clicked: UUID, list: SpaceListView) -> NSMenu {
+        let store = list.store, ui = list.ui, actions = list.actions
+        let menu = menu()
+        let tabs = ids.compactMap { id in store.item(id)?.tab.map { (id, $0) } }
+        let picks = PickedTabsMenu.Picks(count: ids.count, anyEasel: tabs.contains { Easel.id(fromURL: $0.1.url) != nil },
+                                         clickedInToday: !store.isPinned(clicked),
+                                         allMuted: !tabs.isEmpty && tabs.allSatisfy { $0.1.muted },
+                                         anySound: tabs.contains { $0.1.muted || ui.audibleTabIDs.contains($0.0) },
+                                         anyInSplit: ids.contains { store.splitContaining($0) != nil })
+        for (i, section) in PickedTabsMenu.shown(for: picks).enumerated() {
+            if i > 0 { menu.addItem(.separator()) }
+            for row in section {
+                let title = PickedTabsMenu.title(row, for: picks), enabled = PickedTabsMenu.isEnabled(row, for: picks)
+                switch row {
+                case "copyLinks":
+                    // What ⇧⌘C copies with tabs picked (#322): each link without trackers, one per line.
+                    add(menu, title) {
+                        copy(CleanURL.links(tabs.map { $0.1.url }))
+                        actions.showToast("Copied item links")
+                    }
+                case "share":
+                    // Arc's Share N Items… copied an arc.net folder link ("Copied Folder URL"); Cra's link
+                    // carries the picks after its #, as Share Folder… does (FolderShareLink, #357).
+                    let link = FolderShareLink.url(for: FolderShareLink.picked(ids.compactMap(store.item)))
+                    add(menu, title, enabled: link != nil) {
+                        guard let link else { return }
+                        confirmShare(over: list.window) {
+                            copy(link)
+                            actions.showToast("Copied Folder URL")
+                        }
+                    }
+                case "mute":
+                    add(menu, title, enabled: enabled) {
+                        for (id, _) in tabs {
+                            store.setMuted(id, !picks.allMuted)
+                            actions.performAction("muteTab:\(id)")
+                        }
+                    }
+                case "openInSplitView":
+                    add(menu, title, enabled: enabled) {
+                        guard let split = store.createSplit(with: ids) else { return }
+                        ui.clearPicks()
+                        store.selectTab(store.paneID(for: ids[0], in: split) ?? ids[0], window: ui.windowID)
+                    }
+                case "duplicate":
+                    add(menu, title) { for id in ids { _ = store.duplicateTab(id) } }
+                case "moveTo":
+                    // Arc: the spaces, the picks' own checked, then New Space… (which takes them along).
+                    let sub = submenu(menu, title)
+                    let own = store.spaceID(ofItem: ids[0])
+                    for s in store.orderedSpaces {
+                        add(sub, s.labeled, on: s.id == own) {
+                            guard s.id != own else { return }
+                            for id in ids { store.moveTab(id, toSpace: s.id, window: ui.windowID) }
+                            ui.clearPicks()
+                        }
+                    }
+                    sub.addItem(.separator())
+                    add(sub, "New Space…") { actions.newSpaceWith(ids) }
+                case "newFolder":
+                    add(menu, title) { ui.renamingID = store.createFolder(with: ids).id }
+                case "archive":
+                    // Arc archives every pick, pinned ones too, without asking; a Today tab goes as ⌘W does.
+                    add(menu, title) {
+                        let open = store.selectedTabID(window: ui.windowID)
+                        for id in ids.filter({ $0 != open }) + ids.filter({ $0 == open }) {
+                            if store.isPinned(id) { store.archiveTab(id, reason: .manual) } else { actions.closeTab(id) }
+                        }
+                        ui.clearPicks()
+                    }
+                default:
+                    // Change Icon… and Archive Tabs Below: dimmed, as Arc draws them for several tabs.
+                    add(menu, title, enabled: enabled) {}
+                }
+            }
+        }
+        return menu
+    }
+
     /// The pinned URL's items on pinned tabs and favorites (#54), beside Rename… since they edit
     /// the same item. Arc puts them in an Edit Pinned Page submenu; Cra lists them flat, as
     /// Anoninz suggested on PR #55. Replace is greyed out while the tab is on its pinned page.
@@ -203,7 +292,19 @@ enum SidebarMenus {
         }
         iconColor(menu, item, list: list)
         menu.addItem(.separator())
-        add(menu, L10n.tr("Delete Folder (archives tabs)")) { store.deleteFolder(id) }
+        // Arc's Share Folder… copied an arc.net link ("Copied Folder URL"); Cra's link carries the
+        // folder after its #, so nothing is stored anywhere (FolderShareLink, #357).
+        let link = FolderShareLink.url(for: FolderShareLink.folder(item) { store.children(of: $0) })
+        let toast = list.actions.showToast
+        add(menu, "Share Folder…", enabled: link != nil) {
+            guard let link else { return }
+            confirmShare(over: list.window) {
+                copy(link)
+                toast("Copied Folder URL")
+            }
+        }
+        menu.addItem(.separator())
+        add(menu, "Delete Folder (archives tabs)") { store.deleteFolder(id) }
         return menu
     }
 
@@ -214,29 +315,27 @@ enum SidebarMenus {
         let id = item.id
         let live = item.liveFolder ?? LiveFolderData()
         let menu = menu()
-        let requests = submenu(menu, live.source == .gitlab ? L10n.tr("Merge Requests") : L10n.tr("Pull Requests"),
-                               image: live.source == .gitlab ? GitLabMark.image : GitHubMark.image)
-        note(requests, manager.refreshing.contains(id) ? L10n.tr("Updating…") : LiveFolderText.lastUpdate(live))
-        if live.source == .gitlab, let server = live.serverURL { note(requests, GitLabLiveClient.serverLabel(server)) }
-        add(requests, L10n.tr("Refresh")) { manager.refresh(id) }
+        let entry = LiveFolderPluginStore.shared.entry(for: live)
+        let requests = submenu(menu, entry?.presentation.menuTitle ?? item.title ?? "Live Folder", image: entry?.icon)
+        note(requests, manager.refreshing.contains(id) ? "Updating…" : LiveFolderText.lastUpdate(live))
+        if let detail = live.plugin?.detailLabel { note(requests, detail) }
+        add(requests, "Refresh") { manager.refresh(id) }
         requests.addItem(.separator())
-        let filters: [(String, GitHubLiveFilter.Attributes)] = live.source == .gitlab
-            ? GitLabLiveCategory.allCases.map { ($0.title, $0.attribute) }
-            : [(L10n.tr("Created by Me"), .authored), (L10n.tr("Review Requests"), .reviewRequests), (L10n.tr("Team Review Requests"), .teamReviewRequests)]
-        for (title, attribute) in filters {
-            let on = live.filter.attributes.contains(attribute)
-            add(requests, title, on: on) {
-                store.updateLiveFolder(id) { l in
-                    if on { l.filter.attributes.remove(attribute) } else { l.filter.attributes.insert(attribute) }
+        for filter in entry?.presentation.filters ?? [] {
+            let on = live.plugin?.filters.contains(filter.id) == true
+            add(requests, filter.title, on: on) {
+                store.updateLiveFolder(id) { live in
+                    if on { live.plugin?.filters.removeAll { $0 == filter.id } }
+                    else { live.plugin?.filters.append(filter.id) }
                 }
                 manager.refresh(id, force: true)
             }
         }
         let repos = store.liveRepositories(id, fetched: manager.repositories[id])
-        if !repos.isEmpty {
+        if !repos.isEmpty, let groups = entry?.presentation.groups {
             requests.addItem(.separator())
-            let sub = submenu(requests, live.source == .gitlab ? L10n.tr("Projects") : L10n.tr("Repositories"))
-            note(sub, live.source == .gitlab ? L10n.tr("Projects with active merge requests.") : L10n.tr("This list is generated based on your currently active pull requests."))
+            let sub = submenu(requests, groups.title)
+            note(sub, groups.description)
             sub.addItem(.separator())
             for repo in repos {
                 let shown = !live.filter.isRepositoryHidden(repo)
@@ -248,15 +347,13 @@ enum SidebarMenus {
                 }
             }
         }
-        if live.lastError == .notSignedIn {
+        if live.lastError == .notSignedIn, let signIn = live.plugin?.signIn {
             requests.addItem(.separator())
-            add(requests, L10n.tr("Sign In to %@…", live.source.title)) { actions.openURL(live.signInURL) }
-        } else if !live.ssoOrganizations.isEmpty {
+            add(requests, signIn.title) { actions.openURL(signIn.url) }
+        } else if let snapshot = live.plugin?.snapshot, !snapshot.actions.isEmpty {
             requests.addItem(.separator())
-            note(requests, L10n.tr("SSO ensures all of your organizations’ PRs appear"))
-            for org in live.ssoOrganizations {
-                add(requests, L10n.tr("Sign In to %@ with SSO…", org)) { actions.openURL("https://github.com/orgs/\(org)/sso") }
-            }
+            if let message = snapshot.actionMessage { note(requests, message) }
+            for action in snapshot.actions { add(requests, action.title) { actions.openURL(action.url) } }
         }
         menu.addItem(.separator())
         let spaces = submenu(menu, L10n.tr("Move to"))
@@ -294,40 +391,57 @@ enum SidebarMenus {
 
     // MARK: Splits
 
-    /// Live Folders ▸ in the sidebar's and the space header's menus, after GitHub: the GitLab folders like
-    /// the GitHub one (✓ while there, a click asks to delete it; one per instance), then GitLab… to add one.
-    static func addGitLabFolders(to menu: NSMenu, space: UUID, store: SidebarStore, window: NSWindow?) {
-        let gitlabs = store.liveFolders.filter { $0.liveFolder?.source == .gitlab && store.isInSpace($0.id, space) }
-            .sorted { ($0.liveFolder?.serverURL ?? "") < ($1.liveFolder?.serverURL ?? "") }
-        for folder in gitlabs {
-            let server = folder.liveFolder?.serverURL.map(GitLabLiveClient.serverLabel) ?? ""
-            add(menu, L10n.tr("GitLab (%@)", server), on: true) { confirmDeleteLiveFolder(folder, store: store, in: window) }
+    static func addLiveFolderPlugins(to menu: NSMenu, space: UUID, store: SidebarStore, window: NSWindow?) {
+        let registry = LiveFolderPluginStore.shared
+        for entry in registry.entries.values.sorted(by: { $0.package.manifest.name < $1.package.manifest.name }) {
+            let existing = store.liveFolders.filter { store.isInSpace($0.id, space) && $0.liveFolder?.plugin?.id == entry.package.manifest.id }
+                .sorted { ($0.liveFolder?.plugin?.instanceLabel ?? "") < ($1.liveFolder?.plugin?.instanceLabel ?? "") }
+            if entry.presentation.setup == nil {
+                add(menu, entry.package.manifest.name, enabled: !store.isStandalone(space: space), on: !existing.isEmpty) {
+                    if let folder = existing.first { confirmDeleteLiveFolder(folder, store: store, in: window) }
+                    else { addPluginFolder(entry, space: space, store: store, window: window) }
+                }
+            } else {
+                for folder in existing {
+                    add(menu, folder.liveFolder?.plugin?.instanceLabel ?? entry.package.manifest.name, on: true) {
+                        confirmDeleteLiveFolder(folder, store: store, in: window)
+                    }
+                }
+                add(menu, entry.package.manifest.name + "…", enabled: !store.isStandalone(space: space) && window != nil) {
+                    addPluginFolder(entry, space: space, store: store, window: window)
+                }
+            }
         }
-        add(menu, L10n.tr("GitLab…"), enabled: !store.isStandalone(space: space) && window != nil) {
-            if let window { newGitLabFolder(space: space, store: store, window: window) }
-        }
+
     }
 
-    /// GitLab…: Arc has no GitLab folder, so this asks for the instance in Arc's text-input dialog (the
-    /// Rename Profile sheet's shape) and adds a folder like its GitHub one. Empty means gitlab.com.
-    private static func newGitLabFolder(space: UUID, store: SidebarStore, window: NSWindow) {
-        let dialog = AppDialog(title: L10n.tr("Add a GitLab Live Folder"),
-                               message: L10n.tr("Enter your GitLab’s address, or leave it empty for GitLab.com. The folder signs in with this Space’s Profile."),
-                               actions: [DialogAction(L10n.tr("Add Folder")), .cancel], input: "", placeholder: "https://gitlab.com",
-                               icon: .none, width: 496, buttonSpacing: 30, buttonOutset: 0)
+    static func addPluginFolder(_ entry: LiveFolderPluginStore.Entry, space: UUID, store: SidebarStore, window: NSWindow?) {
+        func create(_ settings: [String: String]) {
+            Task {
+                do {
+                    var configuration = try LiveFolderManager.configuration(entry: entry, settings: settings,
+                        filters: entry.presentation.filters.filter(\.enabledByDefault).map(\.id))
+                    try await LiveFolderManager.shared.updateSignIn(&configuration, entry: entry)
+                    guard let folder = store.createPluginFolder(configuration, title: entry.presentation.folderTitle, inSpace: space,
+                        legacySource: entry.package.manifest.legacySource) else { return }
+                    store.setExpanded(folder.id, true)
+                    LiveFolderManager.shared.refresh(folder.id, force: true)
+                } catch { AppDialog(title: "Could not add live folder", message: error.localizedDescription).runModal(over: window) }
+            }
+        }
+        guard let setup = entry.presentation.setup else { create([:]); return }
+        guard let window else { return }
+        let dialog = AppDialog(title: setup.title, message: setup.message,
+            actions: [DialogAction("Add Folder"), .cancel], input: "", placeholder: setup.placeholder,
+            icon: .none, width: 496, buttonSpacing: 30, buttonOutset: 0)
         dialog.present(over: window) { response in
             guard response == .alertFirstButtonReturn else { return }
-            let address = (dialog.input ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let server = GitLabLiveClient.serverURL(address.isEmpty ? "https://gitlab.com" : address) else {
-                DispatchQueue.main.async {
-                    AppDialog(title: L10n.tr("That isn’t a GitLab address"),
-                              message: L10n.tr("Use the address you open GitLab at, like https://gitlab.example.com.")).runModal(over: window)
-                }
+            let input = (dialog.input ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let address = LiveFolderPluginConfiguration.normalizedAddress(input.isEmpty ? setup.defaultValue : input) else {
+                DispatchQueue.main.async { AppDialog(title: setup.invalidTitle, message: setup.invalidMessage).runModal(over: window) }
                 return
             }
-            guard let folder = store.createLiveFolder(.gitlab, inSpace: space, serverURL: server) else { return }
-            store.setExpanded(folder.id, true)
-            LiveFolderManager.shared.refresh(folder.id, force: true)
+            create([setup.key: address])
         }
     }
 
@@ -408,17 +522,11 @@ enum SidebarMenus {
         }
         add(menu, action: "newTab", L10n.tr("New Tab")) { actions.openCommandBar(.newTab) }
         add(menu, action: "newFolder") { actions.performAction("newFolder") }
-        let liveFolders = submenu(menu, L10n.tr("Live Folders"))
-        let github = store.liveFolder(.github, inSpace: space)
-        add(liveFolders, action: "newGitHubLiveFolder", L10n.tr("GitHub"),
-            enabled: !store.isStandalone(space: space), on: github != nil) {
-            if let github { confirmDeleteLiveFolder(github, store: store, in: list.window) }
-            else { actions.performAction("newGitHubLiveFolder") }
-        }
-        addGitLabFolders(to: liveFolders, space: space, store: store, window: list.window)
+        let liveFolders = submenu(menu, "Live Folders")
+        addLiveFolderPlugins(to: liveFolders, space: space, store: store, window: list.window)
         menu.addItem(.separator())
         if let s = store.space(space), !store.children(of: s.todayContainerID).isEmpty {
-            add(menu, action: "clearToday") { store.clearToday(space) }
+            add(menu, action: "clearToday") { store.clearToday(space, playing: list.ui.audibleTabIDs) }
         }
         if let s = store.space(space) {
             add(menu, action: "editSpace") { actions.editSpace(s) }

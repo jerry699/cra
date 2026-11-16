@@ -27,7 +27,7 @@ struct PerformancePane: View {
             case .export: export($store.settings.perfHidesSiteNames)
             }
         }
-        .task(id: RefreshKey(open: nav.isOpen, recording: store.settings.perfRecording)) {
+        .task(id: RefreshKey(open: nav.isOpen && nav.tab == .advanced, recording: store.settings.perfRecording)) {
             report = nil
             guard nav.isOpen, store.settings.perfRecording else { return }
             while !Task.isCancelled {
@@ -42,17 +42,12 @@ struct PerformancePane: View {
     // MARK: Overview
 
     @ViewBuilder private func overview(_ recording: Binding<Bool>) -> some View {
-        SettingsCard {
-            SettingsCardRow {
-                HStack(spacing: 5.5) {
-                    SettingsGlyph(symbol: "gauge.with.dots.needle.67percent", color: Color(nsColor: .systemBlue))
-                    Text("Record performance").font(.system(size: 13))
-                }
-            } trailing: {
-                Toggle("Record performance", isOn: recording).toggleStyle(.switch).labelsHidden()
-            }
+        SettingsFeatureCard {
+            SettingsToggleRow("Record performance",
+                              detail: "Cra measures itself on this Mac: freezes, CPU and memory per process, tab timings.",
+                              isOn: recording)
         }
-        SettingsFootnote("Cra measures itself on this Mac: freezes, CPU and memory per process, tab timings. Nothing leaves the Mac unless you export it with Help ▸ Export Diagnostics.")
+        SettingsFootnote("Nothing leaves the Mac unless you export it with Help ▸ Export Diagnostics.")
 
         if let r = report {
             if !r.insights.isEmpty {
@@ -188,7 +183,7 @@ struct PerformancePane: View {
             SettingsCardRow {
                 Text("Hide site names").font(.system(size: 13))
             } trailing: {
-                Toggle("Hide site names", isOn: hideSites).toggleStyle(.switch).labelsHidden()
+                Toggle("Hide site names", isOn: hideSites).toggleStyle(.arcSwitch).labelsHidden()
             }
         }
         SettingsFootnote("Sites in the exported files become site-1, site-2… in every file, logs included. Without it they keep their host name (never the full address), as Cra's logs always have.")

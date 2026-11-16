@@ -17,8 +17,8 @@ final class ExtensionStore {
         let url: URL
         /// Chromium's extension ID (from the manifest key, else the folder path).
         var extensionID: String = ""
-        /// The action's manifest icon (16 px preferred): its default_icon, else the extension's
-        /// icons, as Chrome's toolbar picks it.
+        /// The action's manifest icon at 16 pt, with the files for 1x and 2x screens: its
+        /// default_icon, else the extension's icons, as Chrome's toolbar picks it.
         var icon: NSImage?
         /// action / browser_action / page_action default_popup, relative to the folder.
         var popupPath: String?
@@ -59,9 +59,11 @@ final class ExtensionStore {
         // there again, or --load-extension would put the copy back over the store's install.
         let profiles = chromiumProfiles()
         if profileIsFree {
-            dropWebStoreCopies(profiles: profiles) {
-                ExtensionImporter.settings(inProfile: AppPaths.chromiumCache.appendingPathComponent($0, isDirectory: true))
+            let settings = { (profile: String) in
+                ExtensionImporter.settings(inProfile: AppPaths.chromiumCache.appendingPathComponent(profile, isDirectory: true))
             }
+            dropWebStoreCopies(profiles: profiles, settings: settings)
+            dropUnpackedCopies(profiles: profiles, settings: settings)
         }
         let names = ((try? fm.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
             .filter { fm.fileExists(atPath: directory.appendingPathComponent($0).appendingPathComponent("manifest.json").path) }
@@ -156,6 +158,56 @@ final class ExtensionStore {
             catch { CraLog.note("extension migration: could not save profile scopes (\(error.localizedDescription))") }
         }
         return changed
+    }
+
+    // MARK: Copies of extensions loaded in place (GitHub #299)
+
+    /// A copy in Extensions/ stops loading in each profile that loads its original folder with
+    /// chrome://extensions' "Load unpacked", or chrome://extensions lists both; a copy no profile
+    /// loads any more is deleted. Before Chromium starts, as dropWebStoreCopies.
+    nonisolated private static func dropUnpackedCopies(profiles: [String], settings: (String) -> [String: Any]) {
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
+        var scopes = loadProfiles()
+        var changed = false
+        for folder in names where !folder.hasPrefix(".") {
+            for profile in profiles where scopes.loads(folder: folder, inProfile: profile)
+                && isLoadedInPlace(folder: folder, settings: settings(profile)) {
+                var next = scopes
+                let removeCopy = next.stopsLoading(folder: folder, inProfile: profile, allProfiles: Set(profiles))
+                if removeCopy {
+                    do { try FileManager.default.removeItem(at: directory.appendingPathComponent(folder, isDirectory: true)) }
+                    catch {
+                        CraLog.note("extension \(folder): could not remove its copy (\(error.localizedDescription))")
+                        continue
+                    }
+                }
+                scopes = next
+                changed = true
+                CraLog.note("extension \(folder) is loaded unpacked from its own folder in \(profile); its copy stops loading there")
+                if removeCopy { break }
+            }
+        }
+        if changed {
+            do { try saveProfiles(scopes) }
+            catch { CraLog.note("extension copies: could not save profile scopes (\(error.localizedDescription))") }
+        }
+    }
+
+    /// Whether a profile with these extensions.settings loads Extensions/<folder>'s extension
+    /// from the folder it was copied from (UnpackedCopies).
+    nonisolated private static func isLoadedInPlace(folder: String, settings: [String: Any]) -> Bool {
+        let dir = directory.appendingPathComponent(folder, isDirectory: true)
+        guard let manifest = manifest(in: dir) else { return false }
+        return UnpackedCopies.isLoadedInPlace(copyFolder: folder, copyPath: dir.resolvingSymlinksInPath().path,
+                                              copyExtensionID: chromiumID(key: manifest["key"] as? String, folder: dir),
+                                              copyName: manifest["name"] as? String, settings: settings) { path in
+            Self.manifest(in: URL(fileURLWithPath: path, isDirectory: true))?["name"] as? String
+        }
+    }
+
+    nonisolated private static func manifest(in folder: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: folder.appendingPathComponent("manifest.json")) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
     }
 
     nonisolated private static func hasStoreInstall(_ id: String, inProfile profile: String, settings: [String: Any]) -> Bool {
@@ -278,8 +330,11 @@ final class ExtensionStore {
             guard var entry = Self.entry(id: name, folder: ExtensionStore.directory.appendingPathComponent(name, isDirectory: true),
                                          extensionID: nil) else { return nil }
             entry.profiles = scopes.profiles(ofFolder: name)
+            // The store's install, or the folder it copies loaded in place (#299), stands in for it there.
             let migrated = Set(profiles.filter {
-                scopes.loads(folder: name, inProfile: $0) && Self.hasStoreInstall(entry.extensionID, inProfile: $0, settings: settings[$0] ?? [:])
+                scopes.loads(folder: name, inProfile: $0)
+                    && (Self.hasStoreInstall(entry.extensionID, inProfile: $0, settings: settings[$0] ?? [:])
+                        || Self.isLoadedInPlace(folder: name, settings: settings[$0] ?? [:]))
             })
             if !migrated.isEmpty {
                 entry.profiles = (entry.profiles ?? Set(profiles)).subtracting(migrated)
@@ -407,8 +462,8 @@ final class ExtensionStore {
         let description = ExtensionImporter.localizedDescription(manifest: m, folder: dir)
         return Entry(id: id, name: title.isEmpty ? id : title, version: str("version"), description: description, url: dir,
                      extensionID: extensionID ?? chromiumID(key: m["key"] as? String, folder: dir),
-                     icon: actionIcons.flatMap { ExtensionImporter.icon(manifest: ["icons": $0], folder: dir, minPixels: 16) }
-                        ?? ExtensionImporter.icon(manifest: m, folder: dir, minPixels: 16),
+                     icon: actionIcons.flatMap { ExtensionImporter.icon(manifest: ["icons": $0], folder: dir, points: 16) }
+                        ?? ExtensionImporter.icon(manifest: m, folder: dir, points: 16),
                      popupPath: (action?["default_popup"] as? String).flatMap { $0.isEmpty ? nil : $0 }, optionsPath: options)
     }
 

@@ -61,21 +61,38 @@ struct CoverStep: View {
     }
 }
 
-// MARK: - Privacy (Dia's DisclosureView, ad blocker half)
+// MARK: - Privacy (Dia's DisclosureView)
 
+/// Dia's two checkboxes: the ad blocker, and sharing to help improve the browser, with "Learn more
+/// about our commitment to privacy." under them. Cra's sharing row is unticked until the user
+/// ticks it, where Dia's is ticked.
 struct PrivacyStep: View {
     @Bindable var model: ImportFlowModel
     let c: ImportColors
     var body: some View {
         ZStack(alignment: .topLeading) {
-            TwoLineHeader(title: L10n.tr("Privacy in Cra,\nyou're in control"),
-                          subtitle: L10n.tr("Cra works fully signed out. Your spaces, tabs and archive are plain files on your Mac."), c: c)
-            SelectableRow(c: c, checked: model.blockAdsAndTrackers, toggle: { model.blockAdsAndTrackers.toggle() }) {
-                RowSymbol(name: "hand.raised.fill", c: c)
-                RowTitle(title: L10n.tr("Block third-party ads and trackers"),
-                         caption: L10n.tr("You won't see them. And they won't see you."), c: c)
+            TwoLineHeader(title: "Privacy in Cra,\nyou're in control",
+                          subtitle: "Cra works fully signed out. Your spaces, tabs and archive are plain files on your Mac.", c: c)
+            VStack(alignment: .leading, spacing: 8) {
+                SelectableRow(c: c, checked: model.blockAdsAndTrackers, toggle: { model.blockAdsAndTrackers.toggle() }) {
+                    RowSymbol(name: "hand.raised.fill", c: c)
+                    RowTitle(title: "Block third-party ads and trackers",
+                             caption: "You won't see them. And they won't see you.", c: c)
+                }
+                SelectableRow(c: c, checked: model.sharesToImproveCra, toggle: { model.sharesToImproveCra.toggle() }) {
+                    RowSymbol(name: "chart.bar.fill", c: c)
+                    RowTitle(title: "Help improve Cra by sharing usage stats",
+                             caption: "And crash reports. Never the sites you visit.", c: c)
+                }
+                Link(destination: URL(string: SiteLinks.tagged("https://crabrowser.app/privacy", from: .privacy))!) {
+                    (Text("Learn more").underline() + Text(" about what Cra shares and what it never does."))
+                        .font(.system(size: 12))
+                        .foregroundStyle(c.body)
+                }
+                .padding(.top, 4)
+                .padding(.leading, 2)
             }
-            .frame(width: ImportMetrics.columnWidth)
+            .frame(width: ImportMetrics.columnWidth, alignment: .leading)
             .offset(y: ImportMetrics.listTop)
             PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: true) { model.continueFromPrivacy() }
                 .offset(x: -1, y: ImportMetrics.buttonTop)
@@ -379,8 +396,8 @@ struct PersonalizationStep: View {
                 .foregroundStyle(c.body)
                 .offset(y: 228)
             HStack(spacing: 12) {
-                LayoutTile(toolbar: false, title: L10n.tr("Sidebar"), model: model, c: c)
-                LayoutTile(toolbar: true, title: L10n.tr("Toolbar"), model: model, c: c)
+                // Settings ▸ Tabs ▸ Address Bar offers the same two (#305).
+                ForEach(AddressBarPlacement.allCases, id: \.self) { LayoutTile(placement: $0, model: model, c: c) }
             }
             .offset(y: 252)
             PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: true) { model.continueFromPersonalization() }
@@ -392,14 +409,14 @@ struct PersonalizationStep: View {
 /// Dia's PersonalizationTabLayoutButton: the illustration at its 230×180 artwork size scaled to
 /// the column, a 3 pt ring when picked, the name in TabLayoutLabelText underneath.
 private struct LayoutTile: View {
-    let toolbar: Bool
-    let title: String
+    let placement: AddressBarPlacement
     @Bindable var model: ImportFlowModel
     let c: ImportColors
 
     private static let width: CGFloat = (ImportMetrics.columnWidth - 12) / 2
 
     var body: some View {
+        let toolbar = placement == .toolbar
         let selected = model.classicLayout == toolbar
         let k = Self.width / 230
         VStack(spacing: 7) {
@@ -408,14 +425,14 @@ private struct LayoutTile: View {
                 .scaleEffect(k, anchor: .topLeading)
                 .frame(width: 230 * k, height: 180 * k, alignment: .topLeading)
             // TabLayoutLabelText: black 53% / white 60%.
-            Text(title)
+            Text(placement.title)
                 .font(.system(size: 13))
                 .foregroundStyle(c.dark ? Color.white.opacity(0.6) : Color.black.opacity(0.53))
         }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { model.classicLayout = toolbar } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(toolbar ? L10n.tr("Toolbar: the address bar above the page") : L10n.tr("Sidebar: the address bar at the top of the sidebar"))
+        .accessibilityLabel("\(placement.title): the address bar \(placement.detail.lowercased())")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { model.classicLayout = toolbar }
     }
@@ -424,8 +441,8 @@ private struct LayoutTile: View {
 /// Drawn after Dia's TabLayout/SidebarSelected and friends (230×180 pt): a 3 pt ring, a 2 pt gap,
 /// the window inset 5 pt (radius 10), 5 pt traffic lights, 54×14 pt sidebar rows on a 19 pt pitch
 /// and the page pane from x 70. Cra's version marks where the address bar sits: the first sidebar
-/// row, or a strip across the top of the page.
-private struct LayoutArt: View {
+/// row, or a strip across the top of the page. Settings ▸ Tabs draws the same two pictures.
+struct LayoutArt: View {
     let toolbar: Bool
     let selected: Bool
     let dark: Bool

@@ -29,6 +29,7 @@ final class EaselBrowser: CraBrowser, NativePage {
         MainActor.assumeIsolated {
             container.wantsLayer = true
             container.autoresizesSubviews = true
+            canvas.profilePath = incognito ? nil : profilePath
             canvas.frame = container.bounds
             canvas.autoresizingMask = [.width, .height]
             container.addSubview(canvas)
@@ -46,11 +47,7 @@ final class EaselBrowser: CraBrowser, NativePage {
             self.delegate?.browser?(self, didChangeCommittedLoad: true)
             self.delegate?.browser(self, didChangeLoading: false, canGoBack: false, canGoForward: false)
             self.delegate?.browser(self, didFinishLoadingURL: self.address, title: title, statusCode: 200)
-            // Arc's canvas is the window's backdrop under a 50 % black veil (#63614B over a gold
-            // space's #C6BE96 sidebar): the card lets the backdrop through, the canvas veils it.
-            self.delegate?.browser?(self, didReportBackgroundColor: "clear")
-            // A dark bar colour, so the toolbar's glyphs and address are light over the veil.
-            self.delegate?.browser(self, didReportThemeColor: "#1E1E1E")
+            self.probeBackgroundColor()
         }
     }
 
@@ -63,6 +60,7 @@ final class EaselBrowser: CraBrowser, NativePage {
     }
 
     override var containerView: NSView { container }
+    var canvasView: EaselCanvasView { MainActor.assumeIsolated { canvas } }
     override var hostWindow: NSWindow? { nil }
     override var currentURL: String { address }
     override var currentTitle: String { MainActor.assumeIsolated { canvas.document.title } }
@@ -87,7 +85,13 @@ final class EaselBrowser: CraBrowser, NativePage {
     override func setFocused(_ focused: Bool) {
         MainActor.assumeIsolated { if focused { canvas.focus() } }
     }
-    override func probeBackgroundColor() {}
+    override func probeBackgroundColor() {
+        // Arc's canvas is the window's backdrop under a 50 % black veil (#63614B over a gold
+        // space's #C6BE96 sidebar): the card lets the backdrop through, the canvas veils it.
+        delegate?.browser?(self, didReportBackgroundColor: "clear")
+        // A dark bar colour, so the toolbar's glyphs and address are light over the veil.
+        delegate?.browser(self, didReportThemeColor: "#1E1E1E")
+    }
     override func executeJavaScript(_ script: String) {}
     override func evaluate(inIsolatedWorld world: String, params: String, completion: @escaping (String?, String?) -> Void) {
         DispatchQueue.main.async { completion(nil, "an Easel has no page") }
@@ -97,7 +101,6 @@ final class EaselBrowser: CraBrowser, NativePage {
     }
     override func sslStatus() -> CraSSLStatus? { nil }
     override func print() {}
-    override func viewSource() {}
     override func notifyMoveOrResizeStarted() {}
 
     override func close() {
@@ -105,6 +108,7 @@ final class EaselBrowser: CraBrowser, NativePage {
         closed = true
         MainActor.assumeIsolated {
             canvas.saveNow()
+            canvas.closeLives()
             canvas.removeFromSuperview()
         }
         DispatchQueue.main.async { [self] in delegate?.browserDidClose(self) }
@@ -114,6 +118,7 @@ final class EaselBrowser: CraBrowser, NativePage {
 extension EaselBrowser {
     /// PageEngines' hook: an easel's address gets its canvas.
     static func register() {
+        PageEngines.isNativePage = { Easel.id(fromURL: $0) != nil }
         PageEngines.nativePage = { frame, url, delegate, incognito, profilePath in
             Easel.id(fromURL: url) == nil ? nil : EaselBrowser(frame: frame, url: url, delegate: delegate, incognito: incognito, profilePath: profilePath)
         }
@@ -134,31 +139,37 @@ enum EaselFiles {
     }
     static func load(_ id: UUID) -> Easel { store(id).load(or: { Easel(id: id) }) }
 
-    /// Arc's capture menu ▸ Send To…: the capture added below what the easel holds.
-    static func add(picture png: Data, to id: UUID) -> Bool {
-        guard let image = NSImage(data: png) else { return false }
+    /// Arc's capture menu ▸ Send To…: the capture added below what the easel holds. With `source`
+    /// (the page it came from) it is a capture that can go live, else a plain picture.
+    static func add(picture png: Data, to id: UUID, source: Easel.Capture? = nil) -> Bool {
         var easel = load(id)
-        let name = UUID().uuidString + ".png"
-        guard (try? png.write(to: pictures(id).appendingPathComponent(name))) != nil else { return false }
-        let scale = min(1, 640 / max(image.size.width, image.size.height, 1))
         let bottom = easel.items.map { $0.frame.y + $0.frame.height }.max() ?? 160
-        easel.items.append(Easel.Item(kind: .image(file: name), frame: .init(x: 120, y: bottom + 40, width: image.size.width * scale,
-                                                                             height: image.size.height * scale)))
+        guard let item = captureItem(png, easel: id, source: source, at: .init(120, bottom + 40)) else { return false }
+        easel.items.append(item)
         store(id).saveNow(easel)
         return true
     }
 
     /// Arc's capture menu ▸ New Easel: an easel with the capture on it, under the title.
-    static func create(withPicture png: Data) -> Easel? {
-        guard let image = NSImage(data: png) else { return nil }
+    static func create(withPicture png: Data, source: Easel.Capture? = nil) -> Easel? {
         var easel = Easel()
-        let name = UUID().uuidString + ".png"
-        guard (try? png.write(to: pictures(easel.id).appendingPathComponent(name))) != nil else { return nil }
-        let scale = min(1, 640 / max(image.size.width, image.size.height, 1))
-        easel.items = [Easel.Item(kind: .image(file: name), frame: .init(x: 120, y: 160, width: image.size.width * scale,
-                                                                        height: image.size.height * scale))]
+        guard let item = captureItem(png, easel: easel.id, source: source, at: .init(120, 160)) else { return nil }
+        easel.items = [item]
         store(easel.id).saveNow(easel)
         return easel
+    }
+
+    private static func captureItem(_ png: Data, easel id: UUID, source: Easel.Capture?, at p: Easel.Point) -> Easel.Item? {
+        guard let image = NSImage(data: png) else { return nil }
+        let name = UUID().uuidString + ".png"
+        guard (try? png.write(to: pictures(id).appendingPathComponent(name))) != nil else { return nil }
+        // The capture's size on the page, at most 640 pt across.
+        let size = source?.area.map { NSSize(width: $0.width, height: $0.height) } ?? image.size
+        let scale = min(1, 640 / max(size.width, size.height, 1))
+        let frame = Easel.Rect(x: p.x, y: p.y, width: size.width * scale, height: size.height * scale)
+        guard var capture = source else { return Easel.Item(kind: .image(file: name), frame: frame) }
+        capture.image = name
+        return Easel.Item(kind: .capture(capture), frame: frame)
     }
 
     /// Every easel on disk, newest edit first, for Library ▸ Easels.

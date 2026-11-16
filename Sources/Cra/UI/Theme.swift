@@ -13,7 +13,11 @@ struct SpacePalette {
     let hoverFill: Color
     let selectedFill: Color
     let separator: Color
+    /// The sidebar URL pill and a favorite tile at rest; both take `pillHoverFill` under the pointer.
     let pillFill: Color
+    /// Arc 1.172.1 (live, 9 Nov 2026, GitHub #293): the URL pill and the favorite tiles share one hover,
+    /// a shade darker on light themes and lighter on dark ones. Cra's pill went near-white instead.
+    let pillHoverFill: Color
     let toolbarFill: Color
     let folderTint: Color
     /// Light themes: Arc's folder glyph (FolderTones), an opaque front in tintedLight, the outline in
@@ -33,11 +37,8 @@ struct SpacePalette {
     /// One flat colour over Arc's solid-theme material (ShellView.solidBackdrop).
     let solid: Bool
 
-    /// Arc 1.171 over solid white and black backdrops (31 Oct 2026, nine colours, sRGB after
-    /// undoing the display's P3): out = α·colour + (1 − α)·(66 + 0.52·backdrop) while active,
-    /// α·colour + (1 − α)·212 while inactive, with α = 0.19 + 0.55·intensity (fits 0.191,
-    /// 0.459, 0.742 at 0, 0.5, 1; within 3/255). isVibrant and the text appearance don't matter.
-    static func solidAlpha(intensity: Double) -> Double { 0.19 + 0.55 * max(0, min(1, intensity)) }
+    /// Arc's one-colour opacity (SpaceTheme.solidAlpha, where the measurements are).
+    static func solidAlpha(intensity: Double) -> Double { SpaceTheme.solidAlpha(intensity: intensity) }
 
     var gradient: LinearGradient {
         LinearGradient(colors: gradientColors, startPoint: .top, endPoint: .bottom)
@@ -127,7 +128,8 @@ extension SpaceTheme {
             hoverFill: dark ? .white.opacity(0.07) : .black.opacity(0.045),
             selectedFill: dark ? .white.opacity(0.13) : .white.opacity(0.74),
             separator: dark ? .white.opacity(0.12) : .black.opacity(0.09),
-            pillFill: dark ? .white.opacity(0.08) : .black.opacity(0.045),
+            pillFill: Color(SidebarTones.pill(dark: dark)),
+            pillHoverFill: Color(SidebarTones.pillHover(dark: dark)),
             // Arc: the toolbar is the first theme color at ~46% (dark) / lightened a touch (dark themes).
             toolbarFill: SpaceTheme.toolbarColor(self.accent ?? base[0], dark: dark),
             folderTint: dark ? ground.blendedToward(.white, 0.85) : Color(folder.outline),
@@ -153,8 +155,8 @@ extension SpaceTheme {
     }
 }
 
-/// macOS' light or dark appearance, which an Auto space theme follows (Arc: appearanceBased).
-/// Cra never sets NSApp.appearance, so the app's effective appearance is the system's.
+/// The app's light or dark appearance, which an Auto space theme follows (Arc: appearanceBased):
+/// macOS', unless View ▸ Appearance sets NSApp.appearance to Light or Dark, as Arc's does (#362).
 @Observable
 final class SystemAppearance: @unchecked Sendable {
     static let shared = SystemAppearance()
@@ -176,6 +178,9 @@ final class SystemAppearance: @unchecked Sendable {
 }
 
 extension Color {
+    /// A sidebar tone: white or black at its opacity.
+    init(_ tone: SidebarTones.Tone) { self = (tone.white ? Color.white : Color.black).opacity(tone.alpha) }
+
     /// Mix toward another color in sRGB (amount 0...1).
     func blendedToward(_ other: Color, _ amount: Double) -> Color {
         guard amount > 0 else { return self }

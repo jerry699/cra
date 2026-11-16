@@ -63,6 +63,27 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
+### Sponsors in the release notes
+
+Before writing the notes, run `scripts/sponsors.py`. It reads the GitHub Sponsors tiers and
+lists who the tiers promise a name in these notes (one-time $50 and up since the last tag,
+monthly $5 and up once a year), which Backers to ask first about the next big feature, and
+which companies need their logo on /support. Private sponsors are counted, never named. It
+needs the VictorKildahl `gh` login with the `user` scope.
+
+Sponsors are thanked first, at the top of the notes, on their own: list the public sponsors
+in the release's `sponsors` field (`login` and `name`), which opens the release's page with
+"Thank you, A and B, for sponsoring Cra." and their avatars, and is what next year's run
+reads to see a monthly sponsor was thanked. In the GitHub release the same line, with each
+`@login`, goes right after the opening paragraph. The thank-you at the bottom is for work
+only (pull requests, reports): a sponsor who also did work is thanked there again, for the
+work, without "also for sponsoring".
+
+A run of fixes or small changes goes in a highlight's `items`, one fix per item with its
+issue and who reported it, never as a paragraph of sentences. A contributor thanked for the
+first time also goes in the website's `src/content/people.ts` (credited name → GitHub login),
+so the release page shows their avatar next to the thank-you.
+
 ### Clips in the release notes
 
 When a release changes something you can see (UI, animations, dragging), give its
@@ -79,6 +100,12 @@ It writes `public/releases/<version>/<name>.mp4` (H.264, silent, ≤1520 px) and
 `.jpg`, and prints a `media: {…}` entry to paste into that highlight in `releases.ts` (fill
 in `alt`). A `.png` works too, for still changes. The release notes page loops clips muted
 while they're on screen. Keep them under ~8 s and ~2 MB.
+
+Every clip is the whole clip window (1100 x 700 pt, encoded 1520 x 967): the release page
+shows clips on an 11:7 stage of that shape, and a sidebar crop or a strip shrinks to a sliver
+on it. The encoder refuses other shapes (landscape 1.5-1.65:1, at least 1400 px wide,
+density 2), the website build fails on them for releases after 0.1.37
+(`src/content/release-media-rules.ts`), and the hook below blocks the tag.
 
 A Claude Code hook (`.claude/settings.json` → `scripts/clips/check-release-media.sh`) blocks
 pushing a `v*` tag when `Sources/Cra/UI` changed since the previous tag and the release's
@@ -107,15 +134,15 @@ scripts/release.sh
 ```
 
 `scripts/release.sh` does this once per CPU (`CRA_ARCHS`, default `arm64 x86_64`): it runs
-`build.sh` (sign, innermost first, with the CEF entitlements), notarizes and staples the
+`build.sh` (sign, innermost first, with the helper entitlements), notarizes and staples the
 app, runs `package.sh` (zip, DMG with an Applications link, checksums), then notarizes and
 staples the DMG, checks it with `spctl` and writes that CPU's appcast. Both CPUs share one
 build number. Without `CRA_SIGN_IDENTITY` it produces an ad-hoc build and skips notarization.
 
 `CRA_ARCH=x86_64 scripts/build.sh` builds the other CPU on its own: the host CPU keeps
-`vendor/cef` and `build/Cra.app`, the other one gets `vendor/cef-<arch>` (that CPU's CEF,
-read by `Package.swift` through `CRA_CEF_DIR`), `build/swiftpm-<arch>` and
-`build/<arch>/Cra.app`. `build.sh` stops if any executable in the bundle lacks that CPU's
+`vendor/engine` and `build/Cra.app`, the other one gets `vendor/engine-<arch>` (that CPU's
+engine from `scripts/fetch-engine.sh`, read by `Package.swift` through
+`CRA_ENGINE_FRAMEWORKS`), `build/swiftpm-engine-<arch>` and `build/<arch>/Cra.app`. `build.sh` stops if any executable in the bundle lacks that CPU's
 code. An Intel build runs on Apple silicon under Rosetta, which is enough for a launch
 check; Intel-only problems still need a real Intel Mac.
 
@@ -136,21 +163,21 @@ It installs a pinned dmgbuild into `build/dmgbuild-venv` on first use.
 
 Order matters because each signature seals what is inside it:
 
-1. every `.dylib` in `Chromium Embedded Framework.framework/Libraries`
+1. the engine's helpers inside `Cra Framework.framework/Versions/Current/Helpers`: each helper
+   app (pages, GPU, utilities, alerts, and the Aperitif ones that link the framework at launch)
+   with `resources/CraHelper.entitlements`, then `chrome_crashpad_handler`, `app_mode_loader`
+   and `web_app_shortcut_copier`
 2. the framework itself
 3. Sparkle's `Autoupdate` and `Updater.app`, then `Sparkle.framework` (its XPC services are
    removed: they are only for sandboxed apps)
-4. the five helper apps, each with `resources/CraHelper.entitlements`
-5. `Cra.app` with `resources/Cra.entitlements`
+4. `Cra.app` with `resources/Cra.entitlements`
 
 The entitlements are the hardened-runtime exceptions Chromium needs (JIT, unsigned
 executable memory, library validation off, dyld environment variables), plus camera,
 microphone and location so sites can ask for them.
 
-The helpers run in Chromium's own macOS sandbox (seatbelt): `CraHelper` enters it through
-`CefScopedSandboxContext` (which loads the framework's `Libraries/libcef_sandbox.dylib`)
-before loading CEF, and `CefSettings.no_sandbox` is off. Renderer, GPU, network, storage
-and audio processes are sandboxed, video capture is not (Chrome's choice too).
+The helpers are Chrome's own and run in Chrome's macOS sandbox (seatbelt), as in Chrome:
+renderer, GPU, network, storage and audio processes are sandboxed, video capture is not.
 
 ## Passkeys
 
@@ -160,7 +187,7 @@ with a provisioning profile, the way Chrome, Arc and Dia ship:
 
 | Entitlement | Turns on |
 |---|---|
-| `keychain-access-groups` = `<team>.dk.kildahl.cra.webauthn` | Chromium's Touch ID passkeys, stored in Cra's keychain group. `scripts/cef-patches/webauthn-keychain-access-group.patch` derives the group from the app's `application-identifier` (Chromium's branding has no team ID). |
+| `keychain-access-groups` = `<team>.dk.kildahl.cra.webauthn` | Chromium's Touch ID passkeys, stored in Cra's keychain group. `engine/chromium/patches/webauthn-keychain-access-group.patch` derives the group from the app's `application-identifier` (Chromium's branding has no team ID). |
 | `com.apple.developer.web-browser.public-key-credential` | iCloud Keychain passkeys (Passwords app), through Chromium's own iCloud Keychain code. Managed: Apple must approve it. |
 
 One-time setup, as the Account Holder:
@@ -180,6 +207,39 @@ One-time setup, as the Account Holder:
 the keychain group, iCloud Keychain once approved), because macOS refuses to launch an
 app that claims an entitlement its profile lacks. Ad-hoc builds never get them.
 
+## iCloud sync
+
+Settings ▸ General ▸ Sync keeps the sidebar, the settings and the shortcuts the same on the
+user's Macs through Cra's iCloud Documents container (no server of Cra's own; a folder in
+Dropbox or a similar service is the other option and needs nothing here). Apple grants iCloud
+Documents to Developer ID apps through the provisioning profile (Supported capabilities,
+macOS). One-time setup, as the Account Holder:
+
+1. Identifiers → `dk.kildahl.cra` → Capabilities → tick **iCloud**, keep **Include CloudKit
+   support** (the portal's default; Cra still claims only CloudDocuments), Configure → tick
+   container `iCloud.dk.kildahl.cra` (register it under Identifiers → iCloud Containers first if
+   the list is empty). Save. Done 9 Nov 2026.
+2. Profiles → the Developer ID profile for `dk.kildahl.cra` → Edit → Save, so it carries the
+   iCloud entitlements, then download it. Check:
+   `security cms -D -i Cra.provisionprofile | grep -A3 ubiquity`.
+3. Replace the `MACOS_PROVISIONING_PROFILE` secret (`base64 -i Cra.provisionprofile | pbcopy`).
+
+`build.sh` copies the container identifiers the profile grants into `Cra.entitlements`
+(`ubiquity-container-identifiers`, `icloud-container-identifiers`, `icloud-services` =
+CloudDocuments, `icloud-container-environment` = Production as Xcode's Developer ID export
+claims it) and names the first in Info.plist (`NSUbiquitousContainers`), so the bundle
+shows in iCloud Drive as a "Cra" folder. Without them the switch in Settings is off with a note.
+
+To try it before the release profile has the entitlement, with an Apple Developer account of
+your own: register an App ID in your namespace (say `io.example.cra.sync`) with iCloud
+Documents and a container, make a Development profile for your Mac, and build with
+`CRA_BUNDLE_ID=io.example.cra.sync CRA_SIGN_IDENTITY="Apple Development: …"
+CRA_PROVISIONING_PROFILE=<path> scripts/build.sh`. Run it with `CRA_DATA_DIR`, since another
+bundle identifier still uses Cra's data folder. Two such instances on one Mac share the
+account's iCloud and sync within seconds; two Macs on one Apple ID is the full test.
+`CRA_SYNC_ICLOUD_DIR=<folder>` makes any build treat a folder as the container, for the
+store test and a check without an entitlement.
+
 ## Safe Browsing
 
 Chromium's phishing and malware lists come from Google's Safe Browsing API, which
@@ -192,13 +252,13 @@ without a warning.
 2. Locally: `CRA_GOOGLE_API_KEY=<key>` next to `CRA_SIGN_IDENTITY`. In CI: the
    `CRA_GOOGLE_API_KEY` secret. Never commit it.
 
-`build.sh` writes it to Info.plist as `CraGoogleAPIKey`, and CraCEF sets
-`GOOGLE_API_KEY` from it before Chromium starts.
+`build.sh` writes it to Info.plist as `CraGoogleAPIKey`, and the engine's bridge sets
+`GOOGLE_API_KEY` from it before Chrome starts.
 
 The key lives in the Google Cloud project `cra-browser`, restricted to the Safe Browsing
 API. Every install shares its quota: 10,000 list updates and 10,000 lookups a day. A
 running Cra fetches list updates 1–5 minutes after launch and then once a day
-(`scripts/cef-patches/safe-browsing-update-interval.patch`; Chrome uses Google's ~30
+(`engine/chromium/patches/safe-browsing-update-interval.patch`; Chrome uses Google's ~30
 minutes), plus a full-hash lookup when a URL matches a list: about 1–3 updates per
 install per day. An alert policy in the project emails at 7,000 a day; ask for more on
 the API's Quotas page in the Cloud console (the Cloud Quotas API can't). Once the quota
@@ -237,49 +297,59 @@ are the controls. Details and Arc's original are in `docs/arc-reverse-engineerin
   the automatic restart) against a local appcast made with `CRA_UPDATE_URL=… scripts/appcast.sh`.
 - Copies from before the updater (0.1.0, 0.1.1) update once by hand: rerun the install line.
 
-## The Chromium engine (CEF)
+## The Chromium engine
 
-Cra ships its own CEF build, not Spotify's prebuilt one: Spotify builds leave out
-H.264/AAC, so MP4 and HLS video (X, Instagram, Reddit, news sites) never plays. Codecs
-are a compile-time switch and FFmpeg is linked into the framework, so there is no way
-around building it.
+Cra runs on Chrome's own framework with Cra's layer, patches and branding built in: the engine
+([chromium-engine.md](chromium-engine.md)). `scripts/build-chromium.sh` builds it from a Chrome stable tag
+(`CHROMIUM_TAG`, `CRA_ARCH=arm64|x64`; ~45 GB for the checkout, 2–4 h a CPU on the M2 Max, official build with
+ThinLTO and PGO, H.264/AAC), after `engine/chromium/apply.sh` puts the layer, the hooks, Cra's patches,
+ungoogled-chromium's and the branding in the tree. Publish both CPUs into one pre-release:
 
-    scripts/build-cef.sh      # ~80 GB free, several hours; resumes where it stopped
-    scripts/publish-cef.sh    # uploads the archive as pre-release cef-<version>-codecsN
+    scripts/publish-engine.sh                      # Apple silicon asset (engine-<version>-<n>)
+    ENGINE_CPU=x64 scripts/publish-engine.sh       # Intel asset, same release
 
-`build-cef.sh` checks out the same CEF commit `fetch-cef.sh` pins, applies
-`scripts/cef-patches/*.patch` on top of CEF's own patches, and builds an official
-release with `proprietary_codecs=true ffmpeg_branding=Chrome`. `fetch-cef.sh` (and CI,
-keyed on its hash) downloads the published archive into `vendor/cef`, replacing a copy
-from a different source. To change the build without a CEF version bump, bump the
-`codecsN` suffix of `CEF_RELEASE` and publish again. Needs Xcode's Metal toolchain
-(`xcodebuild -downloadComponent MetalToolchain`).
+`scripts/fetch-engine.sh` pins `ENGINE_VERSION` and `ENGINE_RELEASE`; bump the `-<n>` suffix to publish a changed
+build of the same Chrome version.
 
-**Patch rounds and Intel.** Once `build-cef.sh` has built a version, a new or changed
-patch goes through `rebuild-cef.sh`, which builds from that checkout for both CPUs
-(minutes each) and never reruns CEF's patcher (rerunning it compiles Web Push out). The
-Intel (`macosx64`) build is cross-compiled on the same Mac from the same sources, in its
-own `out/Release_GN_x64` (~12 GB; the first one compiles everything):
+**A release ships the newest engine.** Pushing a `vX.Y.Z` tag from Claude Code runs
+`scripts/check-cef-release-hook.sh` (the CEF-era name), which stops the push when Chrome's newest stable for macOS
+(Google's version history) is newer than `ENGINE_VERSION`, or when the pinned release lacks the arm64 or the
+Intel archive; `release.sh` checks again (`scripts/check-engine-update.sh --check`). `CRA_ALLOW_OLD_ENGINE=1`
+ships the pinned engine anyway, for an urgent fix while the new one builds; in CI that's the repository variable
+`CRA_ALLOW_OLD_ENGINE` = `1`, deleted after the release.
 
-    scripts/rebuild-cef.sh [arm64] [x64]           # both when no CPU is given
-    scripts/publish-cef.sh                         # arm64 asset
-    CEF_ARCH=macosx64 scripts/publish-cef.sh       # Intel asset, same release
+To move to a new Chrome stable: `CHROMIUM_TAG=<version> scripts/build-chromium.sh sync`, then `apply`; a patch
+that no longer applies is rebased in `engine/chromium/patches` (`apply.sh` names it), then `gen` and `build` for
+each CPU, the scenarios on the new build, `publish-engine.sh` and the new pin.
 
-**Staying current.** Chromium only ships security fixes for its newest version. The
-"CEF updates" workflow (`.github/workflows/cef-updates.yml`, daily, free Linux runner)
-runs `scripts/check-cef-update.sh`: when Spotify's index lists a newer stable CEF for
-macOS arm64, it opens one "Chromium engine update available" issue, assigned to the repo
-owner, with the exact command. The build itself runs on the Mac, because GitHub's free
-macOS runners are too small (3 cores, 14 GB disk, 6 hour jobs) and larger ones are billed:
+`CRA_ENGINE=cef` still builds and releases on CEF (Cra's own CEF build: `scripts/build-cef.sh`,
+`scripts/cef-patches`, `scripts/publish-cef.sh`, `scripts/fetch-cef.sh`, and CEF's own release checks).
 
-    scripts/update-cef.sh <cef_version>   # build + publish arm64 and x64, pin, rebuild Cra
+## Homebrew
 
-A same-major update reuses the checkout: `build-cef.sh` moves it to the new Chromium tag
-itself, and ninja recompiles nearly everything (about 2½ hours on the M2 Max). A new Chromium
-major needs a fresh checkout as well. Then test `build/Cra.app`, commit `scripts/fetch-cef.sh`, close the
-issue and tag a release.
+```sh
+brew install --cask victorkildahl/tap/cra
+```
 
-## Later
+The cask lives in [VictorKildahl/homebrew-tap](https://github.com/VictorKildahl/homebrew-tap)
+(`Casks/cra.rb`). It installs `Cra.dmg` or `Cra-Intel.dmg` from the tagged release, so it
+depends on the asset names in [Cutting a release](#cutting-a-release) and on
+`SHA256SUMS.txt` listing both DMGs. Naming the tap in full makes Homebrew trust it, so
+there's no `brew trust` step.
 
-- **Homebrew.** A cask (`brew install --cask cra`) pointing at the DMG and
-  `SHA256SUMS.txt`.
+A release needs nothing extra. The tap's `bump-cra.yml` runs every hour, and when
+`releases/latest` has a newer tag it reads that release's `SHA256SUMS.txt`, rewrites the
+version and both checksums and commits. Run it at once with
+`gh workflow run bump-cra.yml -R VictorKildahl/homebrew-tap`. The cask says
+`auto_updates true`, so `brew upgrade` leaves installed copies to Sparkle. Check a cask edit
+with `brew style` and `brew audit --cask --strict --online victorkildahl/tap/cra`.
+
+Someone who installed from the DMG first gets "there is already an App at
+'/Applications/Cra.app'"; `--adopt` takes that copy over when it's the same version.
+
+**Homebrew's own list.** `brew install --cask cra` needs the cask in
+[Homebrew/homebrew-cask](https://github.com/Homebrew/homebrew-cask). Its audit
+(`brew audit --cask --new --online`) wants the repository to be 30 days old, which
+VictorKildahl/cra is from 23 November 2026. It meets the star bar for a cask its own author
+sends (225). Once that's merged, Homebrew's autobump follows the `livecheck` block, the
+tap's workflow can go, and the docs switch to `brew install --cask cra`.

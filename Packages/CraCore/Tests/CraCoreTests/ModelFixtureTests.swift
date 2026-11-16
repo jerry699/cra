@@ -48,11 +48,47 @@ struct ModelFixtureTests {
         try decoder.decode(T.self, from: encoder.encode(value)) == value
     }
 
-    @Test(arguments: ["sidebar.json", "sidebar-legacy.json", "sidebar-stacked-icon.json", "sidebar-auto-theme.json"])
+    @Test(arguments: ["sidebar.json", "sidebar-legacy.json", "sidebar-stacked-icon.json", "sidebar-auto-theme.json",
+                     "sidebar-plugin-folder.json", "sidebar-image-icon.json"])
     func sidebarLoadsAsRecorded(name: String) throws {
         let (loaded, recorded) = try Self.load(name, as: SidebarDocument.self)
         #expect(loaded == recorded)
         #expect(try Self.roundTrips(loaded))
+    }
+
+    /// sidebar.json as Cra 0.1.37 reads it: a live folder's `source` is github or gitlab, and any
+    /// other value fails the whole file (it is set aside as corrupt and the sidebar starts empty).
+    private struct OlderSidebar: Decodable {
+        struct Item: Decodable {
+            struct Live: Decodable {
+                enum Source: String, Decodable { case github, gitlab }
+                var source: Source?
+            }
+            var id: UUID
+            var liveFolder: Live?
+        }
+        var items: [Item]
+    }
+
+    /// A plugin's own folder (Jira here) saves under `pluginFolder`, so an older Cra still opens the
+    /// sidebar and shows it as a plain folder with its tabs; a migrated GitHub folder stays a GitHub one.
+    @Test func pluginFoldersStayReadableByOlderCra() throws {
+        let (loaded, _) = try Self.load("sidebar-plugin-folder.json", as: SidebarDocument.self)
+        let saved = try Self.encoder.encode(loaded)
+        let older = try Self.decoder.decode(OlderSidebar.self, from: saved)
+        let jira = UUID(uuidString: "D0000000-0000-0000-0000-0000000000A1")!
+        let github = UUID(uuidString: "D0000000-0000-0000-0000-000000000005")!
+        #expect(older.items.first { $0.id == jira }.map { $0.liveFolder == nil } == true)
+        #expect(older.items.first { $0.id == github }?.liveFolder?.source == .github)
+        let reloaded = try Self.decoder.decode(SidebarDocument.self, from: saved)
+        #expect(reloaded.items.first { $0.id == jira }?.liveFolder?.plugin?.id == "cra.jira")
+        #expect(reloaded.items.first { $0.id == jira }?.liveFolder?.source == .plugin)
+    }
+
+    /// A newer Cra's source this one doesn't know loads as a plugin folder, not as a corrupt file.
+    @Test func unknownLiveFolderSourceLoads() throws {
+        let live = try Self.decoder.decode(LiveFolderData.self, from: Data(#"{"source":"notion"}"#.utf8))
+        #expect(live.source == .plugin)
     }
 
     /// Auto spaces keep both halves through a load (#155). A dark half without its optional fields
@@ -85,6 +121,26 @@ struct ModelFixtureTests {
         #expect(try Self.roundTrips(loaded))
     }
 
+    /// Easels/<id>.json. Since the Easels parity work (Nov 2026) an item carries its place in the stack
+    /// as `z`, and link cards and captures sit in `cards`, which Cra 0.1.40 and older don't read
+    /// (they'd fail on the whole easel if those were in `items`).
+    @Test(arguments: ["easel-0140.json", "easel.json"])
+    func easelsLoadAsRecorded(name: String) throws {
+        let (loaded, recorded) = try Self.load(name, as: Easel.self)
+        #expect(loaded == recorded)
+        #expect(try Self.roundTrips(loaded))
+        let saved = try #require(JSONSerialization.jsonObject(with: Self.encoder.encode(loaded)) as? [String: Any])
+        let file = try #require(JSONSerialization.jsonObject(with: Self.data("recorded", name)) as? [String: Any])
+        #expect(NSDictionary(dictionary: saved).isEqual(to: file))
+    }
+
+    @Test func easelStackOrderSurvivesTheSplit() throws {
+        let (easel, _) = try Self.load("easel.json", as: Easel.self)
+        // z: link 0, rectangle 1, capture 2, picture 3, though they are saved in two lists.
+        #expect(easel.items.map(\.id.uuidString.first) == ["7", "9", "8", "A"])
+        #expect(easel.palette == .vibrant && easel.items[1].shade == .purple && easel.items[3].altText == "A cat")
+    }
+
     @Test func windowsLoadAsRecorded() throws {
         let (loaded, recorded) = try Self.load("windows.json", as: WindowPrefs.self)
         #expect(loaded == recorded)
@@ -106,10 +162,26 @@ struct ModelFixtureTests {
     }
 
     /// keybindings.json keeps its bytes: KeyChord encodes exactly as the AppKit Shortcut did.
+    /// A file from before the priorities (#374) loads with every action at its default.
     @Test func keybindingsSaveByteForByte() throws {
-        let loaded = try Self.decoder.decode([String: [KeyChord]].self, from: Self.data("input", "keybindings.json"))
+        let loaded = try Self.decoder.decode(KeyBindingOverrides.self, from: Self.data("input", "keybindings.json"))
         #expect(try Self.encoder.encode(loaded) == Self.data("recorded", "keybindings.json"))
-        #expect(loaded["nextTab"] == [KeyChord(key: KeyChord.tab, modifiers: 1 << 18), KeyChord(key: KeyChord.right, modifiers: 1 << 20 | 1 << 19)])
+        #expect(loaded.shortcuts["nextTab"] == [KeyChord(key: KeyChord.tab, modifiers: 1 << 18), KeyChord(key: KeyChord.right, modifiers: 1 << 20 | 1 << 19)])
+        #expect(loaded.priorities.isEmpty)
+    }
+
+    /// keybindings.json with priorities (#374): each action's on its chords, kept as written; a value
+    /// this Cra doesn't know ("askEveryTime" on reload) loads as the default and is dropped on save.
+    /// Cra from before the priorities reads the same shortcuts from it.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/374"))
+    func keybindingsPrioritiesLoadAsRecorded() throws {
+        let input = try Self.data("input", "keybindings-priority.json")
+        let loaded = try Self.decoder.decode(KeyBindingOverrides.self, from: input)
+        #expect(try Self.encoder.encode(loaded) == Self.data("recorded", "keybindings-priority.json"))
+        #expect(loaded.priorities == ["closeTab": .preferWebsites, "find": .useBoth, "nextTab": .preferCra])
+        #expect(loaded.priority(for: "reload") == .preferWebsites && loaded.priority(for: "newTab") == .preferCra)
+        #expect(try Self.decoder.decode([String: [KeyChord]].self, from: input) == loaded.shortcuts)
+        #expect(try Self.roundTrips(loaded))
     }
 
     /// pinned-extensions.json: the one list of before #107 loads as every profile's and stays an
