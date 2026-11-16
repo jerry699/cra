@@ -91,6 +91,13 @@ struct MaxPane: View {
         let downloadsAvailable = available || (service.status == .local && MaxLocal.canTidyTabs)
         let sourceLabel = ModelDownloader.preferredSource.label
         SettingsCardPane {
+            // ─────────────────────────────────────────────────────────────
+            // 中国版（fork）内容区开始：下面到 "Download from" 行为止的卡片是
+            // fork 的功能（provider/本地模型/自动整理/用户记忆/蒸馏笔记/数据治理），
+            // 上游不存在。上游若重设计 MaxPane，恢复这段 + userMemoryRow() 调用即可。
+            // 逻辑本体在 Sources/Cra/Services/{MaxLocal,MaxProvider,MediaDistill,
+            // EmbeddingService}.swift 与 ChinaFeatures.swift。
+            // ─────────────────────────────────────────────────────────────
             MaxCard {
                 SettingsCardRow {
                     Text("Model provider").font(.system(size: 13))

@@ -1685,24 +1685,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // screen coordinates (AppKit bottom-left), so flip Y against the page's screen rect.
         guard let pageRect = pageScreenRect(rt) else { return }
         let screenPoint = NSPoint(x: pageRect.minX + point.x, y: pageRect.maxY - point.y)
-        let instructions = TidyTranslate.instructions(for: text)
-        let original = text
-        // The yellow highlight and the bubble land NOW: the model can take a while on a
-        // loaded Mac, and the user's selection may be gone by the time it answers.
-        let token = TranslationHUD.begin(original: original, near: screenPoint, in: window, page: rt.browser)
-        Task { @MainActor in
-            let answer = await LocalInference.shared.ask(
-                system: instructions, user: TidyTranslate.prompt(original),
-                grammar: nil, maxTokens: 256, context: 2048,
-                timeout: 60, threads: 4,
-                helper: MaxLocal.helperURL ?? URL(fileURLWithPath: "/usr/bin/false"),
-                model: MaxLocal.modelURL ?? URL(fileURLWithPath: "/dev/null"))
-            guard let translation = TidyTranslate.clean(answer ?? "", original: original) else {
-                TranslationHUD.fail(token: token)
-                return
-            }
-            TranslationHUD.finish(translation, token: token)
-        }
+        // P5 解耦: the translate flow lives in MenuHandlers — the upstream file keeps
+        // only the coordinate conversion (its own code) plus this one-line delegation.
+        let token = TranslationHUD.begin(original: text, near: screenPoint, in: window, page: rt.browser)
+        MenuHandlers.translateSelection(text: text, at: screenPoint, in: window,
+                                        page: rt.browser, token: token)
     }
 
     /// W2-C: distill this page's audio/video into a local note — right-click "Distill Media".
@@ -1711,33 +1698,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         guard let rt = browsers.visibleRuntime else { return }
         guard let item = store.item(tabID), let pageURL = item.tab?.url, !pageURL.isEmpty else { return }
         let pageTitle = item.displayTitle
-        // The status card replaces the fire-and-forget toast: a silent minute-long run read
-        // as "nothing happened" (user report). It stays up through every phase and lingers
-        // 8 s on the outcome.
-        DistillStatusHUD.show("准备中")
-        Task { @MainActor in
-            let outcome = await MediaDistillService.distill(browser: rt.browser, pageURL: pageURL,
-                                                            pageTitle: pageTitle,
-                                                            progress: { DistillStatusHUD.phase($0) })
-            switch outcome {
-            case .saved(let url):
-                DistillStatusHUD.finish(url.lastPathComponent)
-            case .noMedia:
-                DistillStatusHUD.finish(L10n.tr("No audio or video found on this page"), failed: true)
-            case .pageStillLoading:
-                DistillStatusHUD.finish(L10n.tr("The video is still loading — try again in a moment"), failed: true)
-            case .noSpeech:
-                DistillStatusHUD.finish(L10n.tr("This video has no speech to distill (music or silence)"), failed: true)
-            case .fetchFailed:
-                DistillStatusHUD.finish(L10n.tr("Could not fetch the page's media"), failed: true)
-            case .decodeFailed:
-                DistillStatusHUD.finish(L10n.tr("Could not transcribe the media's audio"), failed: true)
-            case .noModel:
-                DistillStatusHUD.finish(L10n.tr("The transcription model is not downloaded yet"), failed: true)
-            case .noAnswer:
-                DistillStatusHUD.finish(L10n.tr("Translation failed — the local model had no answer"), failed: true)
-            }
-        }
+        // P5 解耦: the distill flow lives in MenuHandlers — this file keeps one line.
+        MenuHandlers.distillPageMedia(browser: rt.browser, pageURL: pageURL, pageTitle: pageTitle)
     }
 
     func browserManagerCaptureImage(at point: NSPoint, tabID: UUID) {

@@ -48,19 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
             MainActor.assumeIsolated {
             guard self.bootstrapped else { return }
-            // P3-R2 行为信号: the key window's visible tab accrues dwell time while the app
-            // is active — "认真看完" vs "点进去秒退" ranks history better than any embedding.
-            if NSApp.isActive {
-                for w in self.mainWindows where w.window?.isKeyWindow == true {
-                    if let url = w.browsers.visibleRuntime?.browser.currentURL as String?, !url.isEmpty {
-                        self.store.addDwell(url: url, seconds: 3)
-                    }
-                }
-            }
-            TidyTabsService.shared.autoTick(store: self.store)
-                // The semantic index keeps up with the history: new entries embed in seconds.
-                EmbeddingService.shared.rebuildIfNeeded(history: Array(self.store.history.values))
-                EmbeddingService.shared.sync(with: Array(self.store.history.values))
+            // 中国版功能的轮询钩子（停留时长/自动整理/语义索引）——逻辑都在
+            // ChinaFeatures.swift，上游文件里只留这一行接触面。
+            ChinaFeatures.tick(store: self.store, mainWindows: self.mainWindows)
             }
         }
     }
