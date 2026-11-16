@@ -1285,8 +1285,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // slid out at the edge: that one is the sidebar, whose rows stay in reach of a Peek (#242, #295).
         // The command bar ⌘T opened from a Peek stays above the Peek (#379).
         let bar: [NSWindow] = commandBar.isOpen && commandPanel.parent === window ? [commandPanel] : []
-        let wanted = panels.compactMap { $0 } + peeks.flatMap(\.peekWindows) + (floatingSidebar?.attachedPanels ?? [])
-            + ChromiumDialogs.dialogs(over: window) + PermissionPopover.panels(over: window) + bar
+        // Local patch (Intel Swift 6.2): the six-way concatenation type-checks too slowly
+        // inline — built in stages.
+        var wanted: [NSWindow] = panels.compactMap { $0 }
+        wanted += peeks.flatMap(\.peekWindows)
+        wanted += floatingSidebar?.attachedPanels ?? []
+        wanted += ChromiumDialogs.dialogs(over: window)
+        wanted += PermissionPopover.panels(over: window)
+        wanted += bar
         // Already the last children, in order, and showing: re-adding each one rebuilt the
         // window's ordering group, a window server round trip, on every tab switch.
         let children = window.childWindows ?? []

@@ -18,12 +18,15 @@ public enum MCPInputPlan {
         let length = max(1, distance)
         let control = CGPoint(x: (start.x + end.x) / 2 - (end.y - start.y) / length * bend,
                               y: (start.y + end.y) / 2 + (end.x - start.x) / length * bend)
-        return (1...steps).map { index in
+        return (1...steps).map { index -> Move in
             let fraction = Double(index) / Double(steps)
             let t = fraction * fraction * (3 - 2 * fraction)
             let u = 1 - t
-            return Move(point: CGPoint(x: u * u * start.x + 2 * u * t * control.x + t * t * end.x,
-                                       y: u * u * start.y + 2 * u * t * control.y + t * t * end.y),
+            // Local patch (Intel Swift 6.2): the bezier expression type-checks too
+            // slowly inline — broken into named intermediates.
+            let px = u * u * start.x + 2 * u * t * control.x + t * t * end.x
+            let py = u * u * start.y + 2 * u * t * control.y + t * t * end.y
+            return Move(point: CGPoint(x: px, y: py),
                         delay: duration / Double(steps))
         }
     }
