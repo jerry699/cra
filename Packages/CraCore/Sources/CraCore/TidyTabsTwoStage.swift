@@ -33,10 +33,9 @@ public enum TidyTabsTwoStage {
     /// split let stage 1 invent names and stage 2 assign independently, and the two
     /// disagreed (the user's accuracy report). One decision, one answer.
     public static let groupedInstructions = """
-    You sort a person's open browser tabs into topic groups. Give each tab id to at most one \
-    group: related tabs share a group, NEVER one group per tab. It is fine to leave tabs that \
-    share no topic with anything out of every group — fewer honest groups beat invented ones. \
-    Every group needs at least two tabs. Reuse the names of groups the person already \
+    You sort a person's open browser tabs into topic groups. Assign EVERY tab id to exactly \
+    one group: related tabs share a group, NEVER one group per tab, never leave a tab out, \
+    and every group needs at least two tabs. Reuse the names of groups the person already \
     has when they fit, exactly as written; name new groups yourself. Write every group name \
     in Simplified Chinese (for example "云计算", "AI 编程", "购物") — the person browses in \
     Chinese. Two to four groups, two to four words each, no website names.
