@@ -60,10 +60,12 @@ var craTargets: [Target] = [
         ])],
         linkerSettings: [
             .unsafeFlags([
-                "-L\(llamaBuild)/src",
-                "-L\(llamaBuild)/ggml/src",
-                "-L\(llamaBuild)/ggml/src/ggml-blas",
-                "-llama", "-lggml", "-lggml-cpu", "-lggml-blas", "-lggml-base",
+                // Explicit .a paths: the linker reads "-llama" as -l + "lama".
+                "\(llamaBuild)/src/libllama.a",
+                "\(llamaBuild)/ggml/src/libggml.a",
+                "\(llamaBuild)/ggml/src/libggml-cpu.a",
+                "\(llamaBuild)/ggml/src/ggml-blas/libggml-blas.a",
+                "\(llamaBuild)/ggml/src/libggml-base.a",
                 "-framework", "Accelerate", "-framework", "Foundation",
             ]),
             .linkedLibrary("c++"),
@@ -79,10 +81,11 @@ var craTargets: [Target] = [
         ])],
         linkerSettings: [
             .unsafeFlags([
-                "-L\(whisperBuild)/src",
-                "-L\(whisperBuild)/ggml/src",
-                "-L\(whisperBuild)/ggml/src/ggml-blas",
-                "-lwhisper", "-lggml", "-lggml-base", "-lggml-cpu", "-lggml-blas",
+                "\(whisperBuild)/src/libwhisper.a",
+                "\(whisperBuild)/ggml/src/libggml.a",
+                "\(whisperBuild)/ggml/src/libggml-base.a",
+                "\(whisperBuild)/ggml/src/libggml-cpu.a",
+                "\(whisperBuild)/ggml/src/ggml-blas/libggml-blas.a",
                 "-framework", "Accelerate", "-framework", "Foundation",
             ]),
             .linkedLibrary("c++"),
