@@ -259,10 +259,16 @@ final class TidyTabsService {
                 return
             }
             // The list slides the tabs under their new headers (SpaceListView.placeViews).
-            store.applyTidy(TidyTabs.plan(proposals, tabCount: tabs.count, existingGroups: groups), tabIDs: ids, in: sid)
-            // An automatic run says so in the divider — otherwise the tidying is invisible
-            // and the broom reads like the only thing that ever triggers it.
-            if auto {
+            let plan = TidyTabs.plan(proposals, tabCount: tabs.count, existingGroups: groups)
+            CraLog.note(String(format: "Tidy Tabs: plan %d new groups, %d joins", plan.newGroups.count, plan.joins.count))
+            store.applyTidy(plan, tabIDs: ids, in: sid)
+            if plan.newGroups.isEmpty && plan.joins.isEmpty {
+                // The model saw no shared topics (or answered one group per tab): leaving the
+                // tabs as they were is honest — but the broom must not read as broken.
+                store.setTidyNotice(sid, L10n.tr("These tabs don't share a topic — left as they are."), seconds: 8)
+            } else if auto {
+                // An automatic run says so in the divider — otherwise the tidying is invisible
+                // and the broom reads like the only thing that ever triggers it.
                 store.setTidyNotice(sid, L10n.tr(String(format: "Auto-tidied %d tabs", tabs.count)), seconds: 8)
             }
         }

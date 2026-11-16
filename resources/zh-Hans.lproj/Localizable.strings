@@ -785,3 +785,6 @@
 /* ═══ P5 记忆管理（2026-11-16）═══ */
 "User memory" = "用户记忆";
 "Clear memory" = "清除记忆";
+
+/* Tidy 诚实反馈（2026-11-17） */
+"These tabs don't share a topic — left as they are." = "这几个标签页没有共同主题——保持原样。";

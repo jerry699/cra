@@ -152,8 +152,17 @@ enum MaxLocal {
                                       timeout: 240)
         guard !Task.isCancelled else { return nil }
         if let groupedAnswer, let proposals = TidyTabsTwoStage.grouped(from: groupedAnswer) {
-            CraLog.note(String(format: "Max Local: Tidy Tabs grouped: %d groups in one pass", proposals.count))
-            return proposals
+            let sizes = proposals.map(\.tabs.count)
+            CraLog.note(String(format: "Max Local: Tidy Tabs grouped: %d groups in one pass, sizes %@",
+                               proposals.count, sizes.map(String.init).joined(separator: ",")))
+            // A group of one per tab is the model squirming out of contradictory instructions
+            // (seen with unrelated tabs): plan() would filter them all and apply nothing. The
+            // two-stage flow, which names topics first, gets another chance.
+            if proposals.count > 1, sizes.allSatisfy({ $0 < 2 }) {
+                CraLog.note("Max Local: every tab alone in its own group — trying two stages")
+            } else {
+                return proposals
+            }
         }
         // Why it failed matters: a broken grammar (the helper answers WITHOUT it, in its own
         // format) and a constrained-but-garbled answer look identical from the outside.
@@ -204,7 +213,14 @@ enum MaxLocal {
             CraLog.note("Max Local: Tidy Tabs collapsed every tab into one topic")
             return nil
         }
-        return TidyTabsTwoStage.proposals(topics: topics, assignments: assignments)
+        let proposals = TidyTabsTwoStage.proposals(topics: topics, assignments: assignments)
+        // Two stages can degenerate the other way too (one topic per tab): with every proposal
+        // a singleton, plan() applies nothing — say so and leave the tabs loose.
+        if proposals.count > 1, proposals.allSatisfy({ $0.tabs.count < 2 }) {
+            CraLog.note("Max Local: Tidy Tabs two stages also made one group per tab — leaving the tabs loose")
+            return nil
+        }
+        return proposals
     }
 }
 
