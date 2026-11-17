@@ -139,6 +139,12 @@ inline std::string_view OrganizationRoot(std::string_view site) {
         "alibaba.com", "alibaba-inc.com", "alibabausercontent.com", "aliyuncs.com",
         "aliyun.com", "aliexpress.com", "taobao.com", "tmall.com", "tmall.hk",
         "tb.cn", "1688.com", "alipay.com", "alipay.cn", "alipayobjects.com",
+        // GoldLog and MediaV: the group's own beacons. Alibaba's trade systems
+        // (cashier.aliyun.com's pay jump) reject an order whose page never
+        // reported to them — blocking these INSIDE the group's pages lands the
+        // user on http://err.taobao.com/error1.html (found paying for a domain,
+        // CDP capture: POST trade_pay.htm → 302 err.taobao.com).
+        "mmstat.com", "mediav.com",
     };
     static constexpr std::string_view kTencent[] = {  // qq.com covers weixin.qq.com and pay.qq.com
         "qq.com", "tenpay.com", "wechat.com", "weixin.com",
