@@ -123,6 +123,51 @@ inline bool IsIPLiteral(std::string_view host) {
     return !host.empty();
 }
 
+// The registrable domains whose sites embed one another's payment cashiers and
+// login SDKs, treated as one site by ShouldBlock. Found paying for a domain:
+// Aliyun's cashier (finance.aliyun.com) embeds Taobao's, whose APIs then come
+// from acs.m.taobao.com and ynuf.alipay.com — all three domains sit on the
+// blocklist, and cancelling them left Cra on error.taobao.com where Arc, with
+// no blocker, finished the payment. Cost of the exemption: these companies'
+// tracking domains load inside each other's pages (they are still blocked from
+// every unrelated site).
+inline std::string_view OrganizationRoot(std::string_view site) {
+    // Each line: one company, then every registrable domain of theirs whose pages
+    // embed the others' cashiers and SDKs. The company names its group; two sites
+    // are exempt together only when they map to the same name.
+    static constexpr std::string_view kAlibaba[] = {  // aliyun.com ↔ taobao.com ↔ tmall.com ↔ alipay.com
+        "alibaba.com", "alibaba-inc.com", "alibabausercontent.com", "aliyuncs.com",
+        "aliyun.com", "aliexpress.com", "taobao.com", "tmall.com", "tmall.hk",
+        "tb.cn", "1688.com", "alipay.com", "alipay.cn", "alipayobjects.com",
+    };
+    static constexpr std::string_view kTencent[] = {  // qq.com covers weixin.qq.com and pay.qq.com
+        "qq.com", "tenpay.com", "wechat.com", "weixin.com",
+    };
+    static constexpr std::string_view kUnionPay[] = {
+        "unionpay.com", "unionpayintl.com", "95516.com",
+    };
+    static constexpr std::string_view kJD[] = {
+        "jd.com", "jdpay.com", "360buy.com", "jd.hk",
+    };
+    static constexpr std::string_view kMeituan[] = {
+        "meituan.com", "meituan.net", "dianping.com",
+    };
+    for (auto m : kAlibaba) if (site == m) return "alibaba.com";
+    for (auto m : kTencent) if (site == m) return "tencent.com";
+    for (auto m : kUnionPay) if (site == m) return "unionpay.com";
+    for (auto m : kJD) if (site == m) return "jd.com";
+    for (auto m : kMeituan) if (site == m) return "meituan.com";
+    return {};
+}
+
+// True when both sites belong to one of the payment organizations above. Sites
+// equal as strings never reach here (ShouldBlock compares them first).
+inline bool SameOrganization(std::string_view a, std::string_view b) {
+    if (a.empty() || b.empty()) return false;
+    auto root = OrganizationRoot(a);
+    return !root.empty() && root == OrganizationRoot(b);
+}
+
 // The decision for one subresource request. Hosts must be normalized; an empty
 // page host (non-web top-level page) never blocks.
 inline bool ShouldBlock(const std::string& requestHost, const std::string& pageHost) {
@@ -134,6 +179,10 @@ inline bool ShouldBlock(const std::string& requestHost, const std::string& pageH
     // First-party: the page is on the listed domain itself, or on the same site.
     if (IsSubdomainOrSame(pageHost, entry)) return false;
     if (!IsIPLiteral(pageHost) && Site(requestHost) == Site(pageHost)) return false;
+    // Payment chains embed each other's cashiers and SDKs across these borders
+    // (see SameOrganization); a listed tracking domain inside one of those flows
+    // has to reach its host, or the user lands on an error page at checkout.
+    if (SameOrganization(Site(requestHost), Site(pageHost))) return false;
     return true;
 }
 

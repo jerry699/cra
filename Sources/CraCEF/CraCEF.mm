@@ -1350,7 +1350,16 @@ public:
         if (!top) return RV_CONTINUE;
         std::string pageHost = cra_blocker::WebHost(top->GetURL().ToString());
         std::string requestHost = cra_blocker::WebHost(request->GetURL().ToString());
-        return cra_blocker::ShouldBlock(requestHost, pageHost) ? RV_CANCEL : RV_CONTINUE;
+        if (cra_blocker::ShouldBlock(requestHost, pageHost)) {
+            // CRA_BLOCKER_DEBUG=1 names each cancel, so a page that breaks under
+            // blocking can be traced (a payment chain once died here silently).
+            static const bool debug = getenv("CRA_BLOCKER_DEBUG") != nullptr;
+            if (debug) NSLog("Cra blocker: cancelled %@ on page %@",
+                             [NSString stringWithUTF8String:requestHost.c_str()],
+                             [NSString stringWithUTF8String:pageHost.c_str()]);
+            return RV_CANCEL;
+        }
+        return RV_CONTINUE;
     }
 
     void OnProtocolExecution(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
