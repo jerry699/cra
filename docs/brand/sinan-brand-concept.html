@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CRA 浏览器 · 司南 SINAN 品牌概念稿</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8; color: #1b1e23; margin: 0; padding: 36px 28px 48px;
+  }
+  h1 { font-size: 23px; margin: 0 0 6px; letter-spacing: 0.01em; }
+  .sub { color: #6b7280; font-size: 14px; margin: 0 0 8px; line-height: 1.7; }
+  .story { color: #454b54; font-size: 14px; line-height: 1.8; margin: 0 0 26px;
+           border-left: 3px solid #C9A227; padding-left: 14px; }
+  h3 { font-size: 14px; color: #8a9099; font-weight: 600; margin: 28px 0 14px; letter-spacing: 0.04em; }
+  .grid { display: flex; gap: 22px; flex-wrap: wrap; align-items: stretch; }
+  .card {
+    background: #fff; border: 1px solid #e6e8ec; border-radius: 18px;
+    padding: 22px; width: 330px; display: flex; flex-direction: column;
+    box-shadow: 0 1px 3px rgba(20,24,40,0.05);
+  }
+  .card h2 { font-size: 20px; margin: 0; }
+  .en { color: #8a9099; font-size: 13px; margin: 4px 0 16px; letter-spacing: 0.08em; text-transform: uppercase; }
+  .big { width: 190px; height: 190px; margin: 0 auto 6px; display: block; }
+  .tag { text-align: center; font-size: 12px; color: #9aa0a8; margin: 0 0 14px; }
+  .row { display: flex; align-items: flex-end; justify-content: center; gap: 16px;
+         padding: 14px 0 4px; border-top: 1px solid #f0f1f4; }
+  .item { text-align: center; }
+  .item svg { display: block; margin: 0 auto 5px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+  .size { font-size: 11px; color: #a2a8b0; }
+  .note { font-size: 13px; line-height: 1.7; color: #454b54; margin: 14px 0 0; }
+  .note b { color: #1b1e23; }
+
+  .wm-row { display: flex; gap: 18px; flex-wrap: wrap; }
+  .wm-card {
+    border-radius: 18px; padding: 26px 30px; display: flex; align-items: center; gap: 24px;
+    flex: 1 1 380px;
+  }
+  .wm-dark { background: linear-gradient(135deg, #0B201C, #16403A); color: #F4EFE4;
+             box-shadow: 0 4px 14px rgba(10,30,25,0.25); }
+  .wm-light { background: #F7F3E8; color: #1E2E28; border: 1px solid #E3DCC8; }
+  .wm-cn { font-size: 46px; font-weight: 800; letter-spacing: 0.22em; line-height: 1; }
+  .wm-en { font-size: 16px; letter-spacing: 0.34em; margin-top: 8px; opacity: 0.85; }
+  .wm-seal {
+    width: 62px; height: 62px; border-radius: 12px; background: #C9A227; color: #0B201C;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; font-weight: 800; letter-spacing: 0; line-height: 1.05; text-align: center;
+  }
+  .wm-light .wm-seal { background: #0E2A24; color: #F4EFE4; }
+
+  .swatches { display: flex; gap: 14px; flex-wrap: wrap; }
+  .sw { border-radius: 14px; overflow: hidden; border: 1px solid #e6e8ec; background: #fff; width: 150px; }
+  .sw .chip { height: 84px; }
+  .sw .meta { padding: 9px 11px; }
+  .sw .nm { font-size: 13px; font-weight: 700; }
+  .sw .hex { font-size: 12px; color: #8a9099; margin-top: 2px; font-family: ui-monospace, monospace; }
+
+  .combo { background: #fff; border: 1px solid #e6e8ec; border-radius: 18px; padding: 20px 24px;
+           display: flex; align-items: center; gap: 18px; margin-bottom: 12px; }
+  .combo svg { width: 56px; height: 56px; flex: 0 0 auto; }
+  .combo .c-name { font-size: 16px; font-weight: 700; }
+  .combo .c-use { font-size: 13px; color: #6b7280; margin-top: 3px; line-height: 1.6; }
+  .combo .c-tag { margin-left: auto; font-size: 12px; color: #8a9099; white-space: nowrap; }
+
+  .foot { margin-top: 30px; font-size: 13px; color: #6b7280; line-height: 1.9; }
+  .foot code { background: #eceef2; border-radius: 5px; padding: 1px 6px; font-size: 12px; }
+  .foot b { color: #374151; }
+  .warn { background: #FFF8E6; border: 1px solid #F0DFA8; border-radius: 12px;
+          padding: 14px 16px; font-size: 13px; color: #6b5316; line-height: 1.8; margin-top: 18px; }
+</style>
+</head>
+<body>
+
+<h1>CRA 浏览器 · 司南 SINAN 品牌概念稿</h1>
+<p class="sub">司南，世界最早的指南器。从司南到浏览器——都是帮人找到方向。</p>
+<p class="story"><b>品牌故事：</b>战国《鬼谷子》与东汉《论衡》记载，司南以天然磁石磨成勺，置于光滑地盘之上，勺柄恒指南方。它是中华文明对"导航"的最早回答。浏览器在信息世界里做的，正是同一件事——帮人找到方向。这个名字让产品从"工具"变成"传承"。</p>
+
+<!-- 符号定义 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="bg-sinan" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0B201C"/><stop offset="1" stop-color="#16403A"/>
+    </linearGradient>
+    <linearGradient id="bronze" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E8C97A"/><stop offset="1" stop-color="#8C6E2B"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 变体 A：经典司南（地盘 + 磁勺） -->
+  <symbol id="ic-sinan-classic" viewBox="0 0 1024 1024">
+    <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#bg-sinan)"/>
+    <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#halo)"/>
+    <rect x="246" y="246" width="532" height="532" rx="64" fill="none" stroke="#C9A227" stroke-opacity="0.62" stroke-width="13"/>
+    <circle cx="512" cy="512" r="196" fill="none" stroke="#C9A227" stroke-opacity="0.5" stroke-width="22" stroke-dasharray="5 94.5" stroke-linecap="round"/>
+    <path d="M512 560 L512 742" stroke="url(#bronze)" stroke-width="42" stroke-linecap="round"/>
+    <circle cx="512" cy="512" r="88" fill="url(#bronze)"/>
+    <circle cx="512" cy="512" r="88" fill="none" stroke="#F0D9A0" stroke-opacity="0.55" stroke-width="4"/>
+    <path d="M498 500 L498 560" stroke="#F0D9A0" stroke-opacity="0.7" stroke-width="10" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- 变体 B：圆盘司南 -->
+  <symbol id="ic-sinan-disc" viewBox="0 0 1024 1024">
+    <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#bg-sinan)"/>
+    <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#halo)"/>
+    <circle cx="512" cy="512" r="332" fill="none" stroke="#C9A227" stroke-opacity="0.28" stroke-width="6" stroke-dasharray="2 18" stroke-linecap="round"/>
+    <circle cx="512" cy="512" r="282" fill="none" stroke="#C9A227" stroke-opacity="0.55" stroke-width="10"/>
+    <path d="M512 512 L512 226" stroke="url(#bronze)" stroke-width="46" stroke-linecap="round"/>
+    <circle cx="512" cy="512" r="96" fill="url(#bronze)"/>
+    <circle cx="512" cy="512" r="96" fill="none" stroke="#F0D9A0" stroke-opacity="0.55" stroke-width="4"/>
+    <path d="M498 500 L498 250" stroke="#F0D9A0" stroke-opacity="0.7" stroke-width="10" stroke-linecap="round"/>
+  </symbol>
+
+  <!-- 变体 C：磁针（现代指南针） -->
+  <symbol id="ic-sinan-needle" viewBox="0 0 1024 1024">
+    <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#bg-sinan)"/>
+    <rect x="32" y="32" width="960" height="960" rx="220" fill="url(#halo)"/>
+    <circle cx="512" cy="512" r="352" fill="none" stroke="#C9A227" stroke-opacity="0.22" stroke-width="5" stroke-dasharray="3 16" stroke-linecap="round"/>
+    <circle cx="512" cy="512" r="296" fill="none" stroke="#C9A227" stroke-opacity="0.5" stroke-width="10"/>
+    <path d="M512 252 L592 512 L512 772 L432 512 Z" fill="#C9A227"/>
+    <path d="M512 252 L592 512 L512 512 Z" fill="#E8C97A"/>
+    <path d="M512 772 L512 512 L432 512 Z" fill="#6B5322"/>
+    <circle cx="512" cy="512" r="32" fill="#0B201C"/>
+    <circle cx="512" cy="512" r="32" fill="none" stroke="#F0D9A0" stroke-opacity="0.6" stroke-width="3"/>
+  </symbol>
+</svg>
+
+<h3>字标（Wordmark）</h3>
+<div class="wm-row">
+  <div class="wm-card wm-dark">
+    <div class="wm-seal">司<br>南</div>
+    <div>
+      <div class="wm-cn">司南</div>
+      <div class="wm-en">SINAN</div>
+    </div>
+  </div>
+  <div class="wm-card wm-light">
+    <div class="wm-seal">司<br>南</div>
+    <div>
+      <div class="wm-cn">司南</div>
+      <div class="wm-en">SINAN</div>
+    </div>
+  </div>
+</div>
+
+<h3>图标变体</h3>
+<div class="grid">
+
+  <div class="card">
+    <h2>经典司南</h2>
+    <p class="en">Variant A</p>
+    <svg class="big"><use href="#ic-sinan-classic"/></svg>
+    <p class="tag">文化最正 · 一眼认出司南</p>
+    <div class="row">
+      <div class="item"><svg width="64" height="64"><use href="#ic-sinan-classic"/></svg><div class="size">64</div></div>
+      <div class="item"><svg width="32" height="32"><use href="#ic-sinan-classic"/></svg><div class="size">32</div></div>
+      <div class="item"><svg width="16" height="16"><use href="#ic-sinan-classic"/></svg><div class="size">16</div></div>
+    </div>
+    <p class="note"><b>特点：</b>方形地盘 + 青铜磁勺，忠实还原司南形制，文化识别度最高。<b>建议</b>用作主图标，尤其适合中文市场。</p>
+  </div>
+
+  <div class="card">
+    <h2>圆盘司南</h2>
+    <p class="en">Variant B</p>
+    <svg class="big"><use href="#ic-sinan-disc"/></svg>
+    <p class="tag">最简洁 · 几何感强</p>
+    <div class="row">
+      <div class="item"><svg width="64" height="64"><use href="#ic-sinan-disc"/></svg><div class="size">64</div></div>
+      <div class="item"><svg width="32" height="32"><use href="#ic-sinan-disc"/></svg><div class="size">32</div></div>
+      <div class="item"><svg width="16" height="16"><use href="#ic-sinan-disc"/></svg><div class="size">16</div></div>
+    </div>
+    <p class="note"><b>特点：</b>圆盘 + 磁勺，比方形更圆润现代，小尺寸下更干净。适合国际版或偏好简洁的场合。</p>
+  </div>
+
+  <div class="card">
+    <h2>磁针</h2>
+    <p class="en">Variant C</p>
+    <svg class="big"><use href="#ic-sinan-needle"/></svg>
+    <p class="tag">最现代 · 指南针语汇</p>
+    <div class="row">
+      <div class="item"><svg width="64" height="64"><use href="#ic-sinan-needle"/></svg><div class="size">64</div></div>
+      <div class="item"><svg width="32" height="32"><use href="#ic-sinan-needle"/></svg><div class="size">32</div></div>
+      <div class="item"><svg width="16" height="16"><use href="#ic-sinan-needle"/></svg><div class="size">16</div></div>
+    </div>
+    <p class="note"><b>特点：</b>抽象成指南针磁针，一半青铜一半深褐，指向感强。最"科技"，但司南的独特性弱一些。</p>
+  </div>
+
+</div>
+
+<h3>色彩规范</h3>
+<div class="swatches">
+  <div class="sw"><div class="chip" style="background:#0E2A24"></div><div class="meta"><div class="nm">深墨绿</div><div class="hex">#0E2A24</div></div></div>
+  <div class="sw"><div class="chip" style="background:#C9A227"></div><div class="meta"><div class="nm">青铜金</div><div class="hex">#C9A227</div></div></div>
+  <div class="sw"><div class="chip" style="background:#3E7C6B"></div><div class="meta"><div class="nm">铜绿</div><div class="hex">#3E7C6B</div></div></div>
+  <div class="sw"><div class="chip" style="background:#F4EFE4"></div><div class="meta"><div class="nm">米白</div><div class="hex">#F4EFE4</div></div></div>
+  <div class="sw"><div class="chip" style="background:#241A12"></div><div class="meta"><div class="nm">深棕墨</div><div class="hex">#241A12</div></div></div>
+</div>
+
+<h3>组合规范</h3>
+<div class="combo">
+  <svg viewBox="0 0 1024 1024"><use href="#ic-sinan-classic"/></svg>
+  <div>
+    <div class="c-name">司南 SINAN</div>
+    <div class="c-use">中文为主、英文为辅，横排或上下排。官方场合、官网、应用商店统一使用。</div>
+  </div>
+  <div class="c-tag">标准组合</div>
+</div>
+<div class="combo">
+  <svg viewBox="0 0 1024 1024"><use href="#ic-sinan-disc"/></svg>
+  <div>
+    <div class="c-name">SINAN · 司南</div>
+    <div class="c-use">英文为主、中文为辅，适合出海版本或开发者向场景。</div>
+  </div>
+  <div class="c-tag">国际组合</div>
+</div>
+
+<div class="warn">
+  <b>定名前必须核查的风险：</b>国内已有 <b>上海司南卫星导航技术股份有限公司</b>（A 股上市，北斗导航领域，品牌"司南导航"），在导航、软件、电子类商标上构成近似风险很高。建议：一是立即检索"司南"在第 9 类（软件）、第 42 类（SaaS）的注册状态；二是准备好备选——若主类被占，可考虑 <b>"司南"作产品名 + "SINAN" 作注册商标</b>，或用"司南"的变体（如"司南·浏览器"整体申请、或"司南鸟""司南针"等）。此外"司南"在网文、游戏圈也有一定使用率，需评估传播混淆。
+</div>
+
+<p class="foot">
+  <b>命名优势小结：</b>sī nán 平 + 平但韵腹差异大，顺口有力；两字都是常用字，零认知门槛；文化厚度极高，品牌故事天然成立。正式图标需按平台规范输出 <code>1024 / 512 / 256 / 128 / 64 / 32 / 16</code> 全套切图。
+</p>
+
+</body>
+</html>
