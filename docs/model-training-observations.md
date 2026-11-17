@@ -111,3 +111,13 @@ meituan 五个集团互不拦），CRA_BLOCKER_DEBUG=1 可打印每次拦截。
 **为何清库有效**：全量清除同时移除了 havana Cookie（切换回直连通道）和坏 umid 档案——两个因子一起消失。我此前把功劳单一记给「设备信誉」是把清库的双变量实验误读了。教训：清库实验是「一次清两个变量」的粗粒度实验，下结论要列出所有被同时改变的变量。
 
 **未验证的遗留**：havana Cookie 在下次阿里云登录后可能重新累积，届时收银台或再切回淘宝通道。若发生，同样的全清可以再解；根治需要研究 aliyun 登录的 Cookie 种植机制或与服务端交互确认路由规则。
+
+## OBS-6 · 转写模型升级 A/B：Belle-turbo 否决（2026-11-18）
+
+候选：Belle-whisper-large-v3-turbo-zh（q5_0, 574MB, hf-mirror uosx/Belle-whisper-large-v3-turbo-zh-ggml-quantized, sha256 bab0d61935b3f75e…）vs 现用 whisper-small（466MB）。同一合成中文语音（含领域词摇粒绒/羊羔绒/尺码/压胶）：
+
+- 专有词错误率相同（两边都错，靠 polish() 拿标题纠错解决——这正是该通道存在的理由）
+- turbo 优势 = 简体+自动标点；代价 = 2.6× 慢（6s 音频 16s→42s；10 分钟视频约 27→70 分钟）
+- Intel 6 核上不可接受 → 不入目录、不改默认。模型文件留在 ~/Library/Application Support/Cra/Models/ggml-belle-large-v3-turbo-zh-q5_0.bin 供用户自试（WhisperService 的解析列表不含它，不影响默认）。
+
+**蒸馏管线现状盘点**（比记忆中完整）：polish() 纠错已存在（含领域词表+标题参照）；B 站专用链路（__playinfo__ 音频 DASH + AI 字幕兜底 + wbi API 修 SPA 竞态）；通用 <video>/<audio> src 兜底；MAP-REDUCE 双遍摘要；notesDirectory 设置 UI 已有。**剩余边界**：MSE 流媒体（抖音）不可能（无直链）、YouTube（签名+网络）不做——B 站优先 + 通用兜底就是当前合理边界。蒸馏改进项至此关闭，除非用户实测提出新痛点。
