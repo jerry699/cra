@@ -60,8 +60,8 @@ struct PerformancePane: View {
                                 Image(systemName: insight.severity == .warning ? "exclamationmark.triangle.fill" : "info.circle.fill")
                                     .foregroundStyle(insight.severity == .warning ? Color(nsColor: .systemOrange) : Color.secondary)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(insight.title).font(.system(size: 13))
-                                    Text(insight.detail).font(.system(size: 11)).foregroundStyle(.secondary)
+                                    Text(PerfFindingLocalization.title(insight, r)).font(.system(size: 13))
+                                    Text(PerfFindingLocalization.detail(insight, r)).font(.system(size: 11)).foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
