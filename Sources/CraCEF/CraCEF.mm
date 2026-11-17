@@ -1354,7 +1354,7 @@ public:
             // CRA_BLOCKER_DEBUG=1 names each cancel, so a page that breaks under
             // blocking can be traced (a payment chain once died here silently).
             static const bool debug = getenv("CRA_BLOCKER_DEBUG") != nullptr;
-            if (debug) NSLog("Cra blocker: cancelled %@ on page %@",
+            if (debug) NSLog(@"Cra blocker: cancelled %@ on page %@",
                              [NSString stringWithUTF8String:requestHost.c_str()],
                              [NSString stringWithUTF8String:pageHost.c_str()]);
             return RV_CANCEL;
