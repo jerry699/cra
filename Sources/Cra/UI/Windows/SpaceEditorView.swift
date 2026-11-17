@@ -60,13 +60,13 @@ struct SpaceEditorView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(existing == nil ? "New Space" : "Edit Space").font(.system(size: 16, weight: .semibold))
+            Text(existing == nil ? L10n.tr("New Space") : L10n.tr("Edit Space")).font(.system(size: 16, weight: .semibold))
             HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .leading, spacing: 12) {
                     preview
                     HStack(spacing: 6) {
                         iconButton
-                        TextField("Name", text: $title).textFieldStyle(.roundedBorder)
+                        TextField(L10n.tr("Name"), text: $title).textFieldStyle(.roundedBorder)
                     }
                     LazyVGrid(columns: Array(repeating: GridItem(.fixed(28), spacing: 4), count: 8), spacing: 4) {
                         ForEach(Self.emojis, id: \.self) { e in
@@ -87,10 +87,10 @@ struct SpaceEditorView: View {
                 }
             }
             HStack {
-                Button("Cancel") { onCancel() }.keyboardShortcut(.cancelAction)
+                Button(L10n.tr("Cancel")) { onCancel() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(existing == nil ? "Create Space" : "Save") {
-                    onSave(title.isEmpty ? "Space" : title, icon, theme, profile, trimmedProfileName, searchEngine.isEmpty ? nil : searchEngine)
+                Button(existing == nil ? L10n.tr("Create Space") : L10n.tr("Save")) {
+                    onSave(title.isEmpty ? L10n.tr("Space") : title, icon, theme, profile, trimmedProfileName, searchEngine.isEmpty ? nil : searchEngine)
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled((title.trimmingCharacters(in: .whitespaces).isEmpty && existing == nil) || (profile == .new && trimmedProfileName.isEmpty))
@@ -107,7 +107,7 @@ struct SpaceEditorView: View {
             VStack(spacing: 6) {
                 HStack(spacing: 6) {
                     glyph(size: 15, color: theme.palette.textPrimary)
-                    Text(title.isEmpty ? "Space" : title).font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.palette.textPrimary)
+                    Text(title.isEmpty ? L10n.tr("Space") : title).font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.palette.textPrimary)
                     Spacer(minLength: 0)
                 }
                 RoundedRectangle(cornerRadius: 6).fill(theme.palette.selectedFill).frame(height: 24)
@@ -135,8 +135,8 @@ struct SpaceEditorView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Change Icon")
-        .accessibilityLabel("Change Icon")
+        .help(L10n.tr("Change Icon"))
+        .accessibilityLabel(L10n.tr("Change Icon"))
         .popover(isPresented: $pickingIcon, arrowEdge: .bottom) {
             SpaceIconPicker(current: icon.emoji, currentSymbol: icon.symbol, currentImage: icon.image,
                             onPick: { icon = .emoji($0); pickingIcon = false },
@@ -165,14 +165,14 @@ struct SpaceEditorView: View {
     private var profileSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 6) {
-                Picker("Profile", selection: $profile) {
-                    Text("Default").tag(SpaceProfileChoice.existing(nil))
+                Picker(L10n.tr("Profile"), selection: $profile) {
+                    Text(L10n.tr("Default")).tag(SpaceProfileChoice.existing(nil))
                     ForEach(profiles) { p in Text(p.name).tag(SpaceProfileChoice.existing(p.id)) }
                     Divider()
-                    Text("New Profile…").tag(SpaceProfileChoice.new)
+                    Text(L10n.tr("New Profile…")).tag(SpaceProfileChoice.new)
                 }
                 if profile == .new {
-                    TextField("Profile name", text: $newProfileName).textFieldStyle(.roundedBorder)
+                    TextField(L10n.tr("Profile name"), text: $newProfileName).textFieldStyle(.roundedBorder)
                 }
             }
             Text(profileNote).font(.system(size: 11)).foregroundStyle(.secondary)
@@ -184,12 +184,12 @@ struct SpaceEditorView: View {
     /// GitHub #306, not in Arc: the engine the command bar searches in this space.
     private var searchEngineSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Picker("Search Engine", selection: $searchEngine) {
-                Text("Default (\(defaultEngineName))").tag("")
+            Picker(L10n.tr("Search Engine"), selection: $searchEngine) {
+                Text(L10n.tr("Default (%@)", defaultEngineName)).tag("")
                 Divider()
                 ForEach(searchEngines, id: \.keyword) { e in Text(e.name).tag(e.keyword) }
             }
-            Text("Searches from the command bar in this space go here. Default follows Settings.")
+            Text(L10n.tr("Searches from the command bar in this space go here. Default follows Settings."))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -198,12 +198,12 @@ struct SpaceEditorView: View {
 
     private var profileNote: String {
         if let existing, profile != .existing(existing.profileID) {
-            return "Each Profile has different browser data, so you might get logged out of some websites or need to re-install extensions. Open tabs in this space reload."
+            return L10n.tr("Each Profile has different browser data, so you might get logged out of some websites or need to re-install extensions. Open tabs in this space reload.")
         }
         if profile == .new {
-            return "This Space will start fresh in your brand new Profile, signed out of every website."
+            return L10n.tr("This Space will start fresh in your brand new Profile, signed out of every website.")
         }
-        return "Profiles make your Spaces truly separate with their own logins, cookies and site data. Spaces with the same Profile share them."
+        return L10n.tr("Profiles make your Spaces truly separate with their own logins, cookies and site data. Spaces with the same Profile share them.")
     }
 }
 

@@ -13,24 +13,24 @@ struct LinksPane: View {
             VStack(alignment: .leading, spacing: 0) {
                 LinksHero()
                 VStack(alignment: .leading, spacing: 0) {
-                    SettingsBlurb("Little Window is a smaller, simpler window. It’s perfect for quick lookups and reading funny tweets your friends send you.")
+                    SettingsBlurb(L10n.tr("Little Window is a smaller, simpler window. It’s perfect for quick lookups and reading funny tweets your friends send you."))
                         .padding(.top, 20)
                     SettingsCard {
                         // Arc: "Open Little Arc when I press ⌥⌘N in any app" (#195).
-                        SettingsSwitchLine("Open Little Window when I press \(shortcut) in any app", isOn: $store.settings.littleWindowShortcutEverywhere)
+                        SettingsSwitchLine(L10n.tr("Open Little Window when I press %@ in any app", shortcut), isOn: $store.settings.littleWindowShortcutEverywhere)
                         SettingsCardDivider()
                         // Arc: "Open Little Arc when clicking on links with ⌥⌘ held" (#373). Off in Cra: a ⌘⌥-click opens
                         // Split View otherwise (#298).
-                        SettingsSwitchLine("Open Little Window when clicking on links with ⌥⌘ held", isOn: $store.settings.littleWindowOnOptionCommandClick) {
-                            Text("Off, a ⌥⌘-click opens the link in Split View.").font(.system(size: 11)).foregroundStyle(.secondary)
+                        SettingsSwitchLine(L10n.tr("Open Little Window when clicking on links with ⌥⌘ held"), isOn: $store.settings.littleWindowOnOptionCommandClick) {
+                            Text(L10n.tr("Off, a ⌥⌘-click opens the link in Split View.")).font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                         SettingsCardDivider()
-                        SettingsSwitchLine("Links from other apps open in Little Window", isOn: $store.settings.openExternalLinksInLittleWindow)
+                        SettingsSwitchLine(L10n.tr("Links from other apps open in Little Window"), isOn: $store.settings.openExternalLinksInLittleWindow)
                         SettingsCardDivider()
                         // Arc: "Archive Little Arcs after:" 1 hour, 6 hours (default), 12 hours.
-                        SettingsCardRow { Text("Archive Little Windows after:").font(.system(size: 13)) } trailing: {
-                            Picker("Archive Little Windows after", selection: $store.settings.littleWindowArchiveAfter) {
-                                ForEach(LittleWindowArchive.allCases, id: \.self) { Text($0.label).tag($0) }
+                        SettingsCardRow { Text(L10n.tr("Archive Little Windows after:")).font(.system(size: 13)) } trailing: {
+                            Picker(L10n.tr("Archive Little Windows after"), selection: $store.settings.littleWindowArchiveAfter) {
+                                ForEach(LittleWindowArchive.allCases, id: \.self) { Text(L10n.tr($0.label)).tag($0) }
                             }
                             .labelsHidden().fixedSize()
                         }
@@ -39,22 +39,22 @@ struct LinksPane: View {
 
                     SettingsRule().padding(.top, 24)
 
-                    SettingsBlurb("Peek is a way to preview a link without opening a new tab. It’s perfect for quickly looking at a link from an email, news article, or tweet.")
+                    SettingsBlurb(L10n.tr("Peek is a way to preview a link without opening a new tab. It’s perfect for quickly looking at a link from an email, news article, or tweet."))
                         .padding(.top, 24)
                     SettingsCard {
-                        SettingsSwitchLine("Open a Peek window when clicking on links with Shift held", isOn: $store.settings.peekOnShiftClick)
+                        SettingsSwitchLine(L10n.tr("Open a Peek window when clicking on links with Shift held"), isOn: $store.settings.peekOnShiftClick)
                         SettingsCardDivider()
-                        SettingsSwitchLine("Open a Peek window when clicking on links to other sites", isOn: $store.settings.peekLinksToOtherSites) {
-                            Text("Note: This only affects Favorites and Pinned tabs").font(.system(size: 13).italic()).foregroundStyle(.secondary)
+                        SettingsSwitchLine(L10n.tr("Open a Peek window when clicking on links to other sites"), isOn: $store.settings.peekLinksToOtherSites) {
+                            Text(L10n.tr("Note: This only affects Favorites and Pinned tabs")).font(.system(size: 13).italic()).foregroundStyle(.secondary)
                         }
                         SettingsCardDivider()
                         // Cra's addition (#12).
-                        SettingsSwitchLine("Peek at links to other sites in every tab", isOn: $store.settings.peekInEveryTab,
+                        SettingsSwitchLine(L10n.tr("Peek at links to other sites in every tab"), isOn: $store.settings.peekInEveryTab,
                                            enabled: store.settings.peekLinksToOtherSites)
                         SettingsCardDivider()
                         // Not in Arc (GitHub #380): off by default, Expand makes a new tab as in Arc.
-                        SettingsSwitchLine("⌘-click Expand opens in the tab", isOn: $store.settings.peekExpandInSourceTab) {
-                            Text("Hold ⌘ while you click a Peek’s Expand to open the page in the tab you were peeking from. Back takes that tab to where it was.")
+                        SettingsSwitchLine(L10n.tr("⌘-click Expand opens in the tab"), isOn: $store.settings.peekExpandInSourceTab) {
+                            Text(L10n.tr("Hold ⌘ while you click a Peek’s Expand to open the page in the tab you were peeking from. Back takes that tab to where it was."))
                                 .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -64,19 +64,19 @@ struct LinksPane: View {
 
                     SettingsCard {
                         SettingsCardRow {
-                            Text("Choose where links open inside Cra.").font(.system(size: 13))
+                            Text(L10n.tr("Choose where links open inside Cra.")).font(.system(size: 13))
                                 .help(routesDetail)
                         } trailing: {
-                            Button("Air Traffic Control…") { showsAirTrafficControl = true }
+                            Button(L10n.tr("Air Traffic Control…")) { showsAirTrafficControl = true }
                         }
                     }
                     .padding(.top, 20)
 
                     // Not in Arc's tab: what "Open Link in New Tab" does (#276).
-                    SettingsHeader("New tabs").padding(.top, 20)
+                    SettingsHeader(L10n.tr("New tabs")).padding(.top, 20)
                     SettingsFeatureCard {
-                        SettingsToggleRow("Switch to links opened in new tabs",
-                                          detail: "“Open Link in New Tab” brings the new tab to the front. Off, the page you’re reading stays in front, as in Arc. ⌘-click opens a link behind the page and ⇧⌘-click switches to it either way.",
+                        SettingsToggleRow(L10n.tr("Switch to links opened in new tabs"),
+                                          detail: L10n.tr("“Open Link in New Tab” brings the new tab to the front. Off, the page you’re reading stays in front, as in Arc. ⌘-click opens a link behind the page and ⇧⌘-click switches to it either way."),
                                           isOn: $store.settings.openLinksInForeground)
                     }
                 }
@@ -93,11 +93,11 @@ struct LinksPane: View {
     private var shortcut: String { KeyBindingRegistry.shared.action("newLittleWindow")?.primary?.display ?? "⌥⌘N" }
 
     private var routesDetail: String {
-        let lead = "Send links from other apps to the space you choose, by what their address contains."
+        let lead = L10n.tr("Send links from other apps to the space you choose, by what their address contains.")
         switch store.settings.linkRoutes.count {
         case 0: return lead
-        case 1: return lead + " 1 route set."
-        case let n: return lead + " \(n) routes set."
+        case 1: return lead + " " + L10n.tr("1 route set.")
+        case let n: return lead + " " + L10n.tr("%d routes set.", n)
         }
     }
 }

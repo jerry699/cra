@@ -345,7 +345,7 @@ struct AskOnPageView: View {
             .frame(minHeight: 36)
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
             if !state.inConversation {
-                iconButton("xmark", label: "Close") { controller.onClose() }
+                iconButton("xmark", label: L10n.tr("Close")) { controller.onClose() }
             }
         }
         .padding(6)
@@ -354,20 +354,20 @@ struct AskOnPageView: View {
 
     @ViewBuilder private var findControls: some View {
             if !state.inConversation, !overlay.findQuery.isEmpty, let matches = overlay.findMatchCount {
-                Text(matches == 0 ? "No matches" : "\(overlay.findActiveMatch)/\(matches)")
+                Text(matches == 0 ? L10n.tr("No matches") : "\(overlay.findActiveMatch)/\(matches)")
                     .font(.system(size: 13, weight: .medium)).monospacedDigit()
                     .foregroundStyle(.primary.opacity(0.5))
                     .fixedSize()
                 if matches > 0 {
-                    iconButton("arrow.up", label: "Previous") { controller.onFind(overlay.findQuery, false) }
-                    iconButton("arrow.down", label: "Next") { controller.onFind(overlay.findQuery, true) }
+                    iconButton("arrow.up", label: L10n.tr("Previous")) { controller.onFind(overlay.findQuery, false) }
+                    iconButton("arrow.down", label: L10n.tr("Next")) { controller.onFind(overlay.findQuery, true) }
                 }
             }
             // Arc shows Ask with the field still empty (the reporter's capture); it asks once there is text.
             if state.canAsk {
                 let ready = AskOnPagePolicy.showsAskButton(query: overlay.findQuery, canAsk: state.canAsk)
                 Button { if ready { controller.ask(overlay.findQuery) } } label: {
-                    Text("Ask").font(.callout.weight(.semibold)).foregroundStyle(.white)
+                    Text(L10n.tr("Ask")).font(.callout.weight(.semibold)).foregroundStyle(.white)
                         .padding(.vertical, 5).padding(.horizontal, 12)
                         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(state.tone.button)))
                 }
@@ -394,7 +394,7 @@ struct AskOnPageView: View {
         }
         .buttonStyle(.plain)
         .onHover { closeHovered = $0 }
-        .accessibilityLabel("Close")
+        .accessibilityLabel(L10n.tr("Close"))
     }
 }
 
@@ -453,7 +453,7 @@ private struct AskOnPageMessageView: View {
             }
             let parts = AskOnPageReply.parts(message.reply, question: message.question)
             if parts.isEmpty, !message.finished {
-                Text("Loading Content").font(.body).redacted(reason: .placeholder)
+                Text(L10n.tr("Loading Content")).font(.body).redacted(reason: .placeholder)
                     .opacity(pulse ? 0.4 : 1)
                     .onAppear { withAnimation(.easeInOut(duration: 0.8).repeatForever()) { pulse = true } }
             }
@@ -511,14 +511,14 @@ private struct AskOnPageQuote: View {
                     if search == .notFound {
                         HStack(spacing: 4) {
                             Image(systemName: "exclamationmark.triangle.fill")
-                            Text("Quote not found. Make sure it’s accurate!")
+                            Text(L10n.tr("Quote not found. Make sure it’s accurate!"))
                         }
                         .font(.system(size: 11, weight: .bold)).foregroundStyle(.primary.opacity(0.5))
                         .padding(.top, 12)
                     } else {
                         Button(action: find) {
                             HStack(spacing: 4) {
-                                Text("Find on Page")
+                                Text(L10n.tr("Find on Page"))
                                 Image(systemName: "arrow.forward")
                             }
                             .font(.system(size: 11, weight: .bold))

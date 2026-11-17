@@ -12,11 +12,11 @@ struct ProfileSpacesStep: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ProfileAvatar().padding(.top, 38.5)
-            Text("Which Spaces should use this Profile?")
+            Text(L10n.tr("Which Spaces should use this Profile?"))
                 .font(.system(size: 17.5, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.top, 19)
-            Text("These Spaces will start fresh in your brand new Profile — so you’ll have to log back in to websites, re-save your passwords, add extensions, etc. You can always switch back to your previous Profile though if you forgot something!")
+            Text(L10n.tr("These Spaces will start fresh in your brand new Profile — so you’ll have to log back in to websites, re-save your passwords, add extensions, etc. You can always switch back to your previous Profile though if you forgot something!"))
                 .font(.system(size: 14))
                 .lineSpacing(0.7)
                 .foregroundStyle(NewProfileDialog.body)
@@ -38,9 +38,9 @@ struct ProfileSpacesStep: View {
             .padding(.top, 14)
             HStack(spacing: 7) {
                 Spacer()
-                DialogButton(title: "Back", key: "ESC", enabled: true, primary: false, action: onBack)
+                DialogButton(title: L10n.tr("Back"), key: "ESC", enabled: true, primary: false, action: onBack)
                     .keyboardShortcut(.cancelAction)
-                DialogButton(title: "Create Profile", key: "↩", enabled: true, style: .accent, action: onCreate)
+                DialogButton(title: L10n.tr("Create Profile"), key: "↩", enabled: true, style: .accent, action: onCreate)
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.top, 31)
@@ -127,8 +127,8 @@ struct ChangeProfileDialog: View {
 
     private var choiceName: String {
         switch choice {
-        case .new: return "New Profile"
-        case .existing(let id): return profiles.first { $0.id == id }?.name ?? "Default"
+        case .new: return L10n.tr("New Profile")
+        case .existing(let id): return profiles.first { $0.id == id }?.name ?? L10n.tr("Default")
         }
     }
 
@@ -137,10 +137,10 @@ struct ChangeProfileDialog: View {
         guard let content = NSApp.windows.last(where: { $0 is DialogPanel && $0.isVisible })?.contentView else { return }
         let m = NSMenu()
         m.autoenablesItems = false
-        MenuItems.add(m, "Default") { choice = .existing(nil) }
+        MenuItems.add(m, L10n.tr("Default")) { choice = .existing(nil) }
         for p in profiles { MenuItems.add(m, p.name) { choice = .existing(p.id) } }
         m.addItem(.separator())
-        MenuItems.add(m, "New Profile") { choice = .new }
+        MenuItems.add(m, L10n.tr("New Profile")) { choice = .new }
         // SwiftUI's global frame is top-left based in the window; the content view is not flipped.
         let y = content.isFlipped ? pill.maxY + 4 : content.bounds.height - pill.maxY - 4
         // Next turn of the run loop, so the button's press returns before the menu tracks.
@@ -157,11 +157,11 @@ struct ChangeProfileDialog: View {
     private var picker: some View {
         VStack(alignment: .leading, spacing: 0) {
             SpaceProfileIcon(space: space).padding(.top, 38)
-            (Text("Change ") + Text("\(space.title)’s").bold() + Text(" Profile"))
+            (Text(L10n.tr("Change ")) + Text("\(space.title)’s").bold() + Text(L10n.tr(" Profile")))
                 .font(.system(size: 17.5))
                 .foregroundStyle(.white)
                 .padding(.top, 17)
-            Text("Each Profile has different browser data, so you might get logged out of some websites, see different Favorites up top, or need to re-install extensions.")
+            Text(L10n.tr("Each Profile has different browser data, so you might get logged out of some websites, see different Favorites up top, or need to re-install extensions."))
                 .font(.system(size: 14))
                 .lineSpacing(0.7)
                 .foregroundStyle(NewProfileDialog.body)
@@ -169,7 +169,7 @@ struct ChangeProfileDialog: View {
                 .frame(width: 375.5, alignment: .leading)
                 .padding(.top, 12)
             HStack(spacing: 6) {
-                (Text("\(space.title)’s").bold() + Text(" Profile"))
+                (Text("\(space.title)’s").bold() + Text(L10n.tr(" Profile")))
                     .font(.system(size: 14))
                     .foregroundStyle(Color(hex: "#DBDCDF"))
                 // An NSMenu under the pill, like Arc's (Default, the other profiles, New Profile).
@@ -200,9 +200,9 @@ struct ChangeProfileDialog: View {
             .padding(.top, 8)
             HStack(spacing: 7) {
                 Spacer()
-                DialogButton(title: "Cancel", key: "ESC", enabled: true, primary: false, action: onCancel)
+                DialogButton(title: L10n.tr("Cancel"), key: "ESC", enabled: true, primary: false, action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                DialogButton(title: "Change Profile", key: "↩", enabled: true, style: .accent, action: confirm)
+                DialogButton(title: L10n.tr("Change Profile"), key: "↩", enabled: true, style: .accent, action: confirm)
                     .keyboardShortcut(.defaultAction)
             }
             .padding(.top, 27.5)

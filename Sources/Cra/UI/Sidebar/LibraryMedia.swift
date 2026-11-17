@@ -154,7 +154,7 @@ final class MediaTile: NSView, NSDraggingSource {
         picture.shadowRadius = 3
         picture.shadowOffset = CGSize(width: 0, height: -1)
         layer?.addSublayer(picture)
-        play.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Video")?
+        play.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: L10n.tr("Video"))?
             .withSymbolConfiguration(.init(pointSize: 22, weight: .regular))
         play.contentTintColor = .white
         play.imageScaling = .scaleNone
@@ -248,12 +248,12 @@ struct MediaOptInCard: View {
                 .font(.system(size: 28, weight: .medium))
                 .foregroundStyle(Color(red: 0.55, green: 0.47, blue: 0.93))
                 .padding(.top, 4)
-            Text("Your Media in the Library").font(.system(size: 13, weight: .semibold))
-            Text("Quickly grab screenshots, images, and videos from your computer by showing them in the Cra Library!")
+            Text(L10n.tr("Your Media in the Library")).font(.system(size: 13, weight: .semibold))
+            Text(L10n.tr("Quickly grab screenshots, images, and videos from your computer by showing them in the Cra Library!"))
                 .font(.system(size: 11.5)).multilineTextAlignment(.center).foregroundStyle(.primary.opacity(0.8))
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: show) {
-                Text("Show Media").font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
+                Text(L10n.tr("Show Media")).font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 32)
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(LinearGradient(colors: [Color(red: 0.85, green: 0.55, blue: 0.80), Color(red: 0.40, green: 0.42, blue: 0.95)],
@@ -263,7 +263,7 @@ struct MediaOptInCard: View {
             .padding(.top, 4)
             HStack(alignment: .top, spacing: 4) {
                 Image(systemName: "lock.fill").font(.system(size: 8))
-                Text("Media never leaves your computer and is not viewable by anyone but you.").font(.system(size: 10))
+                Text(L10n.tr("Media never leaves your computer and is not viewable by anyone but you.")).font(.system(size: 10))
             }
             .foregroundStyle(.secondary)
         }
@@ -286,7 +286,7 @@ enum MediaMenu {
         m.autoenablesItems = false
         for action in MediaLibrary.Action.allCases {
             if action.startsGroup { m.addItem(.separator()) }
-            MenuItems.add(m, action.title(isVideo: video)) {
+            MenuItems.add(m, L10n.tr(action.title(isVideo: video))) {
                 switch action {
                 case .copy:
                     NSPasteboard.general.clearContents()

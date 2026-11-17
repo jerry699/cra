@@ -245,13 +245,13 @@ private struct BoostEditorView: View {
         if model.showingCode {
             ZStack {
                 Picker("", selection: $model.codeIsJS) {
-                    Text("CSS").tag(false)
-                    Text("JS").tag(true)
+                    Text(L10n.tr("CSS")).tag(false)
+                    Text(L10n.tr("JS")).tag(true)
                 }
                 .pickerStyle(.segmented).labelsHidden().frame(width: 92)
                 HStack {
                     Button { model.setCode(false) } label: {
-                        Label("Back", systemImage: "arrow.left").font(.system(size: 13, weight: .semibold))
+                        Label(L10n.tr("Back"), systemImage: "arrow.left").font(.system(size: 13, weight: .semibold))
                     }
                     .buttonStyle(.plain).foregroundStyle(BoostStyle.ink).padding(.leading, 10)
                     Spacer()
@@ -269,19 +269,19 @@ private struct BoostEditorView: View {
                 Image(systemName: "xmark.circle.fill").font(.system(size: 18)).foregroundStyle(Color(white: 0.6))
                     .frame(width: 40, height: 40)
             }
-            .buttonStyle(.plain).help("Done")
+            .buttonStyle(.plain).help(L10n.tr("Done"))
             Spacer(minLength: 0)
             Menu {
-                Button("Rename this Boost…") { rename() }
-                Button("Shuffle") { model.shuffle() }
-                Button("Reset all Edits") { model.resetAll() }
-                Button("Delete this Boost") { delete() }
+                Button(L10n.tr("Rename this Boost…")) { rename() }
+                Button(L10n.tr("Shuffle")) { model.shuffle() }
+                Button(L10n.tr("Reset all Edits")) { model.resetAll() }
+                Button(L10n.tr("Delete this Boost")) { delete() }
                 Divider()
-                Button("Share Boost…") {
+                Button(L10n.tr("Share Boost…")) {
                     BoostInstall.share(model.boost) { text in (NSApp.delegate as? AppDelegate)?.main?.showToast(text) }
                 }
                 .disabled(!BoostInstall.canShare(model.boost))
-                Button("All Boosts…") { NotificationCenter.default.post(name: .craShowBoostsLibrary, object: nil) }
+                Button(L10n.tr("All Boosts…")) { NotificationCenter.default.post(name: .craShowBoostsLibrary, object: nil) }
             } label: {
                 HStack(spacing: 4) {
                     Text(model.boost.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(BoostStyle.ink).lineLimit(1)
@@ -293,7 +293,7 @@ private struct BoostEditorView: View {
             Button { model.undo() } label: {
                 Image(systemName: "arrow.counterclockwise").font(.system(size: 14, weight: .semibold)).frame(width: 40, height: 40)
             }
-            .buttonStyle(.plain).foregroundStyle(model.history.isEmpty ? Color(white: 0.75) : BoostStyle.ink).disabled(model.history.isEmpty).help("Undo")
+            .buttonStyle(.plain).foregroundStyle(model.history.isEmpty ? Color(white: 0.75) : BoostStyle.ink).disabled(model.history.isEmpty).help(L10n.tr("Undo"))
         }
         .frame(height: 40)
     }
@@ -306,10 +306,10 @@ private struct BoostEditorView: View {
             .frame(width: 147, height: 147)
             .padding(.top, 18)
             HStack(spacing: 10) {
-                square("lightbulb", on: model.boost.invert, help: "Invert lightness") { model.change { $0.invert.toggle() } }
-                square("slider.horizontal.3", on: showColors, help: "Advanced color controls") { showColors.toggle() }
+                square("lightbulb", on: model.boost.invert, help: L10n.tr("Invert lightness")) { model.change { $0.invert.toggle() } }
+                square("slider.horizontal.3", on: showColors, help: L10n.tr("Advanced color controls")) { showColors.toggle() }
                     .popover(isPresented: $showColors, arrowEdge: .leading) { advanced }
-                square("nosign", on: false, help: "Reset to original colors") {
+                square("nosign", on: false, help: L10n.tr("Reset to original colors")) {
                     model.change { $0.hue = 0; $0.strength = 0; $0.invert = false; $0.contrast = 50; $0.brightness = 50; $0.saturation = 50 }
                 }
                 .opacity(model.boost.colorsUntouched ? 0.45 : 1)
@@ -318,23 +318,23 @@ private struct BoostEditorView: View {
             HStack(spacing: 9) {
                 Menu {
                     ForEach([0.8, 0.9, 1, 1.1, 1.25, 1.5], id: \.self) { s in
-                        Button(s == 1 ? "Original" : "\(Int(s * 100)) %") { model.change { $0.textScale = s } }
+                        Button(s == 1 ? L10n.tr("Original") : "\(Int(s * 100)) %") { model.change { $0.textScale = s } }
                     }
-                } label: { wide("Size", trailing: nil) }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help("Change text size")
+                } label: { wide(L10n.tr("Size"), trailing: nil) }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help(L10n.tr("Change text size"))
                 Menu {
-                    ForEach(Boost.TextCase.allCases, id: \.self) { c in Button(c.title) { model.change { $0.textCase = c } } }
-                } label: { wide("Case", trailing: nil) }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help("Change text case")
+                    ForEach(Boost.TextCase.allCases, id: \.self) { c in Button(L10n.tr(c.title)) { model.change { $0.textCase = c } } }
+                } label: { wide(L10n.tr("Case"), trailing: nil) }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).help(L10n.tr("Change text case"))
             }
             .frame(width: 147)
             // Arc 1.172.2: with something zapped the bolt gives way to the count.
             Button { model.toggleZap() } label: {
-                wide("Zap", trailing: "bolt.fill", count: model.boost.zapped.count, on: model.zapping)
+                wide(L10n.tr("Zap"), trailing: "bolt.fill", count: model.boost.zapped.count, on: model.zapping)
             }
-            .buttonStyle(.plain).accessibilityLabel(model.boost.zapped.isEmpty ? "Zap" : "Zap, \(model.boost.zapped.count)")
-                .help("Click things on the page to hide them")
-            Button { model.setCode(true) } label: { wide("Code", trailing: "curlybraces") }.buttonStyle(.plain)
+            .buttonStyle(.plain).accessibilityLabel(model.boost.zapped.isEmpty ? L10n.tr("Zap") : L10n.tr("Zap, %d", model.boost.zapped.count))
+                .help(L10n.tr("Click things on the page to hide them"))
+            Button { model.setCode(true) } label: { wide(L10n.tr("Code"), trailing: "curlybraces") }.buttonStyle(.plain)
             Spacer(minLength: 0)
         }
         .frame(width: 183)
@@ -342,9 +342,9 @@ private struct BoostEditorView: View {
 
     private var advanced: some View {
         VStack(alignment: .leading, spacing: 10) {
-            slider("Contrast", \.contrast)
-            slider("Brightness", \.brightness)
-            slider("Original Saturation", \.saturation)
+            slider(L10n.tr("Contrast"), \.contrast)
+            slider(L10n.tr("Brightness"), \.brightness)
+            slider(L10n.tr("Original Saturation"), \.saturation)
         }
         .padding(18)
         .frame(width: 250)
@@ -403,14 +403,14 @@ private struct BoostEditorView: View {
                                      set: { v in if model.codeIsJS { model.boost.js = v } else { model.boost.css = v } }))
             // Arc: 38 pt squares 15 pt in, in a 69 pt strip under the 479 pt editor.
             HStack(spacing: 10) {
-                square("eyedropper", on: model.picking, help: model.picking ? "Hide Selector Picker" : "Show Selector Picker", size: 38) {
+                square("eyedropper", on: model.picking, help: model.picking ? L10n.tr("Hide Selector Picker") : L10n.tr("Show Selector Picker"), size: 38) {
                     model.togglePicker()
                 }
-                square("hammer", on: model.devToolsOpen, help: model.devToolsOpen ? "Hide Developer Tools" : "Show Developer Tools", size: 38) {
+                square("hammer", on: model.devToolsOpen, help: model.devToolsOpen ? L10n.tr("Hide Developer Tools") : L10n.tr("Show Developer Tools"), size: 38) {
                     model.toggleDevTools()
                 }
                 if model.codeIsJS {
-                    square("arrow.clockwise", on: false, help: "Refresh this Page", size: 38) { model.page.reload() }
+                    square("arrow.clockwise", on: false, help: L10n.tr("Refresh this Page"), size: 38) { model.page.reload() }
                 }
                 Spacer()
             }
@@ -422,21 +422,21 @@ private struct BoostEditorView: View {
 
     private func rename() {
         let alert = NSAlert()
-        alert.messageText = "Rename this Boost"
+        alert.messageText = L10n.tr("Rename this Boost")
         let field = NSTextField(string: model.boost.name)
         field.frame = NSRect(x: 0, y: 0, width: 220, height: 24)
         alert.accessoryView = field
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: L10n.tr("Rename"))
+        alert.addButton(withTitle: L10n.tr("Cancel"))
         if alert.runModal() == .alertFirstButtonReturn, !field.stringValue.isEmpty { model.change { $0.name = field.stringValue } }
     }
 
     private func delete() {
         let alert = NSAlert()
-        alert.messageText = "Delete this Boost?"
-        alert.informativeText = "Its changes to \(model.boost.host) go away."
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = L10n.tr("Delete this Boost?")
+        alert.informativeText = L10n.tr("Its changes to %@ go away.", model.boost.host)
+        alert.addButton(withTitle: L10n.tr("Delete"))
+        alert.addButton(withTitle: L10n.tr("Cancel"))
         alert.buttons.first?.hasDestructiveAction = true
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         BoostStore.shared.delete(model.boost.id)

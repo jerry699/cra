@@ -20,13 +20,13 @@ struct EditPinnedURLDialog: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Edit Pinned URL")
+            Text(L10n.tr("Edit Pinned URL"))
                 .font(.system(size: 17.5, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(height: 21, alignment: .top)
                 .padding(.top, 55)
                 .padding(.leading, 37.5)
-            Text("This is what opens first when you click this tab or its favicon.")
+            Text(L10n.tr("This is what opens first when you click this tab or its favicon."))
                 .font(.system(size: 14))
                 .lineSpacing(0.8)
                 .foregroundStyle(DialogTheme.body)
@@ -34,7 +34,7 @@ struct EditPinnedURLDialog: View {
                 .frame(width: 304, height: 35, alignment: .topLeading)
                 .padding(.top, 16)
                 .padding(.leading, 37.5)
-            TextField("", text: $text, prompt: Text("Enter a URL…").foregroundStyle(Color(hex: "#A6A8B0")))
+            TextField("", text: $text, prompt: Text(L10n.tr("Enter a URL…")).foregroundStyle(Color(hex: "#A6A8B0")))
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .foregroundStyle(.white)
@@ -48,9 +48,9 @@ struct EditPinnedURLDialog: View {
                 .padding(.leading, 37.5)
             HStack(spacing: 7) {
                 Spacer()
-                DialogButton(title: "Cancel", key: "ESC", enabled: true, style: .secondary, badge: CGSize(width: 35, height: 20), action: onCancel)
+                DialogButton(title: L10n.tr("Cancel"), key: "ESC", enabled: true, style: .secondary, badge: CGSize(width: 35, height: 20), action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                DialogButton(title: "Save", key: "↩", enabled: destination != nil, style: .accent, badge: CGSize(width: 27, height: 20)) {
+                DialogButton(title: L10n.tr("Save"), key: "↩", enabled: destination != nil, style: .accent, badge: CGSize(width: 27, height: 20)) {
                     if let destination { onSave(destination) }
                 }
             }

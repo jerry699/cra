@@ -45,7 +45,7 @@ struct ZapShelfView: View {
                             if on { model.hoveredZap = i } else if model.hoveredZap == i { model.hoveredZap = nil }
                         }
                         .help(selector)
-                        .accessibilityLabel("Restore \(selector)")
+                        .accessibilityLabel(L10n.tr("Restore %@", selector))
                 }
             }
             .padding(.leading, CGFloat(BoostZap.inset))
@@ -54,7 +54,7 @@ struct ZapShelfView: View {
             HStack {
                 Spacer()
                 Button { model.toggleZap() } label: {
-                    Text("Done").font(.system(size: 14, weight: .semibold)).foregroundStyle(colors.ink)
+                    Text(L10n.tr("Done")).font(.system(size: 14, weight: .semibold)).foregroundStyle(colors.ink)
                         .frame(width: CGFloat(BoostZap.doneSize.width), height: CGFloat(BoostZap.doneSize.height))
                         .background(RoundedRectangle(cornerRadius: CGFloat(BoostZap.cellCornerRadius), style: .continuous).fill(colors.cream))
                 }
@@ -72,7 +72,7 @@ struct ZapShelfView: View {
             // Centred between the shelf's left inset and Done.
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                (Text("Click elements on the page to ") + Text("Zap").fontWeight(.bold).foregroundColor(colors.cream) + Text(" them"))
+                (Text(L10n.tr("Click elements on the page to ")) + Text("Zap").fontWeight(.bold).foregroundColor(colors.cream) + Text(L10n.tr(" them")))
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(colors.text)
                 Spacer(minLength: 0)
             }
@@ -82,13 +82,13 @@ struct ZapShelfView: View {
         case .clickToUnzap:
             HStack(spacing: 4) {
                 Image(systemName: "arrow.left").font(.system(size: 11, weight: .semibold))
-                Text("Click to unzap").font(.system(size: 13, weight: .semibold))
+                Text(L10n.tr("Click to unzap")).font(.system(size: 13, weight: .semibold))
             }
             .foregroundStyle(colors.text)
             .padding(.leading, CGFloat(BoostZap.hintX(cells: cells, pill: false) - BoostZap.inset))
             .frame(height: CGFloat(BoostZap.shelfHeight))
         case .restore(let selector):
-            (Text("Restore ").fontWeight(.bold) + Text(selector))
+            (Text(L10n.tr("Restore ")).fontWeight(.bold) + Text(selector))
                 .font(.system(size: 13, weight: .medium)).foregroundStyle(colors.text).lineLimit(1)
                 .padding(.horizontal, 10)
                 .frame(height: CGFloat(BoostZap.restorePillHeight))

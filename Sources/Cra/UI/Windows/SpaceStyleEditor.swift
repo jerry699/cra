@@ -38,7 +38,7 @@ struct SpaceStyleEditor: View {
                 .frame(width: 340, height: 340)
                 .padding(.top, 9)
             HStack(spacing: 0) {
-                pageArrow("chevron.left", to: swatchPage - 1, label: "Move to previous preset page.")
+                pageArrow("chevron.left", to: swatchPage - 1, label: L10n.tr("Move to previous preset page."))
                 HStack(spacing: 5.5) {
                     let page = SpaceColorPresets.pages[swatchPage]
                     ForEach(Array(page.swatches.enumerated()), id: \.offset) { i, colors in
@@ -50,10 +50,10 @@ struct SpaceStyleEditor: View {
                         }
                         .buttonStyle(ColorPillButtonStyle())
                         // Arc: "Set space color to Catalog color: … ColorPickerBrandN".
-                        .accessibilityLabel("Set space color to \(page.name(i))")
+                        .accessibilityLabel(L10n.tr("Set space color to %@", page.name(i)))
                     }
                 }
-                pageArrow("chevron.right", to: swatchPage + 1, label: "Move to next preset page.")
+                pageArrow("chevron.right", to: swatchPage + 1, label: L10n.tr("Move to next preset page."))
             }
             .padding(.top, 16.75)
             HStack(spacing: 0) {
@@ -157,7 +157,7 @@ private struct ColorPad: View {
                 // Arc: pressing anywhere on the pad brings the main colour there, and it follows the drag.
                 .gesture(DragGesture(minimumDistance: 0).onChanged { g in place(handle: 0, at: g.location, centre: centre) })
                 if pad.key.isEmpty {
-                    Text("Tap to pick a color for this space")
+                    Text(L10n.tr("Tap to pick a color for this space"))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.85))
                         .allowsHitTesting(false)
@@ -194,8 +194,8 @@ private struct ColorPad: View {
                     Spacer()
                     HStack(spacing: 16) {
                         // − takes the last colour too: an empty pad is Arc's colourless theme (#300).
-                        padButton("minus", label: "Remove a color", enabled: SpaceColorWheel.canRemove(pad.key.count)) { pad.key.removeLast() }
-                        padButton("plus", label: "Add a color", enabled: SpaceColorWheel.canAdd(pad.key.count)) { addColor() }
+                        padButton("minus", label: L10n.tr("Remove a color"), enabled: SpaceColorWheel.canRemove(pad.key.count)) { pad.key.removeLast() }
+                        padButton("plus", label: L10n.tr("Add a color"), enabled: SpaceColorWheel.canAdd(pad.key.count)) { addColor() }
                     }
                     .padding(.bottom, 20)
                 }

@@ -17,7 +17,7 @@ struct PerformancePane: View {
     var body: some View {
         @Bindable var store = store
         SettingsCardPane {
-            Picker("", selection: $section) { ForEach(Section.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+            Picker("", selection: $section) { ForEach(Section.allCases, id: \.self) { Text(L10n.tr($0.rawValue)).tag($0) } }
                 .pickerStyle(.segmented).labelsHidden().fixedSize()
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, 16)
@@ -43,15 +43,15 @@ struct PerformancePane: View {
 
     @ViewBuilder private func overview(_ recording: Binding<Bool>) -> some View {
         SettingsFeatureCard {
-            SettingsToggleRow("Record performance",
-                              detail: "Cra measures itself on this Mac: freezes, CPU and memory per process, tab timings.",
+            SettingsToggleRow(L10n.tr("Record performance"),
+                              detail: L10n.tr("Cra measures itself on this Mac: freezes, CPU and memory per process, tab timings."),
                               isOn: recording)
         }
-        SettingsFootnote("Nothing leaves the Mac unless you export it with Help ▸ Export Diagnostics.")
+        SettingsFootnote(L10n.tr("Nothing leaves the Mac unless you export it with Help ▸ Export Diagnostics."))
 
         if let r = report {
             if !r.insights.isEmpty {
-                SettingsHeader("Findings").padding(.top, 20)
+                SettingsHeader(L10n.tr("Findings")).padding(.top, 20)
                 SettingsCard {
                     ForEach(Array(r.insights.enumerated()), id: \.element.id) { i, insight in
                         if i > 0 { SettingsCardDivider() }
@@ -70,33 +70,34 @@ struct PerformancePane: View {
                 }
             }
             let m = r.mainThread
-            card("Main thread", [
-                ("Stalls of ¼ s or more", "\(m.freezes)"),
-                ("Freezes of 1 s or more", "\(m.longFreezes)"),
-                ("Longest freeze", m.longestFreezeMs > 0 ? PerfInsights.duration(m.longestFreezeMs) : "–"),
-                ("In menus, drags, alerts, start-up", "\(m.outsideFreezes)"),
-                ("Longest pass", m.longestPassMs > 0 ? PerfInsights.duration(m.longestPassMs) + (m.longestPassMode.map { " (\($0))" } ?? "") : "–"),
-                ("Typical pass (99 %)", PerfInsights.duration(m.passes.percentile(0.99))),
+            card(L10n.tr("Main thread"), [
+                (L10n.tr("Stalls of ¼ s or more"), "\(m.freezes)"),
+                (L10n.tr("Freezes of 1 s or more"), "\(m.longFreezes)"),
+                (L10n.tr("Longest freeze"), m.longestFreezeMs > 0 ? PerfInsights.duration(m.longestFreezeMs) : "–"),
+                (L10n.tr("In menus, drags, alerts, start-up"), "\(m.outsideFreezes)"),
+                (L10n.tr("Longest pass"), m.longestPassMs > 0 ? PerfInsights.duration(m.longestPassMs) + (m.longestPassMode.map { " (\($0))" } ?? "") : "–"),
+                (L10n.tr("Typical pass (99 %)"), PerfInsights.duration(m.passes.percentile(0.99))),
             ])
-            card("Processes", r.processes.filter { $0.count > 0 }.map { g in
-                (g.kind.label + (g.count > 1 ? " ×\(g.count)" : ""),
-                 g.available ? "\(String(format: "%.1f", g.cpuPct)) % CPU · \(PerfInsights.bytes(g.footprintBytes))" : "not available")
+            card(L10n.tr("Processes"), r.processes.filter { $0.count > 0 }.map { g in
+                (L10n.tr(g.kind.label) + (g.count > 1 ? " ×\(g.count)" : ""),
+                 g.available ? L10n.tr("%@ %% CPU · %@", String(format: "%.1f", g.cpuPct), PerfInsights.bytes(g.footprintBytes)) : L10n.tr("not available"))
             })
             if let s = r.system {
-                card("Mac", [
-                    ("CPU, all cores", s.cpuPct.map { "\(Int($0.rounded())) %" } ?? "–"),
-                    ("Memory pressure", s.memoryPressure.rawValue.capitalized),
-                    ("Temperature", s.thermalState.capitalized),
-                    ("Low Power Mode", s.lowPowerMode ? "On" : "Off"),
-                    ("Free disk", s.freeDiskBytes.map(PerfInsights.bytes) ?? "–"),
+                card(L10n.tr("Mac"), [
+                    (L10n.tr("CPU, all cores"), s.cpuPct.map { "\(Int($0.rounded())) %" } ?? "–"),
+                    (L10n.tr("Memory pressure"), L10n.tr(s.memoryPressure.rawValue.capitalized)),
+                    (L10n.tr("Temperature"), L10n.tr(s.thermalState.capitalized)),
+                    (L10n.tr("Low Power Mode"), s.lowPowerMode ? L10n.tr("On") : L10n.tr("Off")),
+                    (L10n.tr("Free disk"), s.freeDiskBytes.map(PerfInsights.bytes) ?? "–"),
                 ])
             }
-            card("Tabs", tabRows(r))
-            Text("Session \(r.session.id), launch \(r.session.launch), up \(Int(r.session.uptimeSeconds / 60)) min · recording costs \(String(format: "%.3f", r.selfCost.cpuPct)) % of a core")
+            card(L10n.tr("Tabs"), tabRows(r))
+            Text(L10n.tr("Session %@, launch %d, up %d min · recording costs %@ %% of a core",
+                         r.session.id, r.session.launch, Int(r.session.uptimeSeconds / 60), String(format: "%.3f", r.selfCost.cpuPct)))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .padding(.leading, 8).padding(.top, 12)
         } else if !recording.wrappedValue {
-            SettingsFootnote("Recording is off: no samples, no timers, nothing written. Files already recorded stay until you clear them.")
+            SettingsFootnote(L10n.tr("Recording is off: no samples, no timers, nothing written. Files already recorded stay until you clear them."))
                 .padding(.top, 12)
         } else {
             ProgressView().controlSize(.small).frame(maxWidth: .infinity).padding(.top, 24)
@@ -105,14 +106,14 @@ struct PerformancePane: View {
 
     private func tabRows(_ r: PerfReport) -> [(String, String)] {
         var rows: [(String, String)] = []
-        if let t = r.tabs.latest { rows.append(("Tabs", "\(t.tabs) · \(t.live) loaded · \(t.slept) asleep")) }
-        for (title, metric) in [("Tab switch", PerfMetric.tabSwitch), ("New page", .pageCreate), ("Page load", .pageLoad), ("Waking a slept tab", .tabWake)] {
+        if let t = r.tabs.latest { rows.append((L10n.tr("Tabs"), L10n.tr("%d · %d loaded · %d asleep", t.tabs, t.live, t.slept))) }
+        for (title, metric) in [(L10n.tr("Tab switch"), PerfMetric.tabSwitch), (L10n.tr("New page"), .pageCreate), (L10n.tr("Page load"), .pageLoad), (L10n.tr("Waking a slept tab"), .tabWake)] {
             guard let h = r.timings[metric.rawValue], h.count > 0 else { continue }
-            rows.append((title, "\(PerfInsights.duration(h.percentile(0.5))) typical · \(PerfInsights.duration(h.percentile(0.95))) slow"))
+            rows.append((title, L10n.tr("%@ typical · %@ slow", PerfInsights.duration(h.percentile(0.5)), PerfInsights.duration(h.percentile(0.95)))))
         }
-        if r.tabs.longTasks > 0 { rows.append(("Busy page (long tasks)", "\(r.tabs.longTasks) · \(PerfInsights.duration(r.tabs.longTaskMs))")) }
-        if r.tabs.longFrames > 0 { rows.append(("Late frames", "\(r.tabs.longFrames) · longest \(PerfInsights.duration(r.tabs.longestFrameMs))")) }
-        if r.tabs.videoFrames > 0 { rows.append(("Video frames dropped", "\(r.tabs.droppedVideoFrames) of \(r.tabs.videoFrames)")) }
+        if r.tabs.longTasks > 0 { rows.append((L10n.tr("Busy page (long tasks)"), L10n.tr("%d · %@", r.tabs.longTasks, PerfInsights.duration(r.tabs.longTaskMs)))) }
+        if r.tabs.longFrames > 0 { rows.append((L10n.tr("Late frames"), L10n.tr("%d · longest %@", r.tabs.longFrames, PerfInsights.duration(r.tabs.longestFrameMs)))) }
+        if r.tabs.videoFrames > 0 { rows.append((L10n.tr("Video frames dropped"), L10n.tr("%d of %d", r.tabs.droppedVideoFrames, r.tabs.videoFrames))) }
         return rows
     }
 
@@ -137,7 +138,7 @@ struct PerformancePane: View {
     @ViewBuilder private var events: some View {
         let list = report.map(Self.timeline) ?? []
         if list.isEmpty {
-            SettingsFootnote(report == nil ? "Recording is off." : "Nothing has happened this session: no stalls, crashed pages or failed loads.")
+            SettingsFootnote(report == nil ? L10n.tr("Recording is off.") : L10n.tr("Nothing has happened this session: no stalls, crashed pages or failed loads."))
         } else {
             SettingsCard {
                 ForEach(Array(list.prefix(100).enumerated()), id: \.offset) { i, e in
@@ -166,11 +167,11 @@ struct PerformancePane: View {
         func time(_ at: Double) -> String { f.string(from: r.session.startedAt.addingTimeInterval(at)) }
         var rows = r.mainThread.recent.map { s in
             Row(at: s.at, time: time(s.at),
-                title: "\(s.freeze ? (s.kind == .stall ? "Stall" : "Freeze") : "Busy \(s.mode) loop") \(PerfInsights.duration(s.ms))",
-                detail: ([s.site].compactMap { $0 } + (s.marks.isEmpty ? [] : ["after " + s.marks.joined(separator: " → ")])).joined(separator: " · "))
+                title: "\(s.freeze ? L10n.tr(s.kind == .stall ? "Stall" : "Freeze") : L10n.tr("Busy %@ loop", s.mode)) \(PerfInsights.duration(s.ms))",
+                detail: ([s.site].compactMap { $0 } + (s.marks.isEmpty ? [] : [L10n.tr("after %@", s.marks.joined(separator: " → "))])).joined(separator: " · "))
         }
         rows += r.events.filter { $0.kind != "freeze" && $0.kind != "hang" }.map { e in
-            Row(at: e.at, time: time(e.at), title: e.kind == "renderer" ? "Page process \(e.detail)" : "Load failed (\(e.detail))",
+            Row(at: e.at, time: time(e.at), title: e.kind == "renderer" ? L10n.tr("Page process %@", e.detail) : L10n.tr("Load failed (%@)", e.detail),
                 detail: e.site ?? "")
         }
         return rows.sorted { $0.at > $1.at }
@@ -181,15 +182,15 @@ struct PerformancePane: View {
     @ViewBuilder private func export(_ hideSites: Binding<Bool>) -> some View {
         SettingsCard {
             SettingsCardRow {
-                Text("Hide site names").font(.system(size: 13))
+                Text(L10n.tr("Hide site names")).font(.system(size: 13))
             } trailing: {
-                Toggle("Hide site names", isOn: hideSites).toggleStyle(.arcSwitch).labelsHidden()
+                Toggle(L10n.tr("Hide site names"), isOn: hideSites).toggleStyle(.arcSwitch).labelsHidden()
             }
         }
-        SettingsFootnote("Sites in the exported files become site-1, site-2… in every file, logs included. Without it they keep their host name (never the full address), as Cra's logs always have.")
+        SettingsFootnote(L10n.tr("Sites in the exported files become site-1, site-2… in every file, logs included. Without it they keep their host name (never the full address), as Cra's logs always have."))
         HStack(spacing: 8) {
-            Button("Export Diagnostics…") { actions.exportDiagnostics() }
-            Button(copied ? "Copied" : "Copy Summary") {
+            Button(L10n.tr("Export Diagnostics…")) { actions.exportDiagnostics() }
+            Button(copied ? L10n.tr("Copied") : L10n.tr("Copy Summary")) {
                 guard let r = report else { return }
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(PerfSummary.text(r), forType: .string)
@@ -197,17 +198,18 @@ struct PerformancePane: View {
             }
             .disabled(report == nil)
             Spacer(minLength: 0)
-            Button("Clear…") { confirmClear() }
+            Button(L10n.tr("Clear…")) { confirmClear() }
         }
         .padding(.top, 16)
-        SettingsFootnote("Copy Summary never names a site. The recording lives in \(AppPaths.file("Perf").path.replacingOccurrences(of: NSHomeDirectory(), with: "~")) and stays under 2 MB.")
+        SettingsFootnote(L10n.tr("Copy Summary never names a site. The recording lives in %@ and stays under 2 MB.",
+                                 AppPaths.file("Perf").path.replacingOccurrences(of: NSHomeDirectory(), with: "~")))
             .padding(.top, 4)
     }
 
     private func confirmClear() {
-        let alert = AppDialog(title: "Clear the performance recording?",
-                              message: "This session's numbers, the last 24 hours and saved freezes are deleted.",
-                              actions: [DialogAction("Clear", role: .destructive), .cancel])
+        let alert = AppDialog(title: L10n.tr("Clear the performance recording?"),
+                              message: L10n.tr("This session's numbers, the last 24 hours and saved freezes are deleted."),
+                              actions: [DialogAction(L10n.tr("Clear"), role: .destructive), .cancel])
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         PerfRecorder.clear()
         report = nil

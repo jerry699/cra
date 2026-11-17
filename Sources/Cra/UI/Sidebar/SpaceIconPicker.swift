@@ -26,9 +26,9 @@ struct SpaceIconPicker: View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
                 Picker("", selection: $tab) {
-                    Text("Emoji").tag(0)
-                    Text("Icon").tag(1)
-                    Text("Image").tag(2)
+                    Text(L10n.tr("Emoji")).tag(0)
+                    Text(L10n.tr("Icon")).tag(1)
+                    Text(L10n.tr("Image")).tag(2)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
@@ -38,13 +38,13 @@ struct SpaceIconPicker: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.primary)
-                .help("Remove Icon")
+                .help(L10n.tr("Remove Icon"))
             }
             .padding(.top, 13.5)
             if tab == 0 {
                 HStack(spacing: 5) {
                     Image(systemName: "magnifyingglass").font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
-                    TextField("Search", text: $query).textFieldStyle(.plain).font(.system(size: 13)).focused($searchFocused)
+                    TextField(L10n.tr("Search"), text: $query).textFieldStyle(.plain).font(.system(size: 13)).focused($searchFocused)
                 }
                 .padding(.horizontal, 8)
                 .frame(height: 27)
@@ -176,7 +176,7 @@ struct SpaceImageTab: View {
                 } else {
                     VStack(spacing: 6) {
                         Image(systemName: "photo.badge.plus").font(.system(size: 22, weight: .regular)).foregroundStyle(.secondary)
-                        Text("Drop a PNG or SVG here").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text(L10n.tr("Drop a PNG or SVG here")).font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -192,11 +192,11 @@ struct SpaceImageTab: View {
                 }
                 return true
             }
-            Button(current == nil ? "Choose Image…" : "Choose Another…") {
+            Button(current == nil ? L10n.tr("Choose Image…") : L10n.tr("Choose Another…")) {
                 failed = false
                 SpaceIconImage.choose(completion: onPick)
             }
-            Text(failed ? "That file isn't a picture Cra can read." : "Shown in full colour when the space is open, faded when it isn't.")
+            Text(failed ? L10n.tr("That file isn't a picture Cra can read.") : L10n.tr("Shown in full colour when the space is open, faded when it isn't."))
                 .font(.system(size: 11))
                 .foregroundStyle(failed ? Color.red : Color.secondary)
                 .multilineTextAlignment(.center)

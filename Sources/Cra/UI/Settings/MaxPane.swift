@@ -19,7 +19,7 @@ struct MaxPane: View {
     private func userMemoryRow() -> some View {
         SettingsCardRow {
             VStack(alignment: .leading, spacing: 4) {
-                Text("User memory").font(.system(size: 13))
+                Text(L10n.tr("User memory")).font(.system(size: 13))
                 let entries = memoryEntries()
                 if entries.isEmpty {
                     Text("还没有学到的规则——手动归组几次就会积累。")
@@ -42,7 +42,7 @@ struct MaxPane: View {
                 }
             }
         } trailing: {
-            Button("Clear memory") {
+            Button(L10n.tr("Clear memory")) {
                 store.clearAllMemory()
             }
             .controlSize(.small)
@@ -69,14 +69,14 @@ struct MaxPane: View {
         let kind: Kind
         var id: String { "\(kind)-\(model.id)" }
         var title: String {
-            kind == .download ? "Download \(model.name)?" : "Delete \(model.name)?"
+            kind == .download ? L10n.tr("Download %@?", model.name) : L10n.tr("Delete %@?", model.name)
         }
         func message(source: String) -> String {
             switch kind {
             case .download:
-                return "\(MaxPane.bytes(model.bytes)) from \(source). It runs on this Mac; nothing is sent anywhere."
+                return L10n.tr("%@ from %@. It runs on this Mac; nothing is sent anywhere.", MaxPane.bytes(model.bytes), source)
             case .delete:
-                return "The \(MaxPane.bytes(model.bytes)) file is removed. Tidy turns off until a model is downloaded again."
+                return L10n.tr("The %@ file is removed. Tidy turns off until a model is downloaded again.", MaxPane.bytes(model.bytes))
             }
         }
     }
@@ -100,22 +100,22 @@ struct MaxPane: View {
             // ─────────────────────────────────────────────────────────────
             MaxCard {
                 SettingsCardRow {
-                    Text("Model provider").font(.system(size: 13))
+                    Text(L10n.tr("Model provider")).font(.system(size: 13))
                 } trailing: {
-                    Picker("Model provider", selection: Binding(get: { MaxRemote.provider },
-                                                                set: { MaxRemote.setProvider($0); service.refresh() })) {
-                        Text("Apple Intelligence").tag(MaxRemote.Provider.off)
-                        Text("DeepSeek").tag(MaxRemote.Provider.deepseek)
-                        Text("Qwen").tag(MaxRemote.Provider.qwen)
-                        Text("GLM").tag(MaxRemote.Provider.glm)
-                        Text("Custom").tag(MaxRemote.Provider.custom)
+                    Picker(L10n.tr("Model provider"), selection: Binding(get: { MaxRemote.provider },
+                                                                         set: { MaxRemote.setProvider($0); service.refresh() })) {
+                        Text(L10n.tr("Apple Intelligence")).tag(MaxRemote.Provider.off)
+                        Text(L10n.tr("DeepSeek")).tag(MaxRemote.Provider.deepseek)
+                        Text(L10n.tr("Qwen")).tag(MaxRemote.Provider.qwen)
+                        Text(L10n.tr("GLM")).tag(MaxRemote.Provider.glm)
+                        Text(L10n.tr("Custom")).tag(MaxRemote.Provider.custom)
                     }
                     .labelsHidden().fixedSize()
                 }
                 if MaxRemote.provider != .off {
                     SettingsCardDivider()
                     SettingsCardRow {
-                        Text("API address").font(.system(size: 13))
+                        Text(L10n.tr("API address")).font(.system(size: 13))
                     } trailing: {
                         TextField("https://…", text: Binding(get: { MaxRemote.baseURL },
                                                              set: { MaxRemote.setBaseURL($0); service.refresh() }))
@@ -123,7 +123,7 @@ struct MaxPane: View {
                     }
                     SettingsCardDivider()
                     SettingsCardRow {
-                        Text("API key").font(.system(size: 13))
+                        Text(L10n.tr("API key")).font(.system(size: 13))
                     } trailing: {
                         SecureField("sk-…", text: Binding(get: { MaxRemote.key() ?? "" },
                                                           set: { MaxRemote.setKey($0); service.refresh() }))
@@ -131,7 +131,7 @@ struct MaxPane: View {
                     }
                     SettingsCardDivider()
                     SettingsCardRow {
-                        Text("Model").font(.system(size: 13))
+                        Text(L10n.tr("Model")).font(.system(size: 13))
                     } trailing: {
                         TextField("model", text: Binding(get: { MaxRemote.model },
                                                          set: { MaxRemote.setModel($0); service.refresh() }))
@@ -143,26 +143,26 @@ struct MaxPane: View {
             MaxCard {
                 SettingsCardRow {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Local model").font(.system(size: 13))
+                        Text(L10n.tr("Local model")).font(.system(size: 13))
                         Text(MaxLocal.isInstalled
-                             ? "Runs Tidy on this Mac; nothing is sent anywhere."
-                             : "Download one to run Tidy on this Mac; nothing is sent anywhere.")
+                             ? L10n.tr("Runs Tidy on this Mac; nothing is sent anywhere.")
+                             : L10n.tr("Download one to run Tidy on this Mac; nothing is sent anywhere."))
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } trailing: {
-                    Toggle("Local model", isOn: Binding(get: { MaxLocal.isEnabled },
+                    Toggle(L10n.tr("Local model"), isOn: Binding(get: { MaxLocal.isEnabled },
                                                         set: { MaxLocal.setEnabled($0); service.refresh() }))
                         .toggleStyle(.switch).labelsHidden().disabled(!MaxLocal.isInstalled)
                 }
                 SettingsCardDivider()
                 SettingsCardRow {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Auto-tidy Today").font(.system(size: 13))
-                        Text("Runs Tidy on its own when Today fills up.").font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Text(L10n.tr("Auto-tidy Today")).font(.system(size: 13))
+                        Text(L10n.tr("Runs Tidy on its own when Today fills up.")).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 } trailing: {
-                    Toggle("Auto-tidy Today", isOn: Binding(get: { TidyTabsService.autoTidyEnabled },
+                    Toggle(L10n.tr("Auto-tidy Today"), isOn: Binding(get: { TidyTabsService.autoTidyEnabled },
                                                             set: { TidyTabsService.setAutoTidyEnabled($0) }))
                         .toggleStyle(.switch).labelsHidden()
                 }
@@ -171,8 +171,8 @@ struct MaxPane: View {
                 SettingsCardDivider()
                 SettingsCardRow {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Distill notes").font(.system(size: 13))
-                        Text("Notes from 蒸馏音视频 land here as Markdown.")
+                        Text(L10n.tr("Distill notes")).font(.system(size: 13))
+                        Text(L10n.tr("Notes from 蒸馏音视频 land here as Markdown."))
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Text(MediaDistillService.notesDirectory.path)
@@ -180,13 +180,13 @@ struct MaxPane: View {
                             .lineLimit(1).truncationMode(.middle)
                     }
                 } trailing: {
-                    Button("Choose…") {
+                    Button(L10n.tr("Choose…")) {
                         let picker = NSOpenPanel()
                         picker.canChooseDirectories = true
                         picker.canChooseFiles = false
                         picker.canCreateDirectories = true
                         picker.directoryURL = MediaDistillService.notesDirectory
-                        picker.message = "Choose the folder distilled notes land in (e.g. an Obsidian vault)"
+                        picker.message = L10n.tr("Choose the folder distilled notes land in (e.g. an Obsidian vault)")
                         if picker.runModal() == .OK, let url = picker.url {
                             UserDefaults.standard.set(url.path, forKey: "notesDirectory")
                         }
@@ -196,7 +196,7 @@ struct MaxPane: View {
                 SettingsCardDivider()
                 SettingsCardRow {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Local AI data").font(.system(size: 13))
+                        Text(L10n.tr("Local AI data")).font(.system(size: 13))
                         Text("语义索引是缓存：清除后从浏览历史自动重建（约 20 秒）。迁移电脑时备份历史与分类记忆即可，模型可重新下载。")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -225,37 +225,37 @@ struct MaxPane: View {
                 }
                 SettingsCardRow {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Download from").font(.system(size: 13))
-                        Text("Both sites serve the same file; Cra checks its SHA256 before using it.")
+                        Text(L10n.tr("Download from")).font(.system(size: 13))
+                        Text(L10n.tr("Both sites serve the same file; Cra checks its SHA256 before using it."))
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } trailing: {
-                    Picker("Download from", selection: Binding(get: { ModelDownloader.preferredSource },
-                                                               set: { ModelDownloader.preferredSource = $0 })) {
-                        ForEach(ModelSource.allCases) { Text($0.label).tag($0) }
+                    Picker(L10n.tr("Download from"), selection: Binding(get: { ModelDownloader.preferredSource },
+                                                                        set: { ModelDownloader.preferredSource = $0 })) {
+                        ForEach(ModelSource.allCases) { Text(L10n.tr($0.label)).tag($0) }
                     }
                     .labelsHidden().fixedSize()
                 }
             }
             .padding(.bottom, 14)
             MaxCard {
-                MaxFeatureRow(title: "Tidy Tabs", isOn: $store.settings.tidyTabs, enabled: tabsAvailable) {
+                MaxFeatureRow(title: L10n.tr("Tidy Tabs"), isOn: $store.settings.tidyTabs, enabled: tabsAvailable) {
                     TidyTabsPicture()
                 } description: {
-                    Text("Press the \(Image(nsImage: BroomGlyph.image).renderingMode(.template)) icon to let your Sidebar organize itself whenever you have six or more Today Tabs.")
+                    Text("\(L10n.tr("Press the")) \(Image(nsImage: BroomGlyph.image).renderingMode(.template)) \(L10n.tr("icon to let your Sidebar organize itself whenever you have six or more Today Tabs."))")
                 }
                 SettingsCardDivider()
-                MaxFeatureRow(title: "Tidy Tab Titles", isOn: $store.settings.tidyTabTitles, enabled: titlesAvailable) {
+                MaxFeatureRow(title: L10n.tr("Tidy Tab Titles"), isOn: $store.settings.tidyTabTitles, enabled: titlesAvailable) {
                     TidyTabTitlesPicture()
                 } description: {
-                    Text("Have your tabs automatically renamed with tidier, shorter titles when you Pin them.")
+                    Text(L10n.tr("Have your tabs automatically renamed with tidier, shorter titles when you Pin them."))
                 }
                 SettingsCardDivider()
-                MaxFeatureRow(title: "Tidy Downloads", isOn: $store.settings.tidyDownloads, enabled: downloadsAvailable) {
+                MaxFeatureRow(title: L10n.tr("Tidy Downloads"), isOn: $store.settings.tidyDownloads, enabled: downloadsAvailable) {
                     TidyDownloadsPicture()
                 } description: {
-                    Text("Keep your many files more organized with smartly renamed downloads — and make them a little easier to find later.")
+                    Text(L10n.tr("Keep your many files more organized with smartly renamed downloads — and make them a little easier to find later."))
                 }
             }
             MaxFooter(status: service.status) { service.openSystemSettings() }
@@ -265,14 +265,14 @@ struct MaxPane: View {
                                                           set: { if !$0 { pending = nil } }), presenting: pending) { action in
             switch action.kind {
             case .download:
-                Button("Download") { downloader.start(action.model) }
+                Button(L10n.tr("Download")) { downloader.start(action.model) }
             case .delete:
-                Button("Delete", role: .destructive) {
+                Button(L10n.tr("Delete"), role: .destructive) {
                     downloader.delete(action.model)
                     service.refresh()
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(L10n.tr("Cancel"), role: .cancel) {}
         } message: { action in
             Text(action.message(source: sourceLabel))
         }
@@ -291,10 +291,10 @@ struct MaxPane: View {
 
     private func localModelNote(_ model: LocalModel) -> String {
         let features = model.capabilities.contains(.tabs)
-            ? "Tidy Tab Titles and Tidy Tabs" : "Tidy Tab Titles"
+            ? L10n.tr("Tidy Tab Titles and Tidy Tabs") : L10n.tr("Tidy Tab Titles")
         var note = "\(MaxPane.bytes(model.bytes)) · \(features)"
-        if model == MaxLocal.recommendedModel { note += " · recommended for this Mac" }
-        if MaxLocal.isInstalled(model) { note += " · installed" }
+        if model == MaxLocal.recommendedModel { note += " · \(L10n.tr("recommended for this Mac"))" }
+        if MaxLocal.isInstalled(model) { note += " · \(L10n.tr("installed"))" }
         return note
     }
 
@@ -303,19 +303,19 @@ struct MaxPane: View {
         if downloader.isBusy && downloader.modelID == model.id {
             HStack(spacing: 8) {
                 Text(downloader.phase == .verifying
-                     ? "Checking…"
-                     : "\(Int(downloader.fraction * 100))% · \(MaxPane.bytes(downloader.received)) of \(MaxPane.bytes(downloader.total))")
+                     ? L10n.tr("Checking…")
+                     : L10n.tr("%d%% · %@ of %@", Int(downloader.fraction * 100), MaxPane.bytes(downloader.received), MaxPane.bytes(downloader.total)))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
-                Button("Cancel") { downloader.cancel() }
+                Button(L10n.tr("Cancel")) { downloader.cancel() }
                     .buttonStyle(.link)
             }
         } else if MaxLocal.isInstalled(model) {
-            Button("Delete…") { pending = PendingModelAction(model: model, kind: .delete) }
+            Button(L10n.tr("Delete…")) { pending = PendingModelAction(model: model, kind: .delete) }
                 .buttonStyle(.link)
                 .disabled(downloader.isBusy)
         } else {
             VStack(alignment: .trailing, spacing: 2) {
-                Button("Download") { pending = PendingModelAction(model: model, kind: .download) }
+                Button(L10n.tr("Download")) { pending = PendingModelAction(model: model, kind: .download) }
                     .disabled(downloader.isBusy)
                 if case .failed(let message) = downloader.phase, downloader.modelID == model.id {
                     Text(message)
@@ -394,13 +394,13 @@ private struct MaxFooter: View {
 
     var body: some View {
         VStack(spacing: 3) {
-            Text(status.explanation)
+            Text(L10n.tr(status.explanation))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if status.canOpenSettings {
                 Button(action: openSettings) {
-                    Text("Turn on Apple Intelligence in System Settings").font(.system(size: 12)).underline()
+                    Text(L10n.tr("Turn on Apple Intelligence in System Settings")).font(.system(size: 12)).underline()
                 }
                 .buttonStyle(.link)
             }

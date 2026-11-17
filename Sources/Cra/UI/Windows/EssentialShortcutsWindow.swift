@@ -33,7 +33,7 @@ final class EssentialShortcutsWindow {
                         styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView], backing: .buffered, defer: false)
         p.titlebarAppearsTransparent = true
         p.titleVisibility = .hidden
-        p.title = "Essential Keyboard Shortcuts"
+        p.title = L10n.tr("Essential Keyboard Shortcuts")
         p.isMovableByWindowBackground = true
         p.level = .floating
         p.isReleasedWhenClosed = false
@@ -64,7 +64,7 @@ private struct EssentialShortcutsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center) {
-                Text("Essential Keyboard Shortcuts")
+                Text(L10n.tr("Essential Keyboard Shortcuts"))
                     .font(.system(size: 20.5, weight: .heavy))
                     .kerning(-0.3)
                     .foregroundStyle(.white)
@@ -80,8 +80,8 @@ private struct EssentialShortcutsView: View {
                 }
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 2.5) {
-                        Text(row.title).font(.system(size: 15)).foregroundStyle(.white)
-                        Text(row.detail).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+                        Text(L10n.tr(row.title)).font(.system(size: 15)).foregroundStyle(.white)
+                        Text(L10n.tr(row.detail)).font(.system(size: 12)).foregroundStyle(.white.opacity(0.62)).lineLimit(1)
                     }
                     Spacer(minLength: 8)
                     HStack(spacing: 3) {
@@ -106,7 +106,7 @@ private struct ViewAllButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Text("View All").font(.system(size: 14))
+                Text(L10n.tr("View All")).font(.system(size: 14))
                 Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .medium))
             }
             .foregroundStyle(.white.opacity(0.92))

@@ -44,9 +44,9 @@ private struct DefaultBrowserBanner: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text("Cra isn’t your default browser.").font(.system(size: 13))
+            Text(L10n.tr("Cra isn’t your default browser.")).font(.system(size: 13))
             Button(action: action) {
-                Label(prompting ? "Confirm in the Dialog…" : "Make Cra your default", systemImage: "heart.fill")
+                Label(prompting ? L10n.tr("Confirm in the Dialog…") : L10n.tr("Make Cra your default"), systemImage: "heart.fill")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
                     .padding(.horizontal, 10).frame(height: 24)
                     .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(Color.settingsBlue))
@@ -82,15 +82,15 @@ private struct MemberCardColumn: View {
             HStack(spacing: 34) {
                 if let image = Self.render(card) {
                     ShareLink(item: Image(nsImage: image), message: Text(ShareCra.text),
-                              preview: SharePreview("My Cra card", image: Image(nsImage: image))) {
+                              preview: SharePreview(L10n.tr("My Cra card"), image: Image(nsImage: image))) {
                         Image(systemName: "square.and.arrow.up")
                     }
-                    .help("Share your card")
+                    .help(L10n.tr("Share your card"))
                 }
                 Button { save(card) } label: { Image(systemName: "square.and.arrow.down") }
-                    .help("Save your card as a picture")
+                    .help(L10n.tr("Save your card as a picture"))
                 Button { copy(card) } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
-                    .help("Copy your card")
+                    .help(L10n.tr("Copy your card"))
             }
             .buttonStyle(.plain)
             .font(.system(size: 16))
@@ -336,16 +336,16 @@ struct ShareCraSheet: View {
                 .keyboardShortcut(.cancelAction)
             }
             BrandMark(size: 64).padding(.top, 4)
-            Text("Share Cra\nwith a friend")
+            Text(L10n.tr("Share Cra\nwith a friend"))
                 .font(.system(size: 44, weight: .black, design: .rounded))
                 .multilineTextAlignment(.center).lineSpacing(-6)
                 .foregroundStyle(.white)
                 .padding(.top, 14)
-            Text("Thanks for sharing Cra!").font(.system(size: 15)).foregroundStyle(.white.opacity(0.85))
+            Text(L10n.tr("Thanks for sharing Cra!")).font(.system(size: 15)).foregroundStyle(.white.opacity(0.85))
                 .padding(.top, 14)
             ticket.padding(.top, 26)
             ShareLink(item: URL(string: ShareCra.link)!, message: Text(ShareCra.message)) {
-                Label("Share…", systemImage: "square.and.arrow.up").font(.system(size: 13, weight: .medium))
+                Label(L10n.tr("Share…"), systemImage: "square.and.arrow.up").font(.system(size: 13, weight: .medium))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.white.opacity(0.85))
@@ -373,7 +373,7 @@ struct ShareCraSheet: View {
                 copied = true
                 Task { try? await Task.sleep(for: .seconds(2)); copied = false }
             } label: {
-                Text(copied ? "COPIED!" : "COPY LINK")
+                Text(copied ? L10n.tr("COPIED!") : L10n.tr("COPY LINK"))
                     .font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
                     .frame(maxWidth: .infinity).frame(height: 30)
                     .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Self.green))

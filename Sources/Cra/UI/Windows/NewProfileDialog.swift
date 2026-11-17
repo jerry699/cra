@@ -41,11 +41,11 @@ struct NewProfileDialog: View {
     private var nameStep: some View {
         VStack(alignment: .leading, spacing: 0) {
             ProfileAvatar().padding(.top, 38.5)
-            Text("Create a new Profile")
+            Text(L10n.tr("Create a new Profile"))
                 .font(.system(size: 17.5, weight: .semibold))
                 .foregroundStyle(.white)
                 .padding(.top, 19)
-            Text("Profiles make your Spaces truly separate — with their own history, saved passwords, extensions, and other browsing data. No more flipping between work and personal accounts!")
+            Text(L10n.tr("Profiles make your Spaces truly separate — with their own history, saved passwords, extensions, and other browsing data. No more flipping between work and personal accounts!"))
                 .font(.system(size: 14))
                 .lineSpacing(0.7)
                 .foregroundStyle(Self.body)
@@ -53,11 +53,11 @@ struct NewProfileDialog: View {
                 // Arc's text column runs 2.5 pt past the field and buttons.
                 .frame(width: 375.5, alignment: .leading)
                 .padding(.top, 12)
-            Text("What do you want to call this Profile?")
+            Text(L10n.tr("What do you want to call this Profile?"))
                 .font(.system(size: 14))
                 .foregroundStyle(Self.body)
                 .padding(.top, 20)
-            TextField("", text: $name, prompt: Text("Personal").foregroundStyle(Color(hex: "#9699A1")))
+            TextField("", text: $name, prompt: Text(L10n.tr("Personal")).foregroundStyle(Color(hex: "#9699A1")))
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
                 .foregroundStyle(.white)
@@ -69,16 +69,16 @@ struct NewProfileDialog: View {
                 .padding(.top, 7)
             HStack(spacing: 4) {
                 Image(systemName: "clock.arrow.2.circlepath").font(.system(size: 11, weight: .semibold))
-                Text("Profiles are ") + Text("not synced").bold() + Text(" between computers.")
+                Text(L10n.tr("Profiles are ")) + Text(L10n.tr("not synced")).bold() + Text(L10n.tr(" between computers."))
             }
             .font(.system(size: 11))
             .foregroundStyle(Color(hex: "#8F929E"))
             .padding(.top, 4)
             HStack(spacing: 8.5) {
                 Spacer()
-                DialogButton(title: "Cancel", key: "ESC", enabled: true, primary: false, action: onCancel)
+                DialogButton(title: L10n.tr("Cancel"), key: "ESC", enabled: true, primary: false, action: onCancel)
                     .keyboardShortcut(.cancelAction)
-                DialogButton(title: "Next", key: "↩", enabled: !trimmed.isEmpty, primary: true, action: next)
+                DialogButton(title: L10n.tr("Next"), key: "↩", enabled: !trimmed.isEmpty, primary: true, action: next)
             }
             .padding(.top, 27)
             Spacer(minLength: 0)

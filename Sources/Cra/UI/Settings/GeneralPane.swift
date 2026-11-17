@@ -16,73 +16,73 @@ struct GeneralPane: View {
         SettingsCardPane {
             SettingsCard {
                 SettingsCardRow {
-                    Text("Automatically update Cra").font(.system(size: 13))
+                    Text(L10n.tr("Automatically update Cra")).font(.system(size: 13))
                 } trailing: {
-                    Toggle("Automatically update Cra", isOn: $updater.automaticallyUpdates)
+                    Toggle(L10n.tr("Automatically update Cra"), isOn: $updater.automaticallyUpdates)
                         .toggleStyle(.arcSwitch).labelsHidden()
                         .disabled(!updater.isAvailable).opacity(updater.isAvailable ? 1 : 0.5)
                 }
                 SettingsCardDivider()
                 SettingsCardRow {
-                    Text("Warn before quitting").font(.system(size: 13))
-                        .help(store.settings.keepInMenuBar ? "⌘Q doesn’t quit Cra while it stays in the menu bar (Advanced)." : "⌘Q asks “Quit Cra?” first.")
+                    Text(L10n.tr("Warn before quitting")).font(.system(size: 13))
+                        .help(store.settings.keepInMenuBar ? L10n.tr("⌘Q doesn’t quit Cra while it stays in the menu bar (Advanced).") : L10n.tr("⌘Q asks “Quit Cra?” first."))
                 } trailing: {
-                    Toggle("Warn before quitting", isOn: $store.settings.warnBeforeQuitting)
+                    Toggle(L10n.tr("Warn before quitting"), isOn: $store.settings.warnBeforeQuitting)
                         .toggleStyle(.arcSwitch).labelsHidden()
                         .disabled(store.settings.keepInMenuBar).opacity(store.settings.keepInMenuBar ? 0.5 : 1)
                 }
             }
             SettingsCard {
                 SettingsCardRow {
-                    Text("Previews").font(.system(size: 13))
+                    Text(L10n.tr("Previews")).font(.system(size: 13))
                 } trailing: {
-                    Button("Previews Settings…") { showsPreviews = true }
+                    Button(L10n.tr("Previews Settings…")) { showsPreviews = true }
                 }
                 SettingsCardDivider()
                 SettingsCardRow {
-                    Text("Manage your default search engine, Auto-Archive, and downloads in Profile Settings.")
+                    Text(L10n.tr("Manage your default search engine, Auto-Archive, and downloads in Profile Settings."))
                         .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
                 } trailing: {
-                    Button("Profile Settings…") { nav.show(.profiles) }
+                    Button(L10n.tr("Profile Settings…")) { nav.show(.profiles) }
                 }
             }
             .padding(.top, 9)
 
-            SettingsHeader("System").padding(.top, 20)
+            SettingsHeader(L10n.tr("System")).padding(.top, 20)
             SettingsFeatureCard {
-                SettingsPlainRow("Default browser",
+                SettingsPlainRow(L10n.tr("Default browser"),
                                    detail: system.isDefaultBrowser
-                                       ? "Links you click in other apps open in Cra."
-                                       : "Links you click in other apps open in \(system.defaultBrowserName ?? "another browser"). Cra works best as your default browser.",
+                                       ? L10n.tr("Links you click in other apps open in Cra.")
+                                       : L10n.tr("Links you click in other apps open in %@. Cra works best as your default browser.", system.defaultBrowserName ?? L10n.tr("another browser")),
                                    trailing: {
                     if system.isDefaultBrowser {
-                        Label("Default", systemImage: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Label(L10n.tr("Default"), systemImage: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
                     } else {
-                        Button(system.isPromptingDefault ? "Confirm in the Dialog…" : "Make Default") {
+                        Button(system.isPromptingDefault ? L10n.tr("Confirm in the Dialog…") : L10n.tr("Make Default")) {
                             Task { await system.makeDefaultBrowser() }
                         }
                         .disabled(system.isPromptingDefault)
                     }
                 })
                 SettingsCardDivider()
-                SettingsPlainRow("Dock",
-                                   detail: system.isInDock ? "Cra is in the Dock." : "Keep Cra in the Dock to open it with one click.",
+                SettingsPlainRow(L10n.tr("Dock"),
+                                   detail: system.isInDock ? L10n.tr("Cra is in the Dock.") : L10n.tr("Keep Cra in the Dock to open it with one click."),
                                    trailing: {
                     if system.isInDock {
-                        Label("In the Dock", systemImage: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Label(L10n.tr("In the Dock"), systemImage: "checkmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
                     } else {
-                        Button("Add to Dock") { if !system.addToDock() { error = "Cra could not be added to the Dock." } }
+                        Button(L10n.tr("Add to Dock")) { if !system.addToDock() { error = L10n.tr("Cra could not be added to the Dock.") } }
                     }
                 })
                 SettingsCardDivider()
-                SettingsToggleRow("Open Cra at login",
-                                  detail: "Cra opens by itself when you log in to your Mac.",
+                SettingsToggleRow(L10n.tr("Open Cra at login"),
+                                  detail: L10n.tr("Cra opens by itself when you log in to your Mac."),
                                   isOn: Binding(get: { system.launchesAtLogin }, set: { error = system.setLaunchAtLogin($0) }))
                 SettingsCardDivider()
                 SettingsCardRow {
-                    Text("Language").font(.system(size: 13))
+                    Text(L10n.tr("Language")).font(.system(size: 13))
                 } trailing: {
-                    Picker("Language", selection: Binding(get: { L10n.language },
+                    Picker(L10n.tr("Language"), selection: Binding(get: { L10n.language },
                                                           set: { L10n.setLanguage($0) })) {
                         ForEach(L10n.available, id: \.code) { code, name in
                             Text(name).tag(code)
@@ -92,9 +92,9 @@ struct GeneralPane: View {
                 }
                 SettingsCardDivider()
                 SettingsCardRow {
-                    Text("Language").font(.system(size: 13))
+                    Text(L10n.tr("Language")).font(.system(size: 13))
                 } trailing: {
-                    Picker("Language", selection: Binding(get: { L10n.language },
+                    Picker(L10n.tr("Language"), selection: Binding(get: { L10n.language },
                                                           set: { L10n.setLanguage($0) })) {
                         ForEach(L10n.available, id: \.code) { code, name in
                             Text(name).tag(code)
@@ -104,7 +104,7 @@ struct GeneralPane: View {
                 }
             }
             if !system.isDefaultBrowser {
-                SettingsFootnote("Cra works best as your default browser.")
+                SettingsFootnote(L10n.tr("Cra works best as your default browser."))
             }
             if let error { SettingsFootnote(error).foregroundStyle(.red) }
             TabsPane().settingsNested().padding(.top, 20)
@@ -126,23 +126,23 @@ private struct PreviewsSheet: View {
     var body: some View {
         @Bindable var store = store
         VStack(alignment: .leading, spacing: 10) {
-            Text("Show Previews:").font(.system(size: 13, weight: .semibold))
-            Text("Save a click! Hover your mouse over a Folder, Pinned, or Favorited tab to quickly preview what you need from that site!")
+            Text(L10n.tr("Show Previews:")).font(.system(size: 13, weight: .semibold))
+            Text(L10n.tr("Save a click! Hover your mouse over a Folder, Pinned, or Favorited tab to quickly preview what you need from that site!"))
                 .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("Folders", isOn: $store.settings.folderPreviews)
-                Toggle("Google Calendar", isOn: $store.settings.calendarHoverPreview)
-                Toggle("Google Mail", isOn: $store.settings.favoritePreviews)
-                Toggle("Outlook Calendar", isOn: $store.settings.outlookCalendarPreviews)
-                Toggle("Outlook Mail", isOn: $store.settings.outlookMailPreviews)
-                Toggle("Recent pages on Linear, Notion, and Figma", isOn: $store.settings.recentPagesPreviews)
-                Toggle("Notion Calendar", isOn: $store.settings.notionCalendarPreviews)
+                Toggle(L10n.tr("Folders"), isOn: $store.settings.folderPreviews)
+                Toggle(L10n.tr("Google Calendar"), isOn: $store.settings.calendarHoverPreview)
+                Toggle(L10n.tr("Google Mail"), isOn: $store.settings.favoritePreviews)
+                Toggle(L10n.tr("Outlook Calendar"), isOn: $store.settings.outlookCalendarPreviews)
+                Toggle(L10n.tr("Outlook Mail"), isOn: $store.settings.outlookMailPreviews)
+                Toggle(L10n.tr("Recent pages on Linear, Notion, and Figma"), isOn: $store.settings.recentPagesPreviews)
+                Toggle(L10n.tr("Notion Calendar"), isOn: $store.settings.notionCalendarPreviews)
             }
             .toggleStyle(.checkbox)
             .padding(.top, 4)
             HStack {
                 Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+                Button(L10n.tr("Done")) { dismiss() }.keyboardShortcut(.defaultAction)
             }
             .padding(.top, 14)
         }
