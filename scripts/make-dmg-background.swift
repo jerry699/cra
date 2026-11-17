@@ -48,13 +48,13 @@ glow("#f6c34a", at: NSPoint(x: W - 40, y: -60), radius: 380, alpha: 0.44, squash
 // A pale band along the bottom ties the two lower blooms together, as in Dia.
 glow("#3f6df5", at: NSPoint(x: W / 2, y: -90), radius: 420, alpha: 0.14, squash: 0.4)
 
-// Install line: "To install, drag Cra to Applications", names in bold.
+// Install line: 「把 司南 拖到 应用程序」, names in bold.
 let size: CGFloat = 17
 let grey = NSColor(hex: "#1d1d1f", alpha: 0.6), ink = NSColor(hex: "#1d1d1f")
 let regular = NSFont.systemFont(ofSize: size, weight: .regular)
 let bold = NSFont.systemFont(ofSize: size, weight: .semibold)
 let line = NSMutableAttributedString()
-for (text, strong) in [("To install, drag ", false), ("Cra", true), (" to ", false), ("Applications", true)] {
+for (text, strong) in [("把 ", false), ("司南", true), (" 拖到 ", false), ("应用程序", true)] {
     line.append(NSAttributedString(string: text, attributes: [
         .font: strong ? bold : regular, .foregroundColor: strong ? ink : grey, .kern: -0.1,
     ]))

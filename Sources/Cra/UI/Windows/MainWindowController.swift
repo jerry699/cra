@@ -115,7 +115,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         window.minSize = NSSize(width: 640, height: 420)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.title = "Cra"
+        window.title = "司南"
         // The initializer can shift a saved global frame onto the current screen.
         // Apply it after construction so a window on another display stays there.
         // A test instance (CRA_TEST_SCREEN) keeps every window on its display.
