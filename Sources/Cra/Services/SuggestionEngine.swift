@@ -439,34 +439,42 @@ final class SuggestionEngine {
         keyword.sort { $0.score > $1.score }
         let semantic = semanticSuggestions(term.isEmpty ? q : term)
 
-        // Fuse by URL: both votes = +30 (two independent rankers agreeing); semantic-only
-        // rows keep the behavior-boosted 40 base. The weak-anchor gate already filtered
-        // the semantic list upstream, so what arrives here is its best judgment.
-        var fused: [Suggestion] = []
-        var semanticOnly: [Suggestion] = []
-        var consumed = Set<String>()
-        for row in semantic {
-            guard let rowURL = row.url else { continue }
-            consumed.insert(rowURL)
-            if let ki = keyword.firstIndex(where: { $0.url == rowURL }) {
-                var r = keyword.remove(at: ki)
-                r.score += 30
-                fused.append(r)
-            } else {
-                semanticOnly.append(row)
+        // P3-R2 RRF fusion (eval-tuned, scripts/recall-eval.py grid): each ranker votes
+        // 1/(60 + rank), the keyword vote weighted 1.2 — hit@1 15/31, hit@4 20/31 vs the
+        // additive mix's 14/18 and semantic-only's 11/15. Rank-based votes don't care that
+        // the two rankers' raw scores live on different scales. Behavior boost stays as a
+        // small tie-breaker on top (×0.1: it must not outweigh a rank step).
+        func rrf(_ rank: Int, _ weight: Double) -> Double { weight / Double(60 + rank) }
+        var votes: [String: (score: Double, both: Bool, row: Suggestion)] = [:]
+        for (i, row) in semantic.enumerated() {
+            guard let u = row.url else { continue }
+            votes[u] = (rrf(i + 1, 1.0), false, row)
+        }
+        for (i, row) in keyword.enumerated() {
+            guard let u = row.url else { continue }
+            let prev = votes[u]
+            votes[u] = (prev.map { $0.score + rrf(i + 1, 1.2) } ?? rrf(i + 1, 1.2),
+                        prev != nil, prev?.row ?? row)
+        }
+        let fused = votes.values
+            .sorted { $0.score > $1.score }
+            .map { entry -> Suggestion in
+                var r = entry.row
+                r.score = entry.score * 1000 + behaviorOf(entry.row) * 0.1
+                if entry.both, r.trailing == nil {
+                    r = Suggestion(id: r.id, kind: r.kind, title: r.title, subtitle: r.subtitle,
+                                   url: r.url, faviconKey: r.faviconKey, symbol: r.symbol,
+                                   trailing: L10n.tr("Semantic match"), score: r.score, loose: r.loose)
+                }
+                return r
             }
-        }
-        fused.append(contentsOf: keyword.filter { ($0.url ?? "").isEmpty || !consumed.contains($0.url!) })
-        // A strong keyword hit (title contains the query, or the body snapshot does) means
-        // the query HAS an anchor — the semantic-only rows below are then noise from the
-        // flat similarity band (the 董事长 report). Semantic-only fills in only when the
-        // keyword layer came up weak.
-        let strongAnchor = keyword.contains { $0.score >= 60 }
-        if !strongAnchor { fused.append(contentsOf: semanticOnly) }
-        else if !semanticOnly.isEmpty {
-            CraLog.note(String(format: "Semantic: %d semantic-only rows suppressed (strong keyword anchor)", semanticOnly.count))
-        }
         return fused
+    }
+
+    /// The behavior boost a row's history entry earned (dwell/visits/recency), or 0.
+    private func behaviorOf(_ row: Suggestion) -> Double {
+        guard let url = row.url, let h = store.history[url] else { return 0 }
+        return behaviorBoost(h)
     }
 
     private func topDomainSuggestions(_ q: String) -> [Suggestion] {

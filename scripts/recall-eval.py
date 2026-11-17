@@ -77,6 +77,11 @@ def embed(text):
     return struct.unpack("<%df" % (ln//4), body)
 
 import time
+_emb_cache = {}
+def embed_m(text):
+    if text not in _emb_cache: _emb_cache[text] = embed(text)
+    return _emb_cache[text]
+
 def cos(a, b):
     dot = sum(x*y for x, y in zip(a, b))
     na = math.sqrt(sum(x*x for x in a)); nb = math.sqrt(sum(x*x for x in b))
@@ -87,7 +92,7 @@ hits1 = hits4 = kw_hits1 = kw_hits4 = 0
 valid = 0
 print(f"{'query':<28} {'sem@1':>6} {'sem@4':>6} {'kw@1':>6} {'kw@4':>6}  top-semantic")
 for q, expect in CASES:
-    v = embed(q)
+    v = embed_m(q)
     if v is None: print(f"{q:<28}  embed failed"); continue
     valid += 1
     scored = sorted(((cos(v, d["vector"]), d) for d in docs), key=lambda x: -x[0])
@@ -116,5 +121,66 @@ for q, expect in CASES:
     top_t = history.get(top["url"], {}).get("title", top["url"])[:32]
     print(f"{q:<28} {str(sem_rank or '-'):>6} {str(sem_rank and sem_rank<=4 or '-'):>6} {str(k_rank or '-'):>6} {str(k_rank and k_rank<=4 or '-'):>6}  {top_t}")
 
-print(f"\n=== semantic: hit@1 {hits1}/{valid}  hit@4 {hits4}/{valid}   keyword: hit@1 {kw_hits1}/{valid}  hit@4 {kw_hits4}/{valid}")
+# ── P3-R2 融合模拟：RRF (1/(k+rank)) vs 当前加法式，离线选参 ──
+def simulate_rrf(k=60, sem_weight=1.0, kw_weight=1.0):
+    """rrf_rank per doc: semantic rank + keyword rank (missing = infinity)."""
+    r1 = r4 = 0
+    for q, expect in CASES:
+        v = embed_m(q)
+        if v is None: continue
+        scored = sorted(((cos(v, d["vector"]), d["url"]) for d in docs), key=lambda x: -x[0])
+        sem_urls = [u for _, u in scored[:20]]
+        lq = q.lower()
+        kw = []
+        for d in docs:
+            h = history.get(d["url"], {})
+            hay = " ".join(filter(None, [h.get("title",""), h.get("description",""), h.get("contentSnippet","")])).lower()
+            if lq in hay: kw.append((len(hay), d["url"]))
+        kw.sort()
+        kw_urls = [u for _, u in kw[:20]]
+        rrf = {}
+        for i, u in enumerate(sem_urls): rrf[u] = rrf.get(u, 0) + sem_weight / (k + i + 1)
+        for i, u in enumerate(kw_urls):  rrf[u] = rrf.get(u, 0) + kw_weight / (k + i + 1)
+        ranked = sorted(rrf.items(), key=lambda x: -x[1])
+        rank = next((i+1 for i, (u, _) in enumerate(ranked) if expect in u), None)
+        if rank == 1: r1 += 1
+        if rank and rank <= 4: r4 += 1
+    return r1, r4
+
+print(f"\n=== fusion simulation (hit@1 / hit@4 of {valid}) ===")
+# current additive proxy: semantic rank if present else kw
+add1 = add4 = 0
+for q, expect in CASES:
+    v = embed(q)
+    if v is None: continue
+    scored = sorted(((cos(v, d["vector"]), d["url"]) for d in docs), key=lambda x: -x[0])
+    sem_urls = [u for _, u in scored[:20]]
+    lq = q.lower()
+    kw = []
+    for d in docs:
+        h = history.get(d["url"], {})
+        hay = " ".join(filter(None, [h.get("title",""), h.get("description",""), h.get("contentSnippet","")])).lower()
+        if lq in hay: kw.append((len(hay), d["url"]))
+    kw.sort()
+    kw_urls = [u for _, u in kw[:20]]
+    # additive on normalized-ish scores: semantic sim*100, kw 90-len(hay)/4 capped 60
+    fused = {}
+    for i, u in enumerate(sem_urls):
+        fused[u] = fused.get(u, 0) + scored[i][0] * 100
+    for u, (l, _) in zip(kw_urls, kw): fused[u] = fused.get(u, 0) + max(0, 60 - l // 4)
+    ranked = sorted(fused.items(), key=lambda x: -x[1])
+    rank = next((i+1 for i, (u, _) in enumerate(ranked) if expect in u), None)
+    if rank == 1: add1 += 1
+    if rank and rank <= 4: add4 += 1
+print(f"additive (current-ish):  hit@1 {add1}/{valid}  hit@4 {add4}/{valid}")
+best = None
+for k in [60, 40, 30, 20, 10]:
+    for sw in [0.8, 1.0, 1.2]:
+        for kw_w in [1.0, 1.2, 1.4, 1.6]:
+            a, b = simulate_rrf(k, sw, kw_w)
+            line = f"RRF k={k} sem={sw} kw={kw_w}:  hit@1 {a}/{valid}  hit@4 {b}/{valid}"
+            print(line)
+            key = (a, b)
+            if best is None or key > best[0]: best = (key, line)
+print("BEST:", best[1])
 p.terminate()
