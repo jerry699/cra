@@ -72,3 +72,24 @@ meituan 五个集团互不拦），CRA_BLOCKER_DEBUG=1 可打印每次拦截。
    的正面样本，且支付场景的代价权重远高于广告漏拦。
 2. 原则：拦截器的失败模式必须是"多看了广告"，绝不是"付不了款"。
    所有判断规则都要用这条校验。
+
+## OBS-5 · 支付失败的全链路取证（2026-11-17，CDP 双浏览器对照）
+
+**现象**：阿里云收银台点「支付宝支付」→ 服务端 302 到 http://err.taobao.com/error1.html（交易被拒）。
+
+**逐层排除**（司南 vs Arc，同一订单，双方 CDP 抓包对照）：
+| 层 | 结果 |
+|---|---|
+| 内容拦截器（内置） | 0.1.95 集团豁免后不再拦支付链（mmstat/ynuf 放行） |
+| uBlock Origin 扩展 | 曾拦 ynuf.alipay.com（um.js 设备指纹家）→ umidToken=占位符 → 停用后令牌变真实值，**但仍被拒** |
+| POST 内容 | 两边结构完全一致（submitPayInfo/真实 umidToken/collina 两边都空） |
+| Cookie | 司南 44 个 ⊇ Arc 27 个（淘宝系全家桶都在） |
+| UA / UA-CH 品牌指纹 | 完全一致（'Chromium 156'，Arc 也报 Chromium） |
+| 代理/指纹保护/https 门 | 全关 |
+| **TLS/HTTP2 指纹** | **唯一剩下的差异层**：CEF 与 Arc 的 Chromium 是不同编译产物，握手指纹不同，阿里风控（baxia）检测 TLS 指纹 |
+
+**结论**：不是 fork 代码问题、不是设置问题、停用扩展后也不是扩展问题——是 CEF 编译产物在阿里风控眼里与真 Chrome 的 TLS 层差异。此类检测对 JS 与常规抓包不可见。
+
+**产品对策**（待验证）：WebKit 引擎跑支付站点——真 Safari TLS 栈，风控无从识别。首次 WebKit 测试无效（当时 uBlock 还在杀 um.js），需 uBlock 关闭状态下重测（Webkit 分区需重登阿里云一次）。若通 → 「支付站点自动 Safari 引擎」立项（双引擎即护城河）。
+
+**工具沉淀**：--remote-debugging-port=9222 免重建抓包；CDP capture 脚本（全 target 跟随、POST body、302 Location）；cookie 对照；UA-CH 探针。中国电商支付问题取证的标准流程。
