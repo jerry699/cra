@@ -300,12 +300,12 @@ private struct ShareCraCard: View {
     var body: some View {
         SettingsCard {
             SettingsCardRow {
-                Text("Share Cra with a Friend").font(.system(size: 13))
+                Text(L10n.tr("Share Cra with a Friend")).font(.system(size: 13))
             } trailing: {
-                Button(action: share) { Label("Share Cra", systemImage: "gift") }
+                Button(action: share) { Label(L10n.tr("Share Cra"), systemImage: "gift") }
             }
             SettingsCardDivider()
-            Text("Cra is free and open source, and it grows by word of mouth. Know someone who’d like it? Send them the link.")
+            Text(L10n.tr("Cra is free and open source, and it grows by word of mouth. Know someone who’d like it? Send them the link."))
                 .font(.system(size: 13)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, SettingsMetrics.cardRowInset)

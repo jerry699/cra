@@ -1013,3 +1013,17 @@
 "macOS didn't unlock Dia's data. Dia encrypts your spaces and tabs, so Cra needs your computer password to bring them over." = "macOS 未解锁 Dia 的数据。Dia 对空间和标签页加密，Cra 需要你的电脑密码才能迁移。";
 
 "%@ in any window, or the View menu’s Show Toolbar, switches it too." = "%@（任意窗口中），或「显示」菜单的「显示工具栏」，均可切换。";
+
+/* ═══ 设置侧栏标签 + 分享卡片（2026-11-17 晚补齐）═══ */
+"General" = "通用";
+"Profiles" = "Profile";
+"Max" = "Max";
+"Links" = "链接";
+"Shortcuts" = "快捷键";
+"Icon" = "图标";
+"Advanced" = "高级";
+"Privacy" = "隐私";
+"Extensions" = "扩展";
+"Share Cra with a Friend" = "把 Cra 分享给朋友";
+"Share Cra" = "分享 Cra";
+"Cra is free and open source, and it grows by word of mouth. Know someone who’d like it? Send them the link." = "Cra 免费且开源，靠口碑成长。认识可能喜欢的人？把链接发给 ta。";

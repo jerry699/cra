@@ -61,6 +61,14 @@ final class SettingsNavigation {
 /// the same place, and a tab switch is instant. The tabs are drawn by the content view under a transparent title
 /// bar: macOS 26 would wrap toolbar items in a glass capsule that Arc's don't have.
 @MainActor
+
+/// SettingsTab.title lives in CraCore where L10n is out of reach (App-only): the fixed English
+/// names translate here at the display site; a user's first name passes through L10n.tr
+/// unchanged (unknown keys fall back to the text itself).
+private func tabTitle(_ tab: SettingsTab) -> String {
+    L10n.tr(tab.title(fullName: NSFullUserName()))
+}
+
 final class SettingsWindowController: NSWindowController {
     private let nav = SettingsNavigation()
 
@@ -79,13 +87,13 @@ final class SettingsWindowController: NSWindowController {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: SettingsMetrics.windowSize),
                               styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         super.init(window: window)
-        window.title = SettingsTab.first.title(fullName: NSFullUserName())
+        window.title = tabTitle(.first)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.isReleasedWhenClosed = false
         window.backgroundColor = SettingsPalette.window
-        let root = SettingsRoot(nav: nav, actions: actions) { [weak window] tab in window?.title = tab.title(fullName: NSFullUserName()) }
+        let root = SettingsRoot(nav: nav, actions: actions) { [weak window] tab in window?.title = tabTitle(tab) }
             .environment(store).environment(bindings).environment(sync)
         let host = NSHostingController(rootView: root)
         host.sizingOptions = []
@@ -128,7 +136,7 @@ struct SettingsRoot: View {
         .background(Color.settingsWindow)
         // Arc's title, the tab's name, centred and dimmed in the title bar (the system's would sit beside the buttons).
         .overlay(alignment: .top) {
-            Text(nav.tab.title(fullName: NSFullUserName())).font(.system(size: 13, weight: .bold)).foregroundStyle(.secondary)
+            Text(tabTitle(nav.tab)).font(.system(size: 13, weight: .bold)).foregroundStyle(.secondary)
                 .frame(height: 28)
                 .allowsHitTesting(false)
         }
@@ -185,7 +193,7 @@ private struct SettingsTabButton: View {
                 Image(systemName: tab.symbol)
                     .font(.system(size: 19))
                     .frame(height: 24)
-                Text(tab.title(fullName: NSFullUserName())).font(.system(size: 12))
+                Text(tabTitle(tab)).font(.system(size: 12))
             }
             .foregroundStyle(selected ? Color.settingsBlue : Color.secondary)
             .padding(.horizontal, 5.5)
@@ -202,7 +210,7 @@ private struct SettingsTabButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(tab.title(fullName: NSFullUserName()))
+        .accessibilityLabel(tabTitle(tab))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
