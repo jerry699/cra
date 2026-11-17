@@ -44,9 +44,9 @@ struct ShortcutsPane: View {
 
     private var basics: some View {
         HStack(spacing: 8) {
-            Text("Start with the basics").font(.system(size: 13)).foregroundStyle(.secondary)
+            Text(L10n.tr("Start with the basics")).font(.system(size: 13)).foregroundStyle(.secondary)
             Button { actions.essentialShortcuts() } label: {
-                Label("Learn the Essential Shortcuts", systemImage: "command.circle.fill")
+                Label(L10n.tr("Learn the Essential Shortcuts"), systemImage: "command.circle.fill")
                     .font(.system(size: 13, weight: .medium)).foregroundStyle(.white)
                     .padding(.horizontal, 10).frame(height: 24)
                     .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(Color.settingsBlue))
@@ -78,7 +78,7 @@ struct ShortcutsPane: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(.secondary)
-                TextField("", text: $query, prompt: Text("Type a feature name or shortcut (like “Command E”)").foregroundStyle(.secondary))
+                TextField("", text: $query, prompt: Text(L10n.tr("Type a feature name or shortcut (like “Command E”)")).foregroundStyle(.secondary))
                     .textFieldStyle(.plain).font(.system(size: 13))
                 if !query.isEmpty {
                     Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }.buttonStyle(.plain)
@@ -89,7 +89,7 @@ struct ShortcutsPane: View {
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0, pinnedViews: []) {
                     ForEach(visible, id: \.title) { group in
-                        Text(group.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                        Text(L10n.tr(group.title)).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
                             .padding(.leading, 16).frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                         Rectangle().fill(Color.settingsHairline).frame(height: 1)
                         ForEach(Array(group.actions.enumerated()), id: \.element.id) { i, a in
@@ -111,7 +111,7 @@ struct ShortcutsPane: View {
         let selected = a.id == selectedID
         return Button { selectedID = a.id } label: {
             HStack(spacing: 8) {
-                Text(a.name).font(.system(size: 13)).lineLimit(1)
+                Text(L10n.actionName(id: a.id, fallback: a.name)).font(.system(size: 13)).lineLimit(1)
                 Spacer(minLength: 8)
                 Text(a.shortcuts.isEmpty ? "---" : a.shortcuts.map(\.display).joined(separator: " "))
                     .font(.system(size: 12, weight: .medium)).foregroundStyle(Color.black.opacity(0.6))
@@ -140,9 +140,9 @@ struct ShortcutsPane: View {
                     BigKeyCap(glyph: cap, dim: a != nil && caps.isEmpty)
                 }
             }
-            Text(a?.name ?? "Custom Shortcuts").font(.system(size: 14, weight: .semibold))
+            Text(a.map { L10n.actionName(id: $0.id, fallback: $0.name) } ?? L10n.tr("Custom Shortcuts")).font(.system(size: 14, weight: .semibold))
                 .padding(.top, 22)
-            Text(a.map { ShortcutDescriptions.text(for: $0) } ?? "Change shortcuts for your favorite actions, and even choose whether Cra or a website takes priority.")
+            Text(a.map { ShortcutDescriptions.text(for: $0) } ?? L10n.tr("Change shortcuts for your favorite actions, and even choose whether Cra or a website takes priority."))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 6)
@@ -161,18 +161,18 @@ struct ShortcutsPane: View {
             Spacer(minLength: 8)
             HStack(spacing: 6) {
                 if let a {
-                    Button("Reset Shortcut to Default") { bindings.resetShortcuts(for: a.id) }
+                    Button(L10n.tr("Reset Shortcut to Default")) { bindings.resetShortcuts(for: a.id) }
                         .disabled(!bindings.isOverridden(a.id))
                 } else {
-                    Button("Reset All Shortcuts") { bindings.resetOverrides() }
+                    Button(L10n.tr("Reset All Shortcuts")) { bindings.resetOverrides() }
                         .disabled(!bindings.actions.contains { bindings.isOverridden($0.id) })
                 }
                 Menu {
-                    Button("Remove Shortcut") { if let a { bindings.setShortcuts([], for: a.id) } }
+                    Button(L10n.tr("Remove Shortcut")) { if let a { bindings.setShortcuts([], for: a.id) } }
                         .disabled(a == nil || a?.shortcuts.isEmpty == true)
                     Divider()
-                    Button("Reset All Shortcuts") { bindings.resetOverrides() }
-                    Button("Extension Shortcuts…") { actions.openURL("chrome://extensions/shortcuts") }
+                    Button(L10n.tr("Reset All Shortcuts")) { bindings.resetOverrides() }
+                    Button(L10n.tr("Extension Shortcuts…")) { actions.openURL("chrome://extensions/shortcuts") }
                 } label: {
                     Image(systemName: "ellipsis").font(.system(size: 12, weight: .bold))
                         .frame(width: 24, height: 24)
@@ -191,12 +191,12 @@ struct ShortcutsPane: View {
         return VStack(alignment: .leading, spacing: 0) {
             Rectangle().fill(Color.settingsHairline).frame(height: 1)
                 .padding(.top, 22)
-            Picker("Priority", selection: Binding(get: { p }, set: { bindings.setPriority($0, for: a.id) })) {
-                ForEach(ShortcutPriority.allCases, id: \.self) { Text($0.title).tag($0) }
+            Picker(L10n.tr("Priority"), selection: Binding(get: { p }, set: { bindings.setPriority($0, for: a.id) })) {
+                ForEach(ShortcutPriority.allCases, id: \.self) { Text(L10n.tr($0.title)).tag($0) }
             }
             .labelsHidden().fixedSize()
             .padding(.top, 16)
-            Text(p.subtitle)
+            Text(L10n.tr(p.subtitle))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 10)
@@ -240,7 +240,7 @@ struct ShortcutRecorder: View {
         Button {
             recording ? stop() : start()
         } label: {
-            Text(recording ? "Press keys…" : (action.shortcuts.isEmpty ? "Record Shortcut" : "Change Shortcut"))
+            Text(L10n.tr(recording ? "Press keys…" : (action.shortcuts.isEmpty ? "Record Shortcut" : "Change Shortcut")))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(recording ? Color.settingsBlue : Color.primary)
                 .frame(maxWidth: .infinity)
@@ -250,7 +250,7 @@ struct ShortcutRecorder: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Click, then press the new shortcut. Esc cancels, ⌫ removes it.")
+        .help(L10n.tr("Click, then press the new shortcut. Esc cancels, ⌫ removes it."))
         .onChange(of: action.id) { _, _ in stop() }
         .onDisappear { stop() }
     }
@@ -283,11 +283,11 @@ struct ShortcutRecorder: View {
 enum ShortcutDescriptions {
     static func text(for a: KeyAction) -> String {
         if let description = LiveFolderPluginStore.shared.entry(forCommand: a.id)?.package.manifest.command?.description { return description }
-        if let t = table[a.id] { return t }
-        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). tab in the sidebar." }
-        if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
-        if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return "Move the current tab, or a Little Window's page, to the \(n). space and switch to it." }
-        return a.name + "."
+        if let t = table[a.id] { return L10n.tr(t) }
+        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return L10n.tr("Switch to the %d. tab in the sidebar.", Int(String(n)) ?? 0) }
+        if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return L10n.tr("Switch to the %d. space.", Int(String(n)) ?? 0) }
+        if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return L10n.tr("Move the current tab, or a Little Window's page, to the %d. space and switch to it.", Int(String(n)) ?? 0) }
+        return L10n.tr(a.name + ".")
     }
 
     private static let table: [String: String] = [

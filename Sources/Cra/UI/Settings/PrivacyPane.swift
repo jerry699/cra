@@ -16,55 +16,55 @@ struct PrivacyPane: View {
     var body: some View {
         @Bindable var store = store
         SettingsCardPane {
-            SettingsHeader("Content blocking")
+            SettingsHeader(L10n.tr("Content blocking"))
             SettingsFeatureCard {
-                SettingsToggleRow("Block ads and trackers",
-                                  detail: "Requests to known ad and tracker domains are cancelled, unless the domain belongs to the site you’re on.",
+                SettingsToggleRow(L10n.tr("Block ads and trackers"),
+                                  detail: L10n.tr("Requests to known ad and tracker domains are cancelled, unless the domain belongs to the site you’re on."),
                                   isOn: $store.settings.blockAdsAndTrackers)
                 SettingsCardDivider()
                 // Arc: Settings ▸ General "Block Cookie Banners", off by default.
-                SettingsToggleRow("Block cookie banners",
-                                  detail: "Cookie banners from the common consent tools are hidden. Pages load again with the change.",
+                SettingsToggleRow(L10n.tr("Block cookie banners"),
+                                  detail: L10n.tr("Cookie banners from the common consent tools are hidden. Pages load again with the change."),
                                   isOn: $store.settings.blockCookieBanners)
                 SettingsCardDivider()
                 // Not in Arc: Cra's Chromium (fingerprinting-protection.patch).
-                SettingsToggleRow("Fingerprinting protection",
-                                  detail: "Sites that tell browsers apart by reading back drawings, 3D graphics or sound get faint noise in what they read, different for each site and each time Cra opens. Sites also see 8 processor cores.",
+                SettingsToggleRow(L10n.tr("Fingerprinting protection"),
+                                  detail: L10n.tr("Sites that tell browsers apart by reading back drawings, 3D graphics or sound get faint noise in what they read, different for each site and each time Cra opens. Sites also see 8 processor cores."),
                                   isOn: $store.settings.fingerprintingProtection)
             }
 
-            SettingsHeader("Connections").padding(.top, 20)
+            SettingsHeader(L10n.tr("Connections")).padding(.top, 20)
             SettingsFeatureCard {
-                SettingsToggleRow("Always use secure connections",
-                                  detail: "Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first.",
+                SettingsToggleRow(L10n.tr("Always use secure connections"),
+                                  detail: L10n.tr("Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first."),
                                   isOn: $store.settings.httpsOnly)
                 SettingsCardDivider()
                 SecureDNSRows(error: $dnsError, footnote: dnsFootnote)
             }
             if let dnsError { SettingsFootnote(dnsError).foregroundStyle(.red) }
 
-            SettingsHeader("Data").padding(.top, 20)
+            SettingsHeader(L10n.tr("Data")).padding(.top, 20)
             SettingsFeatureCard {
-                SettingsPlainRow("Clear browsing data",
-                                   detail: "Delete history, cookies and cached files for the current space’s profile. History you delete also leaves the command bar.",
-                                   trailing: { Button("Clear…") { actions.openURL(BrowsingDataClear.pageURL) } })
+                SettingsPlainRow(L10n.tr("Clear browsing data"),
+                                   detail: L10n.tr("Delete history, cookies and cached files for the current space’s profile. History you delete also leaves the command bar."),
+                                   trailing: { Button(L10n.tr("Clear…")) { actions.openURL(BrowsingDataClear.pageURL) } })
                 SettingsCardDivider()
-                SettingsToggleRow("Share anonymous usage stats",
-                                  detail: "Once a day: your Cra and macOS versions, the kind of Mac, rough counts of spaces, tabs and extensions, and which settings you changed. Never the sites you visit, what you search or anything on a page. Each report has a new random ID, so reports can’t be tied together or to you.",
+                SettingsToggleRow(L10n.tr("Share anonymous usage stats"),
+                                  detail: L10n.tr("Once a day: your Cra and macOS versions, the kind of Mac, rough counts of spaces, tabs and extensions, and which settings you changed. Never the sites you visit, what you search or anything on a page. Each report has a new random ID, so reports can’t be tied together or to you."),
                                   isOn: $store.settings.shareUsageStats) {
                     HStack(spacing: 12) {
-                        Button("Show What’s Sent") { SharingService.shared.showStats() }
-                        Link("How Cra handles your data", destination: URL(string: SiteLinks.tagged("https://crabrowser.app/privacy", from: .privacy))!)
+                        Button(L10n.tr("Show What’s Sent")) { SharingService.shared.showStats() }
+                        Link(L10n.tr("How Cra handles your data"), destination: URL(string: SiteLinks.tagged("https://crabrowser.app/privacy", from: .privacy))!)
                     }
                 }
                 SettingsCardDivider()
-                SettingsPlainRow("Crash reports",
-                                   detail: "A report shows what Cra was doing when it crashed, without your name, file paths or anything that identifies this Mac.",
+                SettingsPlainRow(L10n.tr("Crash reports"),
+                                   detail: L10n.tr("A report shows what Cra was doing when it crashed, without your name, file paths or anything that identifies this Mac."),
                                    trailing: { EmptyView() }) {
-                    Picker("Crash reports", selection: $store.settings.crashReports) {
-                        Text("Ask each time").tag(CrashReportChoice.ask)
-                        Text("Send automatically").tag(CrashReportChoice.send)
-                        Text("Never send").tag(CrashReportChoice.never)
+                    Picker(L10n.tr("Crash reports"), selection: $store.settings.crashReports) {
+                        Text(L10n.tr("Ask each time")).tag(CrashReportChoice.ask)
+                        Text(L10n.tr("Send automatically")).tag(CrashReportChoice.send)
+                        Text(L10n.tr("Never send")).tag(CrashReportChoice.never)
                     }
                     .labelsHidden()
                     .fixedSize()
@@ -93,12 +93,12 @@ private struct SecureDNSRows: View {
     @State private var customText = ""
 
     var body: some View {
-        SettingsPlainRow("Secure DNS",
-                           detail: "Before a page loads, the site’s address is looked up over an encrypted connection, so the network you’re on can’t see or change it." + (footnote.map { " " + $0 } ?? ""),
+        SettingsPlainRow(L10n.tr("Secure DNS"),
+                           detail: L10n.tr("Before a page loads, the site’s address is looked up over an encrypted connection, so the network you’re on can’t see or change it.") + (footnote.map { " " + $0 } ?? ""),
                            trailing: { EmptyView() }) {
-            Picker("Secure DNS", selection: choice) {
-                Text("Automatic").tag(SecureDNSChoice.automatic)
-                Text("Off").tag(SecureDNSChoice.off)
+            Picker(L10n.tr("Secure DNS"), selection: choice) {
+                Text(L10n.tr("Automatic")).tag(SecureDNSChoice.automatic)
+                Text(L10n.tr("Off")).tag(SecureDNSChoice.off)
                 Divider()
                 ForEach(SecureDNSProvider.all) { Text($0.name).tag(SecureDNSChoice.provider($0)) }
                 Divider()

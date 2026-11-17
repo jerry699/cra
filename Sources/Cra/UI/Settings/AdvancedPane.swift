@@ -17,92 +17,92 @@ struct AdvancedPane: View {
             // Arc's Advanced (Arc 1.172.2, GitHub #372): three cards of switches on coloured tiles, then buttons.
             // Its Shared Quotes switch isn't in Cra (the links it makes are arc.net's).
             SettingsCard {
-                SettingsTileRow("Play Cra sound effects", symbol: "speaker.wave.2.fill", tile: .blue, isOn: $store.settings.soundEffects)
+                SettingsTileRow(L10n.tr("Play Cra sound effects"), symbol: "speaker.wave.2.fill", tile: .blue, isOn: $store.settings.soundEffects)
                 SettingsCardDivider()
-                SettingsTileRow("Haptic feedback when reordering tabs", symbol: "hand.tap.fill", tile: .blue, isOn: $store.settings.hapticFeedbackOnReorder)
+                SettingsTileRow(L10n.tr("Haptic feedback when reordering tabs"), symbol: "hand.tap.fill", tile: .blue, isOn: $store.settings.hapticFeedbackOnReorder)
             }
             SettingsCard {
-                SettingsTileRow("When opening Cra, restore windows from previous session", symbol: "macwindow", tile: .green, isOn: $store.settings.restoreWindows)
+                SettingsTileRow(L10n.tr("When opening Cra, restore windows from previous session"), symbol: "macwindow", tile: .green, isOn: $store.settings.restoreWindows)
                 SettingsCardDivider()
-                SettingsTileRow("Allow window dragging from the top of webpages", symbol: "rectangle.topthird.inset.filled", tile: .green, isOn: $store.settings.pageTopWindowDrag)
+                SettingsTileRow(L10n.tr("Allow window dragging from the top of webpages"), symbol: "rectangle.topthird.inset.filled", tile: .green, isOn: $store.settings.pageTopWindowDrag)
                 SettingsCardDivider()
-                SettingsTileRow("Show full URL when Toolbar is enabled", symbol: "ellipsis.rectangle", tile: .red, isOn: $store.settings.toolbarShowsFullURL)
+                SettingsTileRow(L10n.tr("Show full URL when Toolbar is enabled"), symbol: "ellipsis.rectangle", tile: .red, isOn: $store.settings.toolbarShowsFullURL)
             }
             .padding(.top, 9)
             SettingsCard {
-                SettingsTileRow("Enable Picture in Picture when you leave a video tab", symbol: "play.square", tile: .purple, isOn: $store.settings.autoPictureInPicture)
+                SettingsTileRow(L10n.tr("Enable Picture in Picture when you leave a video tab"), symbol: "play.square", tile: .purple, isOn: $store.settings.autoPictureInPicture)
                 SettingsCardDivider()
-                SettingsTileRow("Allow websites to get your theme data", symbol: "paintpalette.fill", tile: .purple, isOn: $store.settings.shareThemeWithWebsites)
+                SettingsTileRow(L10n.tr("Allow websites to get your theme data"), symbol: "paintpalette.fill", tile: .purple, isOn: $store.settings.shareThemeWithWebsites)
                 SettingsCardDivider()
-                SettingsTileRow("Enable Boosts on websites you visit", symbol: "paintbrush.fill", tile: .purple, isOn: $store.settings.boostsEnabled)
+                SettingsTileRow(L10n.tr("Enable Boosts on websites you visit"), symbol: "paintbrush.fill", tile: .purple, isOn: $store.settings.boostsEnabled)
             }
             .padding(.top, 9)
             HStack(spacing: 16) {
-                Button("More Settings…") { actions.openURL("chrome://settings") }
+                Button(L10n.tr("More Settings…")) { actions.openURL("chrome://settings") }
                 ResetTranslatedSitesButton(reset: actions.resetTranslatedSitePrompts)
                 Spacer(minLength: 0)
             }
             .padding(.top, 14)
 
-            SettingsHeader("Cra").padding(.top, 20)
+            SettingsHeader(L10n.tr("Cra")).padding(.top, 20)
             SettingsFeatureCard {
                 // The switch is Arc's General ▸ "Automatically update my Arc".
-                SettingsPlainRow("Updates",
-                                 detail: "Cra downloads new versions in the background and installs them the next time it opens (General).",
+                SettingsPlainRow(L10n.tr("Updates"),
+                                 detail: L10n.tr("Cra downloads new versions in the background and installs them the next time it opens (General)."),
                                  trailing: { EmptyView() }) {
                     HStack(spacing: 8) {
-                        Button("Check for Updates…") { updater.checkForUpdates(nil) }
+                        Button(L10n.tr("Check for Updates…")) { updater.checkForUpdates(nil) }
                             .disabled(!updater.isAvailable)
                         Text(updater.lastCheckSummary).foregroundStyle(.secondary)
                     }
                 }
                 SettingsCardDivider()
-                SettingsToggleRow("Chrome engine for pages",
-                                  detail: "Pages run on Chromium, with Chrome extensions and Chrome DevTools. Takes effect when Cra restarts.",
+                SettingsToggleRow(L10n.tr("Chrome engine for pages"),
+                                  detail: L10n.tr("Pages run on Chromium, with Chrome extensions and Chrome DevTools. Takes effect when Cra restarts."),
                                   isOn: $store.settings.chromeEngine)
             }
 
             // The search engine and its suggestions are in Profiles, where Arc has them.
-            SettingsHeader("Command bar").padding(.top, 20)
+            SettingsHeader(L10n.tr("Command bar")).padding(.top, 20)
             SettingsFeatureCard {
                 // GitHub #307, not in Arc: ⌘T finds tabs in the window's space only.
-                SettingsToggleRow("Only this space’s tabs",
-                                  detail: "The command bar finds open tabs in the space you’re in, not in all your spaces.",
+                SettingsToggleRow(L10n.tr("Only this space’s tabs"),
+                                  detail: L10n.tr("The command bar finds open tabs in the space you’re in, not in all your spaces."),
                                   isOn: $store.settings.commandBarCurrentSpaceOnly)
             }
 
-            SettingsHeader("Opening and quitting").padding(.top, 20)
+            SettingsHeader(L10n.tr("Opening and quitting")).padding(.top, 20)
             SettingsFeatureCard {
                 // Not in Arc (X DM 7 Nov 2026): Arc opens on the tab in use last.
-                SettingsToggleRow("Start on a new tab",
-                                  detail: "When Cra opens, it starts on a new tab instead of the tab you used last.",
+                SettingsToggleRow(L10n.tr("Start on a new tab"),
+                                  detail: L10n.tr("When Cra opens, it starts on a new tab instead of the tab you used last."),
                                   isOn: $store.settings.startOnNewTab)
                 SettingsCardDivider()
                 // GitHub #231, not in Arc: ⌘Q puts Cra in the menu bar instead of quitting.
-                SettingsToggleRow("Keep Cra in the menu bar",
-                                  detail: "⌘Q closes Cra’s windows and pages but leaves it running in the menu bar, so \(newLittleWindow) opens a Little Window at once. Quit it from the menu bar.",
+                SettingsToggleRow(L10n.tr("Keep Cra in the menu bar"),
+                                  detail: L10n.tr("⌘Q closes Cra’s windows and pages but leaves it running in the menu bar, so %@ opens a Little Window at once. Quit it from the menu bar.", newLittleWindow),
                                   isOn: $store.settings.keepInMenuBar)
             }
 
-            SettingsHeader("Your data").padding(.top, 20)
+            SettingsHeader(L10n.tr("Your data")).padding(.top, 20)
             SettingsFeatureCard {
-                SettingsPlainRow("Import from another browser",
+                SettingsPlainRow(L10n.tr("Import from another browser"),
                                    detail: importDetail,
-                                   trailing: { Button("Import…") { actions.importData() } })
+                                   trailing: { Button(L10n.tr("Import…")) { actions.importData() } })
                 SettingsCardDivider()
-                SettingsPlainRow("Export spaces and pinned tabs",
-                                   detail: "Save every space’s favorites, pinned tabs and folders as a bookmarks file that Chrome, Safari, Firefox and other browsers can import.",
-                                   trailing: { Button("Export…") { SidebarExport.run(store, in: NSApp.keyWindow) } })
+                SettingsPlainRow(L10n.tr("Export spaces and pinned tabs"),
+                                   detail: L10n.tr("Save every space’s favorites, pinned tabs and folders as a bookmarks file that Chrome, Safari, Firefox and other browsers can import."),
+                                   trailing: { Button(L10n.tr("Export…")) { SidebarExport.run(store, in: NSApp.keyWindow) } })
             }
 
-            SettingsHeader("Agents").padding(.top, 20)
+            SettingsHeader(L10n.tr("Agents")).padding(.top, 20)
             SettingsFeatureCard {
-                SettingsToggleRow("Allow local agents to control Cra",
-                                  detail: "AI agents on this Mac can read pages and act using your signed-in sessions, through MCP.",
+                SettingsToggleRow(L10n.tr("Allow local agents to control Cra"),
+                                  detail: L10n.tr("AI agents on this Mac can read pages and act using your signed-in sessions, through MCP."),
                                   isOn: Binding(get: { MCPServer.shared.enabled }, set: { MCPServer.shared.setEnabled($0) })) {
                     Text(MCPServer.shared.status)
                     if MCPServer.shared.enabled {
-                        Text("Last tool: \(MCPServer.shared.lastTool.isEmpty ? "None" : MCPServer.shared.lastTool)")
+                        Text(L10n.tr("Last tool: %@", MCPServer.shared.lastTool.isEmpty ? "None" : MCPServer.shared.lastTool))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -112,32 +112,32 @@ struct AdvancedPane: View {
                     SettingsCardDivider()
                     SettingsCardRow {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Let agents run JavaScript in pages").font(.system(size: 13))
-                            Text("A script can read anything a page holds, including passwords Cra fills in.")
+                            Text(L10n.tr("Let agents run JavaScript in pages")).font(.system(size: 13))
+                            Text(L10n.tr("A script can read anything a page holds, including passwords Cra fills in."))
                                 .font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                     } trailing: {
-                        Toggle("Let agents run JavaScript in pages", isOn: Binding(
+                        Toggle(L10n.tr("Let agents run JavaScript in pages"), isOn: Binding(
                             get: { MCPServer.shared.allowsScripts }, set: { MCPServer.shared.allowsScripts = $0 }))
                             .toggleStyle(.arcSwitch).labelsHidden()
                     }
                     SettingsCardDivider()
                     SettingsCardRow {
-                        Text("Let agents read your history").font(.system(size: 13))
+                        Text(L10n.tr("Let agents read your history")).font(.system(size: 13))
                     } trailing: {
-                        Toggle("Let agents read your history", isOn: Binding(
+                        Toggle(L10n.tr("Let agents read your history"), isOn: Binding(
                             get: { MCPServer.shared.allowsHistory }, set: { MCPServer.shared.allowsHistory = $0 }))
                             .toggleStyle(.arcSwitch).labelsHidden()
                     }
                     SettingsCardDivider()
                     SettingsCardRow {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Let agents upload local files").font(.system(size: 13))
-                            Text("An agent could hand any file on this Mac (like ~/.ssh/id_rsa) to a web page. Off unless you truly need it.")
+                            Text(L10n.tr("Let agents upload local files")).font(.system(size: 13))
+                            Text(L10n.tr("An agent could hand any file on this Mac (like ~/.ssh/id_rsa) to a web page. Off unless you truly need it."))
                                 .font(.system(size: 11)).foregroundStyle(.secondary)
                         }
                     } trailing: {
-                        Toggle("Let agents upload local files", isOn: Binding(
+                        Toggle(L10n.tr("Let agents upload local files"), isOn: Binding(
                             get: { MCPServer.shared.allowsUploads }, set: { MCPServer.shared.allowsUploads = $0 }))
                             .toggleStyle(.arcSwitch).labelsHidden()
                     }
@@ -145,22 +145,22 @@ struct AdvancedPane: View {
                         SettingsCardDivider()
                         SettingsCardRow {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(agent.via.isEmpty ? agent.name : "\(agent.name) in \(agent.via)").font(.system(size: 13))
-                                Text(agent.allowed ? "Allowed" : "Not allowed").font(.system(size: 11)).foregroundStyle(.secondary)
+                                Text(agent.via.isEmpty ? agent.name : L10n.tr("%@ in %@", agent.name, agent.via)).font(.system(size: 13))
+                                Text(agent.allowed ? L10n.tr("Allowed") : L10n.tr("Not allowed")).font(.system(size: 11)).foregroundStyle(.secondary)
                             }
                         } trailing: {
-                            Button("Forget") { MCPServer.shared.forget(agent) }
+                            Button(L10n.tr("Forget")) { MCPServer.shared.forget(agent) }
                         }
                     }
                 }
             }
 
-            SettingsHeader("About").padding(.top, 20)
+            SettingsHeader(L10n.tr("About")).padding(.top, 20)
             SettingsFeatureCard {
                 HStack(spacing: 14) {
                     BrandMark(size: 48)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Cra \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
+                        Text(L10n.tr("Cra %@", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"))
                             .font(.system(size: 14, weight: .semibold))
                         Text(EngineVersion.label(chromium: CraCEFRuntime.chromiumVersion(), cef: CraCEFRuntime.cefVersion()))
                             .font(.system(size: 12)).foregroundStyle(.secondary)
@@ -177,8 +177,8 @@ struct AdvancedPane: View {
     private var importDetail: String {
         let names = ImportSource.allCases.filter { $0.kind != .safari && $0.isAvailable }.map(\.name)
         return names.isEmpty
-            ? "Bring bookmarks, open tabs, passwords and sign-ins over from Safari."
-            : "Bring spaces, tabs, folders, favorites, passwords, sign-ins and extensions over from \(names.joined(separator: ", ")), Safari and more."
+            ? L10n.tr("Bring bookmarks, open tabs, passwords and sign-ins over from Safari.")
+            : L10n.tr("Bring spaces, tabs, folders, favorites, passwords, sign-ins and extensions over from %@, Safari and more.", names.joined(separator: ", "))
     }
 }
 
@@ -191,7 +191,7 @@ struct SearchEnginePicker: View {
     @State private var selected = ""
 
     var body: some View {
-        Picker("Search engine", selection: Binding(get: { selected }, set: pick)) {
+        Picker(L10n.tr("Search engine"), selection: Binding(get: { selected }, set: pick)) {
             ForEach(engines, id: \.keyword) { Text($0.name).tag($0.keyword) }
         }
         .labelsHidden()
@@ -221,7 +221,7 @@ private struct ResetTranslatedSitesButton: View {
     @State private var done = false
 
     var body: some View {
-        Button(done ? "Done" : "Reset Translated-site Prompts") {
+        Button(done ? L10n.tr("Done") : L10n.tr("Reset Translated-site Prompts")) {
             reset()
             done = true
             Task { try? await Task.sleep(for: .seconds(2)); done = false }

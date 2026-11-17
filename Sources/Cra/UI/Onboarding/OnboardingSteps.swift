@@ -71,21 +71,21 @@ struct PrivacyStep: View {
     let c: ImportColors
     var body: some View {
         ZStack(alignment: .topLeading) {
-            TwoLineHeader(title: "Privacy in Cra,\nyou're in control",
-                          subtitle: "Cra works fully signed out. Your spaces, tabs and archive are plain files on your Mac.", c: c)
+            TwoLineHeader(title: L10n.tr("Privacy in Cra,\nyou're in control"),
+                          subtitle: L10n.tr("Cra works fully signed out. Your spaces, tabs and archive are plain files on your Mac."), c: c)
             VStack(alignment: .leading, spacing: 8) {
                 SelectableRow(c: c, checked: model.blockAdsAndTrackers, toggle: { model.blockAdsAndTrackers.toggle() }) {
                     RowSymbol(name: "hand.raised.fill", c: c)
-                    RowTitle(title: "Block third-party ads and trackers",
-                             caption: "You won't see them. And they won't see you.", c: c)
+                    RowTitle(title: L10n.tr("Block third-party ads and trackers"),
+                             caption: L10n.tr("You won't see them. And they won't see you."), c: c)
                 }
                 SelectableRow(c: c, checked: model.sharesToImproveCra, toggle: { model.sharesToImproveCra.toggle() }) {
                     RowSymbol(name: "chart.bar.fill", c: c)
-                    RowTitle(title: "Help improve Cra by sharing usage stats",
-                             caption: "And crash reports. Never the sites you visit.", c: c)
+                    RowTitle(title: L10n.tr("Help improve Cra by sharing usage stats"),
+                             caption: L10n.tr("And crash reports. Never the sites you visit."), c: c)
                 }
                 Link(destination: URL(string: SiteLinks.tagged("https://crabrowser.app/privacy", from: .privacy))!) {
-                    (Text("Learn more").underline() + Text(" about what Cra shares and what it never does."))
+                    (Text(L10n.tr("Learn more")).underline() + Text(L10n.tr(" about what Cra shares and what it never does.")))
                         .font(.system(size: 12))
                         .foregroundStyle(c.body)
                 }
@@ -432,7 +432,7 @@ private struct LayoutTile: View {
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { model.classicLayout = toolbar } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(placement.title): the address bar \(placement.detail.lowercased())")
+        .accessibilityLabel(L10n.tr("%@: the address bar %@", placement.title, placement.detail.lowercased()))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { model.classicLayout = toolbar }
     }

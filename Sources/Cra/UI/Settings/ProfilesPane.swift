@@ -18,7 +18,7 @@ struct ProfilesPane: View {
         @Bindable var store = store
         let current = store.profiles.contains { $0.id == selected } ? selected : nil
         VStack(alignment: .leading, spacing: 20) {
-            Text("Profiles help keep your data separate across Spaces — like history, logins, cookies, and extensions. You can use any Profile across one or more Spaces.")
+            Text(L10n.tr("Profiles help keep your data separate across Spaces — like history, logins, cookies, and extensions. You can use any Profile across one or more Spaces."))
                 .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .top, spacing: 10) {
                 list(current: current)
@@ -39,26 +39,26 @@ struct ProfilesPane: View {
     private func list(current: UUID?) -> some View {
         let name = current == nil ? "Default" : (store.profile(current)?.name ?? "Default")
         return VStack(spacing: 0) {
-            Text("Your Profiles").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+            Text(L10n.tr("Your Profiles")).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
                 .padding(.leading, 12)
                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
             Rectangle().fill(Color.settingsHairline).frame(height: 1)
             VStack(spacing: 0) {
-                profileRow("Default", id: nil, current: current)
+                profileRow(L10n.tr("Default"), id: nil, current: current)
                 ForEach(store.profiles) { profileRow($0.name, id: $0.id, current: current) }
             }
             .padding(.horizontal, 10).padding(.top, 10)
             Spacer(minLength: 0)
             Rectangle().fill(Color.settingsHairline).frame(height: 1)
             HStack(spacing: 0) {
-                barButton("plus", help: "Create Profile…") { actions.newProfile() }
+                barButton("plus", help: L10n.tr("Create Profile…")) { actions.newProfile() }
                 barDivider
-                barButton("minus", help: current == nil ? "The Default Profile cannot be deleted." : "Delete “\(name)”…") {
+                barButton("minus", help: current == nil ? L10n.tr("The Default Profile cannot be deleted.") : L10n.tr("Delete “%@”…", name)) {
                     if let p = store.profile(current) { delete(p) }
                 }
                 .disabled(current == nil || !store.spaces(usingProfile: current).isEmpty)
                 barDivider
-                barButton("rectangle.and.pencil.and.ellipsis", help: "Rename “\(name)”…") {
+                barButton("rectangle.and.pencil.and.ellipsis", help: L10n.tr("Rename “%@”…", name)) {
                     if let p = store.profile(current) { rename(p) }
                 }
                 .disabled(current == nil)
@@ -78,7 +78,7 @@ struct ProfilesPane: View {
             HStack {
                 Text(name).font(.system(size: 13)).lineLimit(1)
                 Spacer(minLength: 8)
-                Text(count == 1 ? "1 Space" : "\(count) Spaces").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(count == 1 ? L10n.tr("1 Space") : L10n.tr("%d Spaces", count)).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 12)
             .frame(height: 40)
@@ -117,38 +117,38 @@ struct ProfilesPane: View {
             })
         VStack(alignment: .leading, spacing: 0) {
             SettingsCard {
-                SettingsCardRow { Text("Search engine").font(.system(size: 13)) } trailing: { SearchEnginePicker(store: store) }
+                SettingsCardRow { Text(L10n.tr("Search engine")).font(.system(size: 13)) } trailing: { SearchEnginePicker(store: store) }
                 SettingsCardDivider()
-                SettingsCardRow { Text("Manage search").font(.system(size: 13)) } trailing: {
-                    Button("Search Settings…") { actions.openProfilePage(SearchEngines.settingsPage, profileID) }
+                SettingsCardRow { Text(L10n.tr("Manage search")).font(.system(size: 13)) } trailing: {
+                    Button(L10n.tr("Search Settings…")) { actions.openProfilePage(SearchEngines.settingsPage, profileID) }
                 }
                 SettingsCardDivider()
-                SettingsCardRow { Text("Include search engine suggestions").font(.system(size: 13)) } trailing: {
-                    Toggle("Include search engine suggestions", isOn: $store.settings.searchSuggestions)
+                SettingsCardRow { Text(L10n.tr("Include search engine suggestions")).font(.system(size: 13)) } trailing: {
+                    Toggle(L10n.tr("Include search engine suggestions"), isOn: $store.settings.searchSuggestions)
                         .toggleStyle(.arcSwitch).labelsHidden()
                 }
             }
             SettingsCard {
-                SettingsCardRow { Text("Archive tabs after").font(.system(size: 13)) } trailing: {
-                    Picker("Archive tabs after", selection: archive) {
-                        ForEach(AutoArchiveThreshold.allCases) { Text($0.label).tag(Archive.after($0)) }
+                SettingsCardRow { Text(L10n.tr("Archive tabs after")).font(.system(size: 13)) } trailing: {
+                    Picker(L10n.tr("Archive tabs after"), selection: archive) {
+                        ForEach(AutoArchiveThreshold.allCases) { Text(L10n.tr($0.label)).tag(Archive.after($0)) }
                         Divider()
-                        Text("Never").tag(Archive.never)
+                        Text(L10n.tr("Never")).tag(Archive.never)
                     }
                     .labelsHidden().fixedSize()
                 }
                 SettingsCardDivider()
                 // Arc's "New documents": the app the command bar's "New …" command opens (#375).
-                SettingsCardRow { Text("New documents").font(.system(size: 13)).fixedSize() } trailing: { documentPicker(profileID) }
+                SettingsCardRow { Text(L10n.tr("New documents")).font(.system(size: 13)).fixedSize() } trailing: { documentPicker(profileID) }
                 SettingsCardDivider()
-                SettingsCardRow { Text("Download location").font(.system(size: 13)).fixedSize() } trailing: { downloadPicker(profileID) }
+                SettingsCardRow { Text(L10n.tr("Download location")).font(.system(size: 13)).fixedSize() } trailing: { downloadPicker(profileID) }
                 SettingsCardDivider()
                 // Not in Arc's card: the website languages are Chromium's, per profile (#209).
                 languageRow(profileID: profileID)
             }
             .padding(.top, 9)
 
-            SettingsHeader("Your Data and Settings").padding(.top, 14)
+            SettingsHeader(L10n.tr("Your Data and Settings")).padding(.top, 14)
             SettingsCard {
                 ForEach(Array(Self.dataPages.enumerated()), id: \.offset) { i, page in
                     if i > 0 { SettingsCardDivider() }
@@ -157,8 +157,8 @@ struct ProfilesPane: View {
             }
             if profileID == nil, ArcProfileRebuilder.isAvailable {
                 // Spaces an Arc import left on Default, back on their Arc profiles (#131).
-                Button("Rebuild from Arc…") { actions.rebuildArcProfiles() }
-                    .help("Put spaces imported from Arc back on the profiles they use in Arc, with their sign-ins and extensions.")
+                Button(L10n.tr("Rebuild from Arc…")) { actions.rebuildArcProfiles() }
+                    .help(L10n.tr("Put spaces imported from Arc back on the profiles they use in Arc, with their sign-ins and extensions."))
                     .padding(.top, 14)
             }
         }
@@ -181,7 +181,7 @@ struct ProfilesPane: View {
                 Image(systemName: page.symbol).font(.system(size: 12)).foregroundStyle(.white)
                     .frame(width: 24, height: 24)
                     .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(page.color))
-                Text(page.title).font(.system(size: 13))
+                Text(L10n.tr(page.title)).font(.system(size: 13))
                 Spacer(minLength: 8)
                 Image(systemName: "arrow.right").font(.system(size: 11)).foregroundStyle(Color.settingsBlue)
             }
@@ -217,11 +217,11 @@ struct ProfilesPane: View {
                 }
                 store.settings.setDownloadLocation(l, profileID: profileID)
             })
-        return Picker("Download location", selection: choice) {
+        return Picker(L10n.tr("Download location"), selection: choice) {
             Label(FileManager.default.displayName(atPath: folder.path), systemImage: "folder").tag(DownloadChoice.folder)
-            Text("Other…").tag(DownloadChoice.other)
+            Text(L10n.tr("Other…")).tag(DownloadChoice.other)
             Divider()
-            Text("Ask Where to Save Each File").tag(DownloadChoice.ask)
+            Text(L10n.tr("Ask Where to Save Each File")).tag(DownloadChoice.ask)
         }
         .labelsHidden()
         .fixedSize()
@@ -233,9 +233,9 @@ struct ProfilesPane: View {
         let app = Binding<NewDocumentApp?>(
             get: { store.settings.newDocumentApp(profileID: profileID) },
             set: { store.settings.setNewDocumentApp($0, profileID: profileID) })
-        return Picker("Default Document App", selection: app) {
+        return Picker(L10n.tr("Default Document App"), selection: app) {
             Text("——").tag(NewDocumentApp?.none)
-            ForEach(NewDocumentApp.allCases) { Text($0.name).tag(NewDocumentApp?.some($0)) }
+            ForEach(NewDocumentApp.allCases) { Text(L10n.tr($0.name)).tag(NewDocumentApp?.some($0)) }
         }
         .labelsHidden()
         .fixedSize()
@@ -246,15 +246,15 @@ struct ProfilesPane: View {
         let hasSpace = !store.spaces(usingProfile: profileID).isEmpty
         return SettingsCardRow {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Website languages").font(.system(size: 13))
-                Text(summary.isEmpty ? "Chromium’s default languages" : summary)
+                Text(L10n.tr("Website languages")).font(.system(size: 13))
+                Text(summary.isEmpty ? L10n.tr("Chromium’s default languages") : summary)
                     .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     .help(summary)
             }
         } trailing: {
             Button(L10n.tr("Change…")) { actions.openProfilePage(BrowserLanguages.settingsPage, profileID) }
                 .disabled(!hasSpace)
-                .help(hasSpace ? "Open Chromium’s language settings for this Profile." : "Set this Profile on a Space first.")
+                .help(hasSpace ? L10n.tr("Open Chromium’s language settings for this Profile.") : L10n.tr("Set this Profile on a Space first."))
         }
     }
 

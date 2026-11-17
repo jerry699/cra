@@ -183,7 +183,7 @@ enum SidebarMenus {
                     // What ⇧⌘C copies with tabs picked (#322): each link without trackers, one per line.
                     add(menu, title) {
                         copy(CleanURL.links(tabs.map { $0.1.url }))
-                        actions.showToast("Copied item links")
+                        actions.showToast(L10n.tr("Copied item links"))
                     }
                 case "share":
                     // Arc's Share N Items… copied an arc.net folder link ("Copied Folder URL"); Cra's link
@@ -193,7 +193,7 @@ enum SidebarMenus {
                         guard let link else { return }
                         confirmShare(over: list.window) {
                             copy(link)
-                            actions.showToast("Copied Folder URL")
+                            actions.showToast(L10n.tr("Copied Folder URL"))
                         }
                     }
                 case "mute":
@@ -223,7 +223,7 @@ enum SidebarMenus {
                         }
                     }
                     sub.addItem(.separator())
-                    add(sub, "New Space…") { actions.newSpaceWith(ids) }
+                    add(sub, L10n.tr("New Space…")) { actions.newSpaceWith(ids) }
                 case "newFolder":
                     add(menu, title) { ui.renamingID = store.createFolder(with: ids).id }
                 case "archive":
@@ -296,15 +296,15 @@ enum SidebarMenus {
         // folder after its #, so nothing is stored anywhere (FolderShareLink, #357).
         let link = FolderShareLink.url(for: FolderShareLink.folder(item) { store.children(of: $0) })
         let toast = list.actions.showToast
-        add(menu, "Share Folder…", enabled: link != nil) {
+        add(menu, L10n.tr("Share Folder…"), enabled: link != nil) {
             guard let link else { return }
             confirmShare(over: list.window) {
                 copy(link)
-                toast("Copied Folder URL")
+                toast(L10n.tr("Copied Folder URL"))
             }
         }
         menu.addItem(.separator())
-        add(menu, "Delete Folder (archives tabs)") { store.deleteFolder(id) }
+        add(menu, L10n.tr("Delete Folder (archives tabs)")) { store.deleteFolder(id) }
         return menu
     }
 
@@ -316,10 +316,10 @@ enum SidebarMenus {
         let live = item.liveFolder ?? LiveFolderData()
         let menu = menu()
         let entry = LiveFolderPluginStore.shared.entry(for: live)
-        let requests = submenu(menu, entry?.presentation.menuTitle ?? item.title ?? "Live Folder", image: entry?.icon)
-        note(requests, manager.refreshing.contains(id) ? "Updating…" : LiveFolderText.lastUpdate(live))
+        let requests = submenu(menu, entry?.presentation.menuTitle ?? item.title ?? L10n.tr("Live Folder"), image: entry?.icon)
+        note(requests, manager.refreshing.contains(id) ? L10n.tr("Updating…") : LiveFolderText.lastUpdate(live))
         if let detail = live.plugin?.detailLabel { note(requests, detail) }
-        add(requests, "Refresh") { manager.refresh(id) }
+        add(requests, L10n.tr("Refresh")) { manager.refresh(id) }
         requests.addItem(.separator())
         for filter in entry?.presentation.filters ?? [] {
             let on = live.plugin?.filters.contains(filter.id) == true
@@ -426,13 +426,13 @@ enum SidebarMenus {
                         legacySource: entry.package.manifest.legacySource) else { return }
                     store.setExpanded(folder.id, true)
                     LiveFolderManager.shared.refresh(folder.id, force: true)
-                } catch { AppDialog(title: "Could not add live folder", message: error.localizedDescription).runModal(over: window) }
+                } catch { AppDialog(title: L10n.tr("Could not add live folder"), message: error.localizedDescription).runModal(over: window) }
             }
         }
         guard let setup = entry.presentation.setup else { create([:]); return }
         guard let window else { return }
         let dialog = AppDialog(title: setup.title, message: setup.message,
-            actions: [DialogAction("Add Folder"), .cancel], input: "", placeholder: setup.placeholder,
+            actions: [DialogAction(L10n.tr("Add Folder")), .cancel], input: "", placeholder: setup.placeholder,
             icon: .none, width: 496, buttonSpacing: 30, buttonOutset: 0)
         dialog.present(over: window) { response in
             guard response == .alertFirstButtonReturn else { return }
@@ -522,7 +522,7 @@ enum SidebarMenus {
         }
         add(menu, action: "newTab", L10n.tr("New Tab")) { actions.openCommandBar(.newTab) }
         add(menu, action: "newFolder") { actions.performAction("newFolder") }
-        let liveFolders = submenu(menu, "Live Folders")
+        let liveFolders = submenu(menu, L10n.tr("Live Folders"))
         addLiveFolderPlugins(to: liveFolders, space: space, store: store, window: list.window)
         menu.addItem(.separator())
         if let s = store.space(space), !store.children(of: s.todayContainerID).isEmpty {

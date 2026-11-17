@@ -11,7 +11,7 @@ struct TabsPane: View {
         @Bindable var store = store
         SettingsCardPane {
             // #305: onboarding's "Choose where the address bar goes". Arc keeps it in View ▸ Show Toolbar.
-            SettingsHeader("Address bar")
+            SettingsHeader(L10n.tr("Address bar"))
             SettingsFeatureCard {
                 HStack(spacing: 12) {
                     ForEach(AddressBarPlacement.allCases, id: \.self) { placement in
@@ -22,72 +22,72 @@ struct TabsPane: View {
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity)
             }
-            SettingsFootnote("\(KeyBindingRegistry.shared.action("toggleToolbar")?.primary?.display ?? "⇧⌘D") in any window, or the View menu’s Show Toolbar, switches it too.")
+            SettingsFootnote(L10n.tr("%@ in any window, or the View menu’s Show Toolbar, switches it too.", KeyBindingRegistry.shared.action("toggleToolbar")?.primary?.display ?? "⇧⌘D"))
             SettingsFeatureCard {
                 // GitHub #344, not in Arc: Arc's sidebar address opens the command bar on a click.
-                SettingsToggleRow("Edit the address in the sidebar",
-                                  detail: "Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. \(KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L") still opens the command bar.",
+                SettingsToggleRow(L10n.tr("Edit the address in the sidebar"),
+                                  detail: L10n.tr("Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. %@ still opens the command bar.", KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L"),
                                   isOn: $store.settings.editAddressInPlace,
                                   enabled: store.settings.addressBarPlacement == .sidebar)
             }
             .padding(.top, 12)
 
             // Settings that change how Cra looks carry a picture of the change.
-            SettingsHeader("Sidebar").padding(.top, 20)
+            SettingsHeader(L10n.tr("Sidebar")).padding(.top, 20)
             SettingsFeatureCard {
-                SettingsSwitchRow("New tabs at the top",
-                                  detail: "A new tab goes above your other tabs instead of below them.",
+                SettingsSwitchRow(L10n.tr("New tabs at the top"),
+                                  detail: L10n.tr("A new tab goes above your other tabs instead of below them."),
                                   isOn: $store.settings.newTabsAtTop) { SettingsArt.newTabsAtTop }
                 SettingsCardDivider()
-                SettingsSwitchRow("New Tab button above tabs",
-                                  detail: "The + New Tab row sits at the top of the tab list, where you can always reach it.",
+                SettingsSwitchRow(L10n.tr("New Tab button above tabs"),
+                                  detail: L10n.tr("The + New Tab row sits at the top of the tab list, where you can always reach it."),
                                   isOn: $store.settings.newTabButtonAtTop) { SettingsArt.newTabButtonAtTop }
                 SettingsCardDivider()
-                SettingsSwitchRow("Colorful favorite outline",
-                                  detail: "The open favorite gets a rim in its logo’s colors instead of a plain one.",
+                SettingsSwitchRow(L10n.tr("Colorful favorite outline"),
+                                  detail: L10n.tr("The open favorite gets a rim in its logo’s colors instead of a plain one."),
                                   isOn: $store.settings.favoriteLogoOutline) { SettingsArt.favoriteLogoOutline }
                 SettingsCardDivider()
                 // Arc's single-space mode ("Hide Space Header" on the space's menu), for people who
                 // don't use spaces.
-                SettingsSwitchRow("Space header with one space",
-                                  detail: "Show the space’s name at the top and its icon at the bottom of the sidebar, even while you have only one space.",
+                SettingsSwitchRow(L10n.tr("Space header with one space"),
+                                  detail: L10n.tr("Show the space’s name at the top and its icon at the bottom of the sidebar, even while you have only one space."),
                                   isOn: $store.settings.showSpaceHeaderOnSingleSpace) { SettingsArt.spaceHeader }
             }
 
-            SettingsHeader("Pages").padding(.top, 20)
+            SettingsHeader(L10n.tr("Pages")).padding(.top, 20)
             SettingsFeatureCard {
-                SettingsSwitchRow("Edge to edge",
-                                  detail: "Pages fill the window, with no margin or rounded corners around them.",
+                SettingsSwitchRow(L10n.tr("Edge to edge"),
+                                  detail: L10n.tr("Pages fill the window, with no margin or rounded corners around them."),
                                   isOn: $store.settings.edgeToEdgeContent) { SettingsArt.edgeToEdge }
                 SettingsCardDivider()
                 // Not in Arc (#404): the toolbar floats over the page (ToolbarAutoHide).
-                SettingsSwitchRow("Hide the toolbar until you need it",
-                                  detail: "The page takes the toolbar’s room. Move the pointer to the top of the page and the toolbar slides in over it.",
+                SettingsSwitchRow(L10n.tr("Hide the toolbar until you need it"),
+                                  detail: L10n.tr("The page takes the toolbar’s room. Move the pointer to the top of the page and the toolbar slides in over it."),
                                   isOn: $store.settings.autoHideToolbar,
                                   enabled: store.settings.addressBarPlacement == .toolbar) { SettingsArt.autoHideToolbar }
             }
 
-            SettingsHeader("Tabs and Favorites").padding(.top, 20)
+            SettingsHeader(L10n.tr("Tabs and Favorites")).padding(.top, 20)
             SettingsFeatureCard {
                 // #154: Arc's favorites, one set per profile.
-                SettingsToggleRow("Share Favorites across Spaces",
-                                  detail: "Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy.",
+                SettingsToggleRow(L10n.tr("Share Favorites across Spaces"),
+                                  detail: L10n.tr("Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy."),
                                   isOn: Binding(get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }))
             }
 
-            SettingsHeader("Memory").padding(.top, 20)
+            SettingsHeader(L10n.tr("Memory")).padding(.top, 20)
             SettingsFeatureCard {
                 // Tab sleeping (GitHub #153): Arc's 4 hours and nothing more unless you ask.
-                SettingsToggleRow("Free memory from unused tabs",
-                                  detail: "A tab you haven’t used for a while is forced out of memory and reloads when you open it.",
+                SettingsToggleRow(L10n.tr("Free memory from unused tabs"),
+                                  detail: L10n.tr("A tab you haven’t used for a while is forced out of memory and reloads when you open it."),
                                   isOn: $store.settings.tabSleepTimerEnabled) {
-                    SettingsInlinePicker(label: "After", selection: $store.settings.tabSleepAfter, enabled: store.settings.tabSleepTimerEnabled) {
+                    SettingsInlinePicker(label: L10n.tr("After"), selection: $store.settings.tabSleepAfter, enabled: store.settings.tabSleepTimerEnabled) {
                         ForEach(TabSleepThreshold.allCases) { Text($0.label).tag($0) }
                     }
                 }
                 SettingsCardDivider()
-                SettingsToggleRow("Free memory when the Mac runs short",
-                                  detail: "While macOS is short of memory, the tabs hidden longest are forced out of it, a few at a time.",
+                SettingsToggleRow(L10n.tr("Free memory when the Mac runs short"),
+                                  detail: L10n.tr("While macOS is short of memory, the tabs hidden longest are forced out of it, a few at a time."),
                                   isOn: $store.settings.tabSleepOnMemoryPressure)
             }
             SettingsFootnote(tabSleepNote)
@@ -97,7 +97,7 @@ struct TabsPane: View {
     /// Says which tabs stay in memory, before the user finds out.
     private var tabSleepNote: String {
         let s = store.settings
-        let note = "Tabs playing sound, recording or holding text you typed stay in memory."
+        let note = L10n.tr("Tabs playing sound, recording or holding text you typed stay in memory.")
         guard s.tabSleepTimerEnabled, TabSleepPolicy.timer(s.tabSleepAfter).keepsRecentTabs else { return note }
         return note + (s.tabSleepOnMemoryPressure
                        ? " " + L10n.tr("So do the 10 tabs you used last, unless the Mac is short of memory.")
@@ -128,7 +128,7 @@ private struct AddressBarTile: View {
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { selection = placement } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(placement.title): the address bar \(placement.detail.lowercased())")
+        .accessibilityLabel(L10n.tr("%@: the address bar %@", placement.title, placement.detail.lowercased()))
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { selection = placement }
     }

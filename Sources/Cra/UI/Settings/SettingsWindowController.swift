@@ -149,7 +149,7 @@ struct SettingsRoot: View {
             // Performance is Cra's own, in no Arc tab: what the recorder saw, at the foot of Advanced.
             SettingsCardPane {
                 AdvancedPane(actions: actions).settingsNested()
-                SettingsHeader("Performance").padding(.top, 20)
+                SettingsHeader(L10n.tr("Performance")).padding(.top, 20)
                 PerformancePane(nav: nav, actions: actions).settingsNested()
             }
         case .privacy: PrivacyPane(actions: actions)

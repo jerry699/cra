@@ -14,18 +14,18 @@ struct IconPane: View {
             SettingsCard {
                 ForEach(Array(AppIconManager.presets.enumerated()), id: \.element.id) { i, option in
                     if i > 0 { divider }
-                    IconRow(name: option.name, image: icons.image(for: option.id), selected: icons.selectedID == option.id) {
+                    IconRow(name: L10n.tr(option.name), image: icons.image(for: option.id), selected: icons.selectedID == option.id) {
                         icons.select(option.id)
                     } trailing: { EmptyView() }
                 }
                 divider
-                IconRow(name: "Your own icon", image: icons.customImage, selected: icons.selectedID == AppIconManager.customID) {
+                IconRow(name: L10n.tr("Your own icon"), image: icons.customImage, selected: icons.selectedID == AppIconManager.customID) {
                     if icons.customImage == nil { chooseImage() } else { icons.select(AppIconManager.customID) }
                 } trailing: {
                     if icons.customImage != nil {
-                        Button("Remove") { icons.removeCustom(); error = nil }
+                        Button(L10n.tr("Remove")) { icons.removeCustom(); error = nil }
                     }
-                    Button("Choose Image…") { chooseImage() }
+                    Button(L10n.tr("Choose Image…")) { chooseImage() }
                 }
                 .dropDestination(for: URL.self) { urls, _ in
                     guard let url = urls.first else { return false }
@@ -33,7 +33,7 @@ struct IconPane: View {
                     return true
                 }
             }
-            SettingsFootnote("Pick any image or drop one on “Your own icon”. It’s sized to match the other icons in the Dock, and a photo or a logo on a background fills the rounded tile. The Dock keeps the icon after Cra quits.")
+            SettingsFootnote(L10n.tr("Pick any image or drop one on “Your own icon”. It’s sized to match the other icons in the Dock, and a photo or a logo on a background fills the rounded tile. The Dock keeps the icon after Cra quits."))
             if let error { SettingsFootnote(error).foregroundStyle(.red) }
         }
     }
@@ -85,7 +85,7 @@ private struct IconRow<Trailing: View>: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(name).font(.system(size: 14, weight: .semibold))
                         if selected {
-                            Text("CURRENT ICON").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.settingsBlue)
+                            Text(L10n.tr("CURRENT ICON")).font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.settingsBlue)
                         }
                     }
                     .padding(.leading, 8)
@@ -98,7 +98,7 @@ private struct IconRow<Trailing: View>: View {
         }
         .frame(height: 81)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(name) app icon")
+        .accessibilityLabel(L10n.tr("%@ app icon", name))
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
