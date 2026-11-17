@@ -788,3 +788,9 @@
 
 /* Tidy 诚实反馈（2026-11-17） */
 "These tabs don't share a topic — left as they are." = "这几个标签页没有共同主题——保持原样。";
+
+/* 支付通道修复（2026-11-17） */
+"Payment channel error" = "支付通道异常";
+"The pay jump was rejected. This is usually a sign-in data conflict: clearing the alibaba sites' data and signing in to aliyun once more restores it." = "支付跳转被拒绝。这通常是登录数据冲突所致：清除阿里系站点数据并重新登录即可恢复。";
+"Clear alibaba site data" = "清除阿里系站点数据";
+"Not now" = "暂不";

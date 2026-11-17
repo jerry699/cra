@@ -3505,19 +3505,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                                         protectedMedia: self.browsers.visibleTabID.flatMap { self.sidebarUI.navState(for: $0).protectedMedia },
                                         safariEngine: safariEngine, toggleChecked: true, store: self.store, actions: actions)
         }
-        // The Safari's Engine switch: on for a WebKit page; for a Chromium page only once it asked
-        // for Widevine (PageScript's `drm`), else no switch. Asked in Cra's world; a page that
-        // doesn't answer within 0.3 s opens without it.
+        // The Safari's Engine switch: the fork always offers it on http(s) pages. Upstream gated
+        // it on a Widevine ask (a page that never asks got no switch), but China's payment sites
+        // need the other engine too — and a switch hidden until a DRM ask is a switch the user
+        // cannot find at a cashier (found paying for a domain at aliyun).
         guard let b = currentBrowser, url.hasPrefix("http") else { return show(nil) }
-        if b is WebKitBrowser { return show(true) }
-        var shown = false
-        let once = { (value: Bool?) in if !shown { shown = true; show(value) } }
-        b.evaluate(inIsolatedWorld: PageScript.world, params: #"{"expression":"window.__cra?.drm === true","returnByValue":true}"#) { result, _ in
-            let drm = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-                .flatMap { $0["result"] as? [String: Any] }?["value"] as? Bool == true
-            DispatchQueue.main.async { once(drm ? false : nil) }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { once(nil) }
+        show(b is WebKitBrowser)
     }
 
     func debugChooseSafariEngine(_ on: Bool) {

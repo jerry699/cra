@@ -1480,6 +1480,9 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate {
         // CEF ends the load of the page a discard just closed: nothing loaded, and nothing was visited (#214).
         guard let id = tabID(of: browser), runtimes[id]?.discarded != true else { return }
         log(id, "loaded \(site(url, id, browser)) (HTTP \(statusCode))")
+        // 支付通道修复（fork): the taobao trade's failure dump is where a rejected pay jump
+        // lands (docs/model-training-observations.md, OBS-5); offer the site-data reset once.
+        PaymentRecovery.offerRepairIfTradeFailure(url: url, browser: browser)
         if statusCode != 0 { runtimes[id]?.extensionPageRetries = 0 }
         guard !browser.isIncognito else { return }
         // The profile's extensions are up: imported Web Store copies become store installs (#203).
