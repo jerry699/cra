@@ -1,20 +1,20 @@
 #!/bin/bash
-# Packages build/Cra.app into build/dist/: a zip, a DMG with the drag-to-install
+# Packages build/司南.app into build/dist/: a zip, a DMG with the drag-to-install
 # window (resources/dmg), and SHA-256 checksums. Signs the DMG when CRA_SIGN_IDENTITY is set.
 #   scripts/package.sh [path/to/Cra.app]
-# An Apple silicon app becomes Cra.zip and Cra.dmg, an Intel one Cra-Intel.zip and
-# Cra-Intel.dmg. Each run replaces only its own files, so both can sit in build/dist.
+# An Apple silicon app becomes 司南.zip and 司南.dmg, an Intel one 司南-Intel.zip and
+# 司南-Intel.dmg. Each run replaces only its own files, so both can sit in build/dist.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-APP="${1:-build/Cra.app}"
+APP="${1:-build/司南.app}"
 [ -d "$APP" ] || { echo "No app at $APP. Run scripts/build.sh first." >&2; exit 1; }
 # A file provider under ~/Documents re-tags the bundle after signing (FinderInfo and
 # fpfs xattrs), and codesign reports that as detritus. Package from a clean copy outside
 # the repo; it also keeps the built bundle untouched.
 STAGE="$(mktemp -d /tmp/cra-package.XXXXXX)"
 trap 'rm -rf "$STAGE"' EXIT
-ditto "$APP" "$STAGE/Cra.app"
-APP="$STAGE/Cra.app"
+ditto "$APP" "$STAGE/司南.app"
+APP="$STAGE/司南.app"
 xattr -cr "$APP"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 IDENTITY="${CRA_SIGN_IDENTITY:--}"

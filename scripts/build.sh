@@ -40,11 +40,11 @@ case "$ARCH" in
 esac
 if [ "$ARCH" = "$(uname -m)" ]; then
   CEF_DIR=vendor/cef
-  FINAL_APP="$ROOT/build/Cra.app"
+  FINAL_APP="$ROOT/build/司南.app"
   SWIFT_ARGS=(-c "$CONFIG")
 else
   CEF_DIR="vendor/cef-$ARCH"
-  FINAL_APP="$ROOT/build/$ARCH/Cra.app"
+  FINAL_APP="$ROOT/build/$ARCH/司南.app"
   SWIFT_ARGS=(-c "$CONFIG" --arch "$ARCH" --scratch-path "$ROOT/build/swiftpm-$ARCH")
   export CRA_CEF_DIR="$ROOT/$CEF_DIR"  # read by Package.swift
 fi
@@ -64,7 +64,7 @@ if [ "$ENGINE" = chromium ]; then
   # Its own SwiftPM folder: Package.swift differs between the engines.
   SWIFT_ARGS=(-c "$CONFIG" --arch "$ARCH" --scratch-path "$ROOT/build/swiftpm-engine-$ARCH")
   if [ "${CRA_ENGINE_TEST:-}" = 1 ]; then
-    FINAL_APP="$ROOT/build/engine$([ "$ARCH" = "$(uname -m)" ] || echo "-$ARCH")/Cra.app"
+    FINAL_APP="$ROOT/build/engine$([ "$ARCH" = "$(uname -m)" ] || echo "-$ARCH")/司南.app"
     EXE=CraEngine
   fi
 else
@@ -78,7 +78,7 @@ BIN="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)"
 # Stage the bundle, then sync it into place so the existing Cra.app directory
 # keeps its identity (LaunchServices otherwise launches duplicate instances).
 STAGE="$(mktemp -d /tmp/cra-stage.XXXXXX)"
-APP="$STAGE/Cra.app"
+APP="$STAGE/司南.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 cp "$BIN/Cra" "$APP/Contents/MacOS/$EXE"
@@ -280,7 +280,7 @@ echo "Built $FINAL_APP"
 # Optional copy outside ~/Documents (an app that runs from Documents makes macOS ask
 # for folder access and blocks the main thread until answered).
 if [ -n "${CRA_INSTALL_DIR:-}" ]; then
-  INSTALL_APP="$CRA_INSTALL_DIR/Cra.app"
+  INSTALL_APP="$CRA_INSTALL_DIR/司南.app"
   mkdir -p "$CRA_INSTALL_DIR"
   rsync -a --delete "$FINAL_APP/" "$INSTALL_APP/"
   "$LSREGISTER" -u "$INSTALL_APP" >/dev/null 2>&1 || true

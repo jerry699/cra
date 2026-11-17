@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ZIP="${1:-build/dist/Cra.zip}"
-APP="${2:-build/Cra.app}"
+APP="${2:-build/司南.app}"
 NOTES="${3:-}"
 SUFFIX="$(scripts/asset-suffix.sh "$APP")"
 OUT="$(dirname "$ZIP")/appcast$(echo "$SUFFIX" | tr '[:upper:]' '[:lower:]').xml"

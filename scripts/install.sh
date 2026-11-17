@@ -31,7 +31,7 @@ main() {
   say "Downloading Cra…"
   curl -fL --progress-bar -o "$TMP/Cra.zip" "$url" || fail "The download failed. Check your connection and run the command again."
   ditto -x -k "$TMP/Cra.zip" "$TMP" || fail "The download was damaged. Run the command again."
-  [ -d "$TMP/Cra.app" ] || fail "The download did not contain Cra.app."
+  [ -d "$TMP/司南.app" ] || fail "The download did not contain 司南.app."
 
   if pgrep -xq Cra; then
     say "Quitting Cra to update it…"
@@ -40,8 +40,8 @@ main() {
     pgrep -xq Cra && fail "Cra is still running. Quit it and run the command again."
   fi
 
-  rm -rf "$dir/Cra.app"
-  mv "$TMP/Cra.app" "$dir/"
+  rm -rf "$dir/司南.app"
+  mv "$TMP/司南.app" "$dir/"
   xattr -dr com.apple.quarantine "$dir/Cra.app" 2>/dev/null || true
 
   say "Cra is installed in $dir. Run this command again any time to update."

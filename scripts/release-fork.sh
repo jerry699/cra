@@ -22,9 +22,9 @@ export SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-cra-fork}"
 scripts/build.sh release
 scripts/package.sh
 
-ZIP="build/dist/Cra.zip"
-CRA_UPDATE_URL="https://github.com/${FORK_REPO}/releases/download/v${VERSION}/Cra.zip" \
-  scripts/appcast.sh "$ZIP" build/Cra.app
+ZIP="build/dist/司南.zip"
+CRA_UPDATE_URL="https://github.com/${FORK_REPO}/releases/download/v${VERSION}/司南.zip" \
+  scripts/appcast.sh "$ZIP" build/司南.app
 
 NOTES_ARGS=()
 if [ -n "${FORK_NOTES:-}" ] && [ -f "$FORK_NOTES" ]; then
@@ -35,6 +35,6 @@ fi
 
 gh release create "v$VERSION" --repo "$FORK_REPO" --title "v$VERSION" \
   "${NOTES_ARGS[@]}" \
-  "$ZIP" "build/dist/Cra.dmg" "build/dist/appcast.xml" "build/dist/SHA256SUMS.txt"
+  "$ZIP" "build/dist/司南.dmg" "build/dist/appcast.xml" "build/dist/SHA256SUMS.txt"
 
 echo "Published https://github.com/${FORK_REPO}/releases/tag/v${VERSION}"
