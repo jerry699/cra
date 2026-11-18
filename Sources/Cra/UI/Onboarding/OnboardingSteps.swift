@@ -84,7 +84,7 @@ struct PrivacyStep: View {
                     RowTitle(title: L10n.tr("Help improve Cra by sharing usage stats"),
                              caption: L10n.tr("And crash reports. Never the sites you visit."), c: c)
                 }
-                Link(destination: URL(string: SiteLinks.tagged("https://crabrowser.app/privacy", from: .privacy))!) {
+                Link(destination: URL(string: SiteLinks.tagged("https://github.com/jerry699/cra#-设计哲学", from: .privacy))!) {
                     (Text(L10n.tr("Learn more")).underline() + Text(L10n.tr(" about what Cra shares and what it never does.")))
                         .font(.system(size: 12))
                         .foregroundStyle(c.body)

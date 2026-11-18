@@ -544,7 +544,7 @@ final class SharingCard: BannerCard {
         rows = [BannerRow(symbol: "chart.bar", text: "Share usage stats") { SharingCard.answer(share: true) },
                 BannerRow(symbol: "lock", text: "What’s sent") {
                     guard let app = NSApp.delegate as? AppDelegate else { return }
-                    app.store.createTab(url: SiteLinks.tagged("https://crabrowser.app/privacy", from: .sharingCard), select: true)
+                    app.store.createTab(url: SiteLinks.tagged("https://github.com/jerry699/cra#-设计哲学", from: .sharingCard), select: true)
                     app.main.showWindow(nil)
                 }]
         super.init(frame: .zero)

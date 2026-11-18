@@ -54,7 +54,7 @@ struct PrivacyPane: View {
                                   isOn: $store.settings.shareUsageStats) {
                     HStack(spacing: 12) {
                         Button(L10n.tr("Show What’s Sent")) { SharingService.shared.showStats() }
-                        Link(L10n.tr("How Cra handles your data"), destination: URL(string: SiteLinks.tagged("https://crabrowser.app/privacy", from: .privacy))!)
+                        Link(L10n.tr("How Cra handles your data"), destination: URL(string: SiteLinks.tagged("https://github.com/jerry699/cra#-设计哲学", from: .privacy))!)
                     }
                 }
                 SettingsCardDivider()

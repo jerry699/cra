@@ -87,14 +87,6 @@
 "trigger.importData" = "导入 迁移 Arc";
 
 /* MARK: 快捷键设置页分区 */
-"File" = "文件";
-"Edit" = "编辑";
-"View" = "显示";
-"Appearance" = "外观";
-"Spaces" = "空间";
-"Tabs" = "标签页";
-"Archive" = "归档";
-"Help" = "帮助";
 
 /* MARK: 快捷键设置页杂项 */
 "Reset to Default" = "恢复默认";
@@ -283,7 +275,6 @@
 
 /* MARK: 侧边栏右键菜单 */
 "Add to Favorites" = "添加到收藏";
-"New Tab…" = "新建标签页…";
 "Copy Link" = "拷贝链接";
 "Copy Link as Markdown" = "以 Markdown 拷贝链接";
 "Copy All Links as Markdown" = "以 Markdown 拷贝所有链接";
@@ -300,9 +291,7 @@
 "Delete Live Folder" = "删除实时文件夹";
 "Delete Folder (archives tabs)" = "删除文件夹（标签页将被归档）";
 "Live Folders" = "实时文件夹";
-"New Folder Inside" = "在其中新建文件夹";
 "Rename…" = "重命名…";
-"Archive Tab" = "归档标签页";
 "Tab Options" = "标签页选项";
 "Remove" = "移除";
 "Save" = "存储";
@@ -483,7 +472,6 @@
 "Profiles help keep your data separate across Spaces, like logins, cookies and site data. You can use any Profile across one or more Spaces: choose Spaces ▸ Change Profile, or Set Profile on a Space's menu. Spaces on the same Profile share their logins. Only Profiles not assigned to any Spaces can be deleted." = "配置文件让各空间的数据相互独立，例如登录状态、Cookie 和网站数据。任一配置文件可用于一个或多个空间：通过「空间 ▸ 更改配置文件」或空间菜单的「设置配置文件」选择。同一配置文件的空间共享登录状态。只有未分配给任何空间的配置文件才能删除。";
 "Where each Profile saves downloaded files. Choose Ask Where to Save Each File to pick a place every time." = "每个配置文件保存下载文件的位置。选择「每次询问存储位置」可每次手动挑选。";
 "The languages websites show their pages in for each Profile, most wanted first. Change opens Chromium’s language settings for that Profile. Cra itself stays in English." = "各配置文件中网站页面的显示语言，按优先级排序。更改会打开该配置文件的 Chromium 语言设置。司南 本身保持英文。";
-"Rename…" = "重命名…";
 "Delete…" = "删除…";
 "Create Profile…" = "新建配置文件…";
 "Rebuild from Arc…" = "从 Arc 重建…";
@@ -668,8 +656,6 @@
 "Movie" = "影片";
 "Audio" = "音频";
 "Zip Archive" = "Zip 归档";
-"Archive" = "归档";
-"File" = "文件";
 "Show in Finder" = "在访达中显示";
 "Pause Download" = "暂停下载";
 "Resume Download" = "继续下载";
@@ -943,7 +929,6 @@
 "An agent could hand any file on this Mac (like ~/.ssh/id_rsa) to a web page. Off unless you truly need it." = "智能体可能把这台 Mac 上的任何文件（如 ~/.ssh/id_rsa）交给网页。除非确有需要，否则请保持关闭。";
 "Ask each time" = "每次询问";
 "Before a page loads, the site’s address is looked up over an encrypted connection, so the network you’re on can’t see or change it." = "页面加载前，站点地址会通过加密连接查询，你所处的网络无法窥视或篡改。";
-"Bring spaces, tabs, folders, favorites, passwords, sign-ins and extensions over from %@, Safari and more." = "从%@、Safari 等浏览器迁移空间、标签页、文件夹、收藏、密码、登录和扩展。";
 "Chrome engine for pages" = "页面使用 Chrome 引擎";
 "Clear browsing data" = "清除浏览数据";
 "Clear…" = "清除…";
@@ -982,7 +967,6 @@
 "Opening and quitting" = "启动与退出";
 "Pages" = "页面";
 "Pages fill the window, with no margin or rounded corners around them." = "页面铺满窗口，四周无边距和圆角。";
-"Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first." = "页面一律通过 HTTPS 加载。打开不支持的站点前，司南 会先警告你。";
 "Pages run on Chromium, with Chrome extensions and Chrome DevTools. Takes effect when Cra restarts." = "页面运行在 Chromium 上，支持 Chrome 扩展和 DevTools。重启 司南 后生效。";
 "Requests to known ad and tracker domains are cancelled, unless the domain belongs to the site you’re on." = "对已知广告和跟踪域名的请求会被取消，除非该域名属于你正在访问的站点。";
 "Reset Translated-site Prompts" = "重置已翻译站点的提示";
@@ -1008,22 +992,14 @@
 "While macOS is short of memory, the tabs hidden longest are forced out of it, a few at a time." = "macOS 内存紧张时，隐藏最久的标签页会被分批移出内存。";
 "Your data" = "你的数据";
 "%@ in %@" = "%@（%@）";
-"%@: the address bar %@" = "%@：地址栏%@";
-"⌘Q closes Cra’s windows and pages but leaves it running in the menu bar, so %@ opens a Little Window at once. Quit it from the menu bar." = "⌘Q 关闭 司南 的窗口和页面，但保留在菜单栏运行，以便 %@ 能立即打开小窗口。从菜单栏退出。";
 "macOS didn't unlock Dia's data. Dia encrypts your spaces and tabs, so Cra needs your computer password to bring them over." = "macOS 未解锁 Dia 的数据。Dia 对空间和标签页加密，司南 需要你的电脑密码才能迁移。";
 
 "%@ in any window, or the View menu’s Show Toolbar, switches it too." = "%@（任意窗口中），或「显示」菜单的「显示工具栏」，均可切换。";
 
 /* ═══ 设置侧栏标签 + 分享卡片（2026-11-17 晚补齐）═══ */
-"General" = "通用";
-"Profiles" = "Profile";
 "Max" = "Max";
 "Links" = "链接";
-"Shortcuts" = "快捷键";
 "Icon" = "图标";
-"Advanced" = "高级";
-"Privacy" = "隐私";
-"Extensions" = "扩展";
 "Share Cra with a Friend" = "把 司南 分享给朋友";
 "Share Cra" = "分享 司南";
 "Cra is free and open source, and it grows by word of mouth. Know someone who’d like it? Send them the link." = "司南 免费且开源，靠口碑成长。认识可能喜欢的人？把链接发给 ta。";
@@ -1032,12 +1008,9 @@
 "%d routes set." = "已设置 %d 条路由。";
 "1 route set." = "已设置 1 条路由。";
 "Add to Dock" = "添加到 Dock";
-"Air Traffic Control…" = "空中管制…";
 "Archive Little Windows after" = "小窗口在此时间后归档";
-"Archive Little Windows after:" = "小窗口在此时间后归档：";
 "Busy %@ loop" = "忙碌（%@ 循环）";
 "Busy page (long tasks)" = "忙碌页面（长任务）";
-"Cra could not be added to the Dock." = "无法把 司南 添加到 Dock。";
 "Cra is in the Dock." = "司南 已在 Dock 中。";
 "Cra measures itself on this Mac: freezes, CPU and memory per process, tab timings." = "司南 在这台 Mac 上自我测量：卡顿、每进程的 CPU 与内存、标签页计时。";
 "Cra opens by itself when you log in to your Mac." = "登录 Mac 时 司南 自动启动。";
@@ -1052,7 +1025,6 @@
 "Default browser" = "默认浏览器";
 "Dock" = "Dock";
 "Events" = "事件";
-"Export Diagnostics…" = "导出诊断…";
 "Fair" = "尚可";
 "Findings" = "发现";
 "Free disk" = "可用磁盘";
@@ -1065,7 +1037,6 @@
 "In menus, drags, alerts, start-up" = "菜单、拖动、警告、启动中";
 "In the Dock" = "已在 Dock";
 "Keep Cra in the Dock to open it with one click." = "把 司南 保留在 Dock，一键即开。";
-"Language" = "语言";
 "Late frames" = "掉帧";
 "Links from other apps open in Little Window" = "其他应用的链接在小窗口中打开";
 "Little Window is a smaller, simpler window. It’s perfect for quick lookups and reading funny tweets your friends send you." = "小窗口是一个更小、更简单的窗口。适合快速查询，以及读朋友发来的有趣推文。";
@@ -1088,11 +1059,8 @@
 "Nothing has happened this session: no stalls, crashed pages or failed loads." = "本次会话一切正常：没有卡顿、崩溃页面或加载失败。";
 "Nothing leaves the Mac unless you export it with Help ▸ Export Diagnostics." = "除非你通过「帮助 ▸ 导出诊断」导出，数据不会离开这台 Mac。";
 "Off, a ⌥⌘-click opens the link in Split View." = "关闭时，⌥⌘-点击会在分屏中打开链接。";
-"Open Cra at login" = "登录时打开 司南";
 "Open Little Window when clicking on links with ⌥⌘ held" = "按住 ⌥⌘ 点击链接时打开小窗口";
 "Open Little Window when I press %@ in any app" = "在任意应用中按 %@ 时打开小窗口";
-"Open a Peek window when clicking on links to other sites" = "点击其他站点的链接时打开速览窗口";
-"Open a Peek window when clicking on links with Shift held" = "按住 Shift 点击链接时打开速览窗口";
 "Other" = "其他";
 "Outlook Calendar" = "Outlook 日历";
 "Outlook Mail" = "Outlook 邮件";
@@ -1124,7 +1092,6 @@
 "Typical pass (99 %)" = "典型单次占用（99%%）";
 "Video frames dropped" = "视频掉帧";
 "Waking a slept tab" = "唤醒已休眠的标签页";
-"Warn before quitting" = "退出前警告";
 "Warning" = "警告";
 "⌘Q asks “Quit Cra?” first." = "⌘Q 会先询问「退出 司南？」。";
 "⌘Q doesn’t quit Cra while it stays in the menu bar (Advanced)." = "司南 驻留菜单栏时 ⌘Q 不会退出（高级）。";
@@ -1145,7 +1112,6 @@
 "%@ has Cra at another location. Click to point it at this Cra." = "%@ 指向的 司南 在另一个位置。点击以改为指向本机的 司南。";
 "%@’s settings file isn’t one Cra can change safely. Copy the configuration and add it by hand." = "%@ 的设置文件无法被 司南 安全修改。请复制配置后手动添加。";
 "%d%% · %@ of %@" = "%d%% · %@ / %@";
-"Add" = "添加";
 "Add Cra to %@’s MCP settings." = "把 司南 加入 %@ 的 MCP 设置。";
 "Add Cra to an agent" = "把 司南 加入智能体";
 "Add Plugin" = "添加插件";
@@ -1157,7 +1123,6 @@
 "All Boosts…" = "全部 Boost…";
 "Apple Intelligence" = "Apple 智能";
 "Ask" = "询问";
-"Back" = "返回";
 "Both sites serve the same file; Cra checks its SHA256 before using it." = "两个站点提供同一文件；司南 使用前会校验 SHA256。";
 "Brightness" = "亮度";
 "Built-in" = "内置";
@@ -1167,23 +1132,17 @@
 "Case" = "大小写";
 "Change " = "更改";
 "Change Icon" = "更改图标";
-"Change Profile" = "更改 Profile";
 "Change text case" = "更改大小写";
 "Change text size" = "更改文字大小";
 "Checking…" = "检查中…";
 "Choose Another…" = "选择其他…";
-"Choose Image…" = "选择图片…";
 "Choose Plugin" = "选择插件";
 "Choose a ZIP archive containing a live folder plugin." = "选择包含动态文件夹插件的 ZIP 压缩包。";
 "Choose the folder distilled notes land in (e.g. an Obsidian vault)" = "选择蒸馏笔记的保存文件夹（如 Obsidian 仓库）";
-"Choose…" = "选择…";
-"Clear memory" = "清除记忆";
 "Click elements on the page to " = "点击页面上的元素以";
 "Click things on the page to hide them" = "点击页面上的元素以隐藏它们";
 "Click to unzap" = "点击取消 Zap";
-"Close" = "关闭";
 "Code" = "代码";
-"Confirm in the Dialog…" = "在对话框中确认…";
 "Contrast" = "对比度";
 "Copy MCP Configuration" = "复制 MCP 配置";
 "Copy your card" = "复制你的名片";
@@ -1195,15 +1154,11 @@
 "Create Space" = "创建空间";
 "Create a new Profile" = "创建新 Profile";
 "Create folders from the sidebar’s Live Folders menu. Disabling or removing a plugin keeps its existing folders and tabs." = "通过侧栏的「动态文件夹」菜单创建文件夹。停用或移除插件会保留其现有文件夹和标签页。";
-"Custom" = "自定义";
 "DeepSeek" = "DeepSeek";
 "Default (%@)" = "默认（%@）";
-"Delete" = "删除";
 "Delete %@?" = "删除 %@？";
 "Delete this Boost" = "删除这个 Boost";
 "Delete this Boost?" = "删除这个 Boost？";
-"Delete…" = "删除…";
-"Distill notes" = "蒸馏笔记";
 "Download" = "下载";
 "Download %@?" = "下载 %@？";
 "Download from" = "下载来源";
@@ -1216,14 +1171,11 @@
 "Emoji" = "表情";
 "Enable %@" = "启用 %@";
 "Enter a URL…" = "输入网址…";
-"Essential Keyboard Shortcuts" = "必备键盘快捷键";
 "Find on Page" = "页面查找";
 "GLM" = "GLM";
 "Have your tabs automatically renamed with tidier, shorter titles when you Pin them." = "固定标签页时自动把标题改得更简洁易认。";
 "Hide Developer Tools" = "隐藏开发者工具";
 "Hide Selector Picker" = "隐藏选择器";
-"Icon" = "图标";
-"Image" = "图片";
 "Installed plugin" = "已安装插件";
 "Invert lightness" = "反转明度";
 "Its changes to %@ go away." = "它对 %@ 的更改会消失。";
@@ -1235,8 +1187,6 @@
 "Local model" = "本地模型";
 "Make Cra your default" = "把 司南 设为默认";
 "Media never leaves your computer and is not viewable by anyone but you." = "媒体不会离开你的电脑，除你之外无人可看。";
-"Model" = "模型";
-"Model provider" = "模型服务商";
 "Move to next preset page." = "移到下一组预设。";
 "Move to previous preset page." = "移到上一组预设。";
 "My Cra card" = "我的 司南 名片";
@@ -1253,11 +1203,9 @@
 "Original" = "原始";
 "Original Saturation" = "原始饱和度";
 "Other Agent" = "其他智能体";
-"Personal" = "个人";
 "Press the" = "按下";
 "Previous" = "上一个";
 "Profile" = "Profile";
-"Profile name" = "Profile 名称";
 "Profiles are " = "Profile 是";
 "Profiles make your Spaces truly separate with their own logins, cookies and site data. Spaces with the same Profile share them." = "Profile 让各空间真正隔离——拥有各自的登录、Cookie 和站点数据。使用同一 Profile 的空间共享这些数据。";
 "Profiles make your Spaces truly separate — with their own history, saved passwords, extensions, and other browsing data. No more flipping between work and personal accounts!" = "Profile 让各空间真正隔离——拥有各自的历史、保存的密码、扩展和其他浏览数据。再也不用在工作和个人账户间来回切换！";
@@ -1267,11 +1215,9 @@
 "Refresh this Page" = "刷新此页面";
 "Reload Plugins" = "重新加载插件";
 "Remove Cra from %@" = "从 %@ 移除 司南";
-"Remove Icon" = "移除图标";
 "Remove Plugin" = "移除插件";
 "Remove a color" = "移除颜色";
 "Remove “%@”?" = "移除「%@」？";
-"Remove…" = "移除…";
 "Rename" = "重命名";
 "Rename this Boost" = "重命名这个 Boost";
 "Rename this Boost…" = "重命名这个 Boost…";
@@ -1279,16 +1225,13 @@
 "Reset to original colors" = "恢复原始颜色";
 "Restore " = "恢复";
 "Restore %@" = "恢复 %@";
-"Runs Tidy on its own when Today fills up." = "Today 攒满时自动整理，无需动手。";
 "Runs Tidy on this Mac; nothing is sent anywhere." = "在这台 Mac 上运行 Tidy；数据不出本机。";
-"Save" = "保存";
 "Save your card as a picture" = "把名片存为图片";
 "Search" = "搜索";
 "Search Engine" = "搜索引擎";
 "Searches from the command bar in this space go here. Default follows Settings." = "此空间的命令栏搜索使用该引擎。默认跟随设置。";
 "Set space color to %@" = "把空间颜色设为 %@";
 "Share Boost…" = "分享 Boost…";
-"Share Cra" = "分享 司南";
 "Share Cra\nwith a friend" = "把 司南\n分享给朋友";
 "Share your card" = "分享你的名片";
 "Show Developer Tools" = "显示开发者工具";
@@ -1298,7 +1241,6 @@
 "Shown in full colour when the space is open, faded when it isn't." = "空间打开时全彩显示，未打开时淡出。";
 "Shuffle" = "随机";
 "Size" = "大小";
-"Space" = "空间";
 "Tap to pick a color for this space" = "点击为此空间选择颜色";
 "Thanks for sharing Cra!" = "感谢分享 司南！";
 "That file isn't a picture Cra can read." = "该文件不是 司南 能识别的图片。";
@@ -1315,9 +1257,7 @@
 "Tidy Tab Titles and Tidy Tabs" = "标签页标题整理与标签页整理";
 "Tidy Tabs" = "标签页整理";
 "Turn on Apple Intelligence in System Settings" = "在系统设置中开启 Apple 智能";
-"Undo" = "撤销";
 "Update" = "更新";
-"User memory" = "用户记忆";
 "Video" = "视频";
 "View All" = "查看全部";
 "What do you want to call this Profile?" = "你想给这个 Profile 起什么名字？";
@@ -1331,20 +1271,10 @@
 "recommended for this Mac" = "推荐用于这台 Mac";
 " between computers." = "（跨电脑共享）。";
 " them" = " 它们。";
-"Auto-tidy Today" = "自动整理 Today";
-"API address" = "API 地址";
-"API key" = "API 密钥";
-"Cancel" = "取消";
-"Done" = "完成";
-"Confirm in the Dialog…" = "在对话框中确认…";
 
 " Profile" = " Profile";
 "CSS" = "CSS";
 
-"Segments" = "墨绿";
-"Midnight" = "午夜";
-"Mono" = "单色";
-"Violet" = "紫罗兰";
 
 /* ═══ 性能「发现」（2026-11-18）═══ */
 "The last session ended without quitting" = "上次会话未正常退出";
@@ -1369,9 +1299,6 @@
 "Chromium asked whether to wait or close the page." = "Chromium 询问是等待还是关闭该页面。";
 "The Mac is short of memory" = "Mac 内存不足";
 "macOS reports %@ memory pressure; pages may reload and everything slows down." = "macOS 报告内存压力为「%@」；页面可能重新加载，整体变慢。";
-"Warning" = "警告";
-"Critical" = "严重";
-"Nominal" = "正常";
 "The Mac is running hot" = "Mac 正在发热";
 "macOS slows the processor down until it cools." = "macOS 会降低处理器速度直至降温。";
 "Low Power Mode is on" = "低电量模式已开启";
@@ -1380,6 +1307,8 @@
 "%@ free. Chromium's caches and swap need room." = "剩余 %@。Chromium 的缓存和交换空间需要空间。";
 "Cra uses %@ of memory" = "司南占用 %@ 内存";
 "Tab sleeping has %d tab%@ asleep." = "标签页休眠已让 %d 个%2$@入睡。";
-"tab" = "个标签页";
-"tabs" = "个标签页";
 "Pages you haven't looked at in a while (4 hours unless you change it) close, and reload when you open them. Settings ▸ Tabs ▸ Tab Cleanup can close them sooner, or when the Mac is short of memory." = "一段时间没看的页面（默认 4 小时）会被关闭，打开时重新加载。设置 ▸ 标签页 ▸ 标签页清理可以让它更早关闭，或在内存不足时关闭。";
+
+/* 帮助菜单改指向 GitHub（2026-11-19） */
+"Sinan Help" = "司南帮助";
+"Project Home" = "项目主页";

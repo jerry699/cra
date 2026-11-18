@@ -86,7 +86,7 @@ final class SoftwareUpdater: NSObject {
     private(set) var launchedByAutoUpdate = false
 
     /// What's new on the "Cra updated!" card, tagged so the site can count visits from it.
-    static let releaseNotesURL = SiteLinks.tagged("https://crabrowser.app/release-notes", from: .whatsNew)
+    static let releaseNotesURL = SiteLinks.tagged("https://github.com/jerry699/cra/releases", from: .whatsNew)
     static let downloadURL = "https://github.com/VictorKildahl/cra/releases/latest"
 
     @ObservationIgnored private var updater: SPUUpdater?

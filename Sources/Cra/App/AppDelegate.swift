@@ -2854,8 +2854,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         help.addItem(withTitle: EngineVersion.label(chromium: CraCEFRuntime.chromiumVersion(), cef: CraCEFRuntime.cefVersion()), action: nil, keyEquivalent: "")
         help.addItem(.separator())
         help.addItem(item("essentialShortcuts"))
-        for (title, url) in [("Cra Help", "https://crabrowser.app/help"), ("Release Notes", "https://crabrowser.app/release-notes"),
-                             ("Report an Issue…", "https://github.com/VictorKildahl/cra/issues"), ("Support Cra…", "https://crabrowser.app/support")] {
+        // 司南: help lives on our fork (README anchors + Releases + Issues) — upstream's
+        // crabrowser.app pages are English and unreachable-first for China users.
+        for (title, url) in [("Sinan Help", "https://github.com/jerry699/cra#-特性"), ("Release Notes", "https://github.com/jerry699/cra/releases"),
+                             ("Report an Issue…", "https://github.com/jerry699/cra/issues"), ("Project Home", "https://github.com/jerry699/cra")] {
             let link = NSMenuItem(title: L10n.tr(title), action: #selector(openHelpLink(_:)), keyEquivalent: "")
             link.target = self
             link.representedObject = SiteLinks.tagged(url, from: .helpMenu)
