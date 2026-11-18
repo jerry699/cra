@@ -157,7 +157,7 @@ struct MemberCardFace: View {
             .padding(.bottom, 10)
             HStack(alignment: .bottom) {
                 HStack(spacing: 0) {
-                    Text("CRA").font(.system(size: 8, weight: .bold)).padding(.horizontal, 6)
+                    Text("SINAN").font(.system(size: 8, weight: .bold)).padding(.horizontal, 6)
                     Hatch().stroke(theme.deep.opacity(0.7), lineWidth: 0.6).frame(width: 12)
                         .clipped()
                         .overlay(Rectangle().stroke(theme.deep, lineWidth: 1))

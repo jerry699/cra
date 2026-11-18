@@ -20,8 +20,8 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/
 IDENTITY="${CRA_SIGN_IDENTITY:--}"
 DIST="build/dist"
 SUFFIX="$(scripts/asset-suffix.sh "$APP")"
-ZIP="$DIST/Cra$SUFFIX.zip"
-DMG="$DIST/Cra$SUFFIX.dmg"
+ZIP="$DIST/司南$SUFFIX.zip"
+DMG="$DIST/司南$SUFFIX.dmg"
 mkdir -p "$DIST"
 rm -f "$ZIP" "$DMG"
 
@@ -36,11 +36,11 @@ if [ ! -x "$VENV/bin/dmgbuild" ]; then
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install --quiet --disable-pip-version-check dmgbuild==1.6.7
 fi
-"$VENV/bin/dmgbuild" -s resources/dmg/settings.py -D app="$APP" "Cra" "$DMG"
+"$VENV/bin/dmgbuild" -s resources/dmg/settings.py -D app="$APP" "司南浏览器" "$DMG"
 if [ "$IDENTITY" != "-" ]; then
   codesign --force --sign "$IDENTITY" --timestamp "$DMG"
 fi
 
-(cd "$DIST" && shasum -a 256 Cra*.zip Cra*.dmg > SHA256SUMS.txt)
+(cd "$DIST" && shasum -a 256 司南*.zip 司南*.dmg > SHA256SUMS.txt)
 echo "Packaged:"
 ls -la "$DIST"
