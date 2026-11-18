@@ -36,12 +36,12 @@ let sparkleRoot = "\(Context.packageDirectory)/vendor/sparkle"
 // Metal off): the local model process. scripts/build.sh puts the helper in
 // Cra.app/Contents/MacOS.
 let llamaRoot = "\(Context.packageDirectory)/vendor/llama.cpp"
-let llamaBuild = "\(llamaRoot)/build"
+let llamaBuild = Context.environment["CRA_LLAMA_BUILD"] ?? "\(llamaRoot)/build"
 
 // whisper.cpp's static libraries, built for the host CPU by scripts/build-whisper.sh
 // (Accelerate for BLAS, Metal off): the transcription process. Same layout as llama's.
 let whisperRoot = "\(Context.packageDirectory)/vendor/whisper.cpp"
-let whisperBuild = "\(whisperRoot)/build"
+let whisperBuild = Context.environment["CRA_WHISPER_BUILD"] ?? "\(whisperRoot)/build"
 
 // P3-R2 本地补丁: the products/targets conditional concatenation broke Swift 6.2's
 // type-checker on Intel (multi-platform manifest, 346-commit upstream sync) — hoisted
