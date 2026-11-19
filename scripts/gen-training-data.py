@@ -87,7 +87,9 @@ def load_translation_pairs(n):
     pairs = []
     for r in rows:
         en, zhv = r.get("en", "").strip(), r.get("zh", "").strip()
-        if 8 <= len(en) <= 120 and 4 <= len(zhv) <= 80:
+        # opus 校验集有拼连词的脏对（如 travelbybullettrainto）：最长词 >18 字符即拒
+        longest = max((len(w) for w in en.split()), default=0)
+        if 8 <= len(en) <= 120 and 4 <= len(zhv) <= 80 and longest <= 18:
             pairs.append((en, zhv))
     print(f"翻译对 {len(pairs)} 条", flush=True)
     return pairs[:n]
@@ -137,6 +139,14 @@ def sample_tasks(titles):
         by_cat.setdefault(c, []).append(t)
     cats = [c for c in by_cat if len(by_cat[c]) >= 5]
     mode = random.random()
+    # 组名同义池：跨样本多样，样本内一致——防止模型死记固定组名词表
+    SYN = {"finance": ["财经", "金融", "理财"], "estate": ["房产", "楼市"],
+           "education": ["教育", "学习"], "technology": ["科技", "数码", "互联网"],
+           "society": ["社会", "民生"], "fashion": ["时尚", "穿搭"],
+           "politics": ["时政", "资讯"], "sports": ["体育", "赛事"],
+           "game": ["游戏", "电竞"], "entertainment": ["娱乐", "影视"],
+           "home": ["家居", "家装"], "stock": ["股票", "证券"],
+           "lottery": ["彩票"], "constellation": ["星座"]}
     name_zh = lambda cat: {"finance": "财经", "estate": "房产", "education": "教育",
                            "technology": "科技", "society": "社会", "fashion": "时尚",
                            "politics": "时政", "sports": "体育", "game": "游戏",
@@ -144,40 +154,21 @@ def sample_tasks(titles):
                            "lottery": "彩票", "constellation": "星座"}[cat]
 
     def make(spec):
-        """spec: [(cat, count)] → (shuffled_tabs, expected)"""
-        tabs, expected = [], []
+        """spec: [(cat, count)] → (tabs, expected)。每类目分配组名（同义池随机，
+        样本内一致），组内所有标题归该组；返回按生成序排列的 tabs 与组。"""
+        name_of = {cat: random.choice(SYN.get(cat, [cat])) for cat, _ in spec}
+        tabs = []
         for cat, count in spec:
-            picks = random.sample(by_cat[cat], count)
-            name = name_zh(cat)
-            ids = []
-            for t in picks:
-                ids.append(len(tabs)); tabs.append(t); expected.append((name, len(tabs) - 1, t))
-            random.shuffle(tabs)
-            remap = {t: i for i, t in enumerate(tabs)}
-            expected = [(n, [remap[t] for _, t2, t in expected if n == n], ) for n, _, t in []]  # placeholder
-        # 重建 expected（tabs 重排后 id 变了）
-        expected = []
-        for cat, count in spec:
-            name = name_zh(cat)
-            expected.append({"name": name, "ids": []})
-        for i, t in enumerate(tabs):
-            for cat, count in spec:
-                if t in set(by_cat[cat][:0]) : pass
-        # 直接按内容反查：tabs 里每条来自哪个 cat
+            tabs += random.sample(by_cat[cat], count)
+        random.shuffle(tabs)
         cat_of = {}
         for cat, count in spec:
             for t in by_cat[cat]:
                 cat_of.setdefault(t, cat)
+        emap = {}
         for i, t in enumerate(tabs):
-            c = cat_of[t]
-            g = next((e for e in expected if e["name"] == name_zh(c)), None)
-            g["ids"].append(i)
-        order = list(range(len(tabs))); random.shuffle(order)
-        shuffled_tabs = [tabs[i] for i in order]
-        for e in expected:
-            e["ids"] = [order[i] for i in e["ids"]]
-        return shuffled_tabs, [e for e in expected if len(e["ids"]) >= 2]
-
+            emap.setdefault(name_of[cat_of[t]], []).append(i)
+        return tabs, [{"name": g, "ids": ids} for g, ids in emap.items() if len(ids) >= 2]
     if mode < 0.6:
         chosen = random.sample(cats, 3)
         spec = [(c, 3) for c in chosen]
@@ -189,7 +180,13 @@ def sample_tasks(titles):
         spec = [(c, 1) for c in chosen]
 
     shuffled_tabs, expected = make(spec)
-    prompt = tidy_prompt(shuffled_tabs, [], [])
+    existing = []
+    if spec and random.random() < 0.5 and mode < 0.9:
+        # 复用已有组：把第一个类目的组名当作已有组写进 prompt，expected 沿用
+        reuse = expected[0]["name"]
+        existing = [reuse]
+        existing_note = f"（已有组「{reuse}」）"
+    prompt = tidy_prompt(shuffled_tabs, existing, [])
     answer = json.dumps({"groups": expected}, ensure_ascii=False, separators=(",", ":"))
     meta = {"mode": "related" if mode < 0.6 else "partial" if mode < 0.9 else "unrelated",
             "n_tabs": len(shuffled_tabs)}
