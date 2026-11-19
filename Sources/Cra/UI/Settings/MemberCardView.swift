@@ -187,8 +187,8 @@ struct MemberCardFace: View {
             .overlay {
                 if let seal = NSImage(named: "sinan-seal") ?? Bundle.main.url(forResource: "sinan-seal", withExtension: "png", subdirectory: "app-icons").flatMap(NSImage.init(contentsOf:)) {
                     Image(nsImage: seal)
-                        .resizable().scaledToFit()
-                        .frame(maxWidth: 150, maxHeight: 150)
+                        .resizable().scaledToFill()
+                        .frame(maxWidth: 220, maxHeight: 185)
                 }
             }
             .frame(height: 192)
