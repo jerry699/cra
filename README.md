@@ -78,7 +78,7 @@ CRA 浏览器中的 AI 功能，需要使用苹果智能。但在国内的环境
 
 ## 📥 下载
 
-从 [Releases](https://github.com/jerry699/cra/releases) 页面下载：
+从 [Releases](https://github.com/jerry699/sinan-browser/releases) 页面下载：
 
 | 文件 | 适用 |
 |---|---|
@@ -128,6 +128,6 @@ A local-AI browser for Chinese users — an open-source fork of the [Cra browser
 
 **Why "Sinan" (司南):** the Warring-States *Guiguzi* and the Eastern-Han *Lunheng* describe the sinan — a ladle carved of lodestone resting on a smooth plate, its handle always pointing south. It is Chinese civilization's earliest answer to "navigation," and pointing people toward what they're looking for is exactly what a browser does. The name turns the product from a tool into a heritage.
 
-**Download:** see [Releases](https://github.com/jerry699/cra/releases). Intel (x86_64) and Apple Silicon (arm64) builds; first launch may need a right-click → Open (unsigned builds).
+**Download:** see [Releases](https://github.com/jerry699/sinan-browser/releases). Intel (x86_64) and Apple Silicon (arm64) builds; first launch may need a right-click → Open (unsigned builds).
 
 **License:** MIT, same as upstream.

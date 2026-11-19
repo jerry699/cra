@@ -18,7 +18,7 @@ plist() { /usr/libexec/PlistBuddy -c "Print :$1" "$APP/Contents/Info.plist"; }
 VERSION="$(plist CFBundleShortVersionString)"
 BUILD="$(plist CFBundleVersion)"
 MIN_OS="$(plist LSMinimumSystemVersion)"
-URL="${CRA_UPDATE_URL:-https://github.com/jerry699/cra/releases/download/v$VERSION/$(basename "$ZIP")}"
+URL="${CRA_UPDATE_URL:-https://github.com/jerry699/sinan-browser/releases/download/v$VERSION/$(basename "$ZIP")}"
 
 SIGN=vendor/sparkle/bin/sign_update
 ACCOUNT="${SPARKLE_ACCOUNT:-cra-fork}"
@@ -39,14 +39,14 @@ cat > "$OUT" <<XML
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
     <title>司南浏览器</title>
-    <link>https://github.com/jerry699/cra/releases</link>
+    <link>https://github.com/jerry699/sinan-browser/releases</link>
     <item>
       <title>司南浏览器 $VERSION</title>
       <pubDate>$(LC_ALL=C date -u "+%a, %d %b %Y %H:%M:%S +0000")</pubDate>
       <sparkle:version>$BUILD</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>$MIN_OS</sparkle:minimumSystemVersion>
-      <sparkle:fullReleaseNotesLink>https://github.com/jerry699/cra/releases</sparkle:fullReleaseNotesLink>$DESCRIPTION
+      <sparkle:fullReleaseNotesLink>https://github.com/jerry699/sinan-browser/releases</sparkle:fullReleaseNotesLink>$DESCRIPTION
       <enclosure url="$URL" type="application/octet-stream" $ENCLOSURE/>
     </item>
   </channel>

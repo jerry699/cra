@@ -9,12 +9,12 @@
 #
 #   scripts/release-fork.sh <version>            e.g. 0.1.1
 #   FORK_NOTES=<file.html>                       extra release notes (HTML)
-#   FORK_REPO=jerry699/cra                       the GitHub repo to publish to
+#   FORK_REPO=jerry699/sinan-browser                       the GitHub repo to publish to
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:?usage: scripts/release-fork.sh <version>}"
-FORK_REPO="${FORK_REPO:-jerry699/cra}"
+FORK_REPO="${FORK_REPO:-jerry699/sinan-browser}"
 export CRA_VERSION="$VERSION"
 export CRA_RELEASE=1
 export SPARKLE_ACCOUNT="${SPARKLE_ACCOUNT:-cra-fork}"

@@ -2856,8 +2856,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         help.addItem(item("essentialShortcuts"))
         // 司南: help lives on our fork (README anchors + Releases + Issues) — upstream's
         // crabrowser.app pages are English and unreachable-first for China users.
-        for (title, url) in [("Sinan Help", "https://github.com/jerry699/cra#-特性"), ("Release Notes", "https://github.com/jerry699/cra/releases"),
-                             ("Report an Issue…", "https://github.com/jerry699/cra/issues"), ("Project Home", "https://github.com/jerry699/cra")] {
+        for (title, url) in [("Sinan Help", "https://github.com/jerry699/sinan-browser#-特性"), ("Release Notes", "https://github.com/jerry699/sinan-browser/releases"),
+                             ("Report an Issue…", "https://github.com/jerry699/sinan-browser/issues"), ("Project Home", "https://github.com/jerry699/sinan-browser")] {
             let link = NSMenuItem(title: L10n.tr(title), action: #selector(openHelpLink(_:)), keyEquivalent: "")
             link.target = self
             link.representedObject = SiteLinks.tagged(url, from: .helpMenu)

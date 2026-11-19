@@ -95,7 +95,7 @@ sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" resources/Info.
 # Only release builds (scripts/release.sh) check the update feed; a dev build would
 # otherwise replace itself with the latest release. Intel copies have their own feed,
 # since each update archive holds one CPU's app (scripts/appcast.sh).
-[ "$ARCH" = x86_64 ] && /usr/libexec/PlistBuddy -c "Set :SUFeedURL https://github.com/jerry699/cra/releases/latest/download/appcast-intel.xml" "$APP/Contents/Info.plist"
+[ "$ARCH" = x86_64 ] && /usr/libexec/PlistBuddy -c "Set :SUFeedURL https://github.com/jerry699/sinan-browser/releases/latest/download/appcast-intel.xml" "$APP/Contents/Info.plist"
 [ "${CRA_RELEASE:-}" = 1 ] || /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP/Contents/Info.plist"
 # Google API key for Safe Browsing (docs/release.md); CraCEF hands it to Chromium.
 [ -n "${CRA_GOOGLE_API_KEY:-}" ] && /usr/libexec/PlistBuddy -c "Add :CraGoogleAPIKey string $CRA_GOOGLE_API_KEY" "$APP/Contents/Info.plist"
