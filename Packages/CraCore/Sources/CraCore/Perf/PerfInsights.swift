@@ -119,7 +119,7 @@ public enum PerfSummary {
     public static func text(_ r: PerfReport) -> String {
         let m = r.mainThread
         var lines = [
-            "Cra \(r.session.craVersion), Chromium \(r.session.chromiumVersion), launch \(r.session.launch), up \(Int(r.session.uptimeSeconds / 60)) min",
+            "Sinan \(r.session.craVersion), Chromium \(r.session.chromiumVersion), launch \(r.session.launch), up \(Int(r.session.uptimeSeconds / 60)) min",
             "Main thread: \(m.freezes) freezes ≥250 ms (\(m.longFreezes) ≥1 s, \(m.hangs) ≥2 s), longest freeze \(PerfInsights.duration(m.longestFreezeMs)); "
                 + "longest pass \(PerfInsights.duration(m.longestPassMs))\(m.longestPassMode.map { " (\($0))" } ?? ""), "
                 + "\(m.outsideFreezes) outside freezes (menus, drags, alerts, start-up); p99 pass \(PerfInsights.duration(m.passes.percentile(0.99)))",
@@ -127,7 +127,7 @@ public enum PerfSummary {
         if let s = m.slowPass {
             lines.append("Slow pass sampled: \(PerfInsights.duration(s.endedMs ?? s.stalledMs)) (\(s.mode)), top: \(s.stack.first?.trimmingCharacters(in: .whitespaces) ?? s.stackNote ?? "no stack")")
         }
-        if let p = r.session.previous { lines.append("Previous session: \(p.abnormal ? "ended without quitting" : "quit normally") (Cra \(p.craVersion))") }
+        if let p = r.session.previous { lines.append("Previous session: \(p.abnormal ? "ended without quitting" : "quit normally") (Sinan \(p.craVersion))") }
         for g in r.processes where g.count > 0 {
             lines.append("\(g.kind.rawValue) ×\(g.count): \(String(format: "%.1f", g.cpuPct)) % CPU, \(PerfInsights.bytes(g.footprintBytes))")
         }

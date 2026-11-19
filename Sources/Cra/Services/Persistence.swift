@@ -29,10 +29,26 @@ enum AppPaths {
         // CRA_DATA_DIR runs a second, independent Cra (testing next to the installed one).
         // Finder launches have no shell environment. The dev bundle must still stay
         // out of the signed application's profile when opened directly.
-        let folder = Bundle.main.bundleIdentifier == "dk.kildahl.cra.dev" ? "CraDev" : "Cra"
-        let base = ProcessInfo.processInfo.environment["CRA_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent(folder, isDirectory: true)
+        // 司南: the installed app's data folder carries the brand now — a one-time rename
+        // migrates an existing "Cra" folder (models, history, tidy memory, the Chromium
+        // profile) before anything opens a file here. A failed move keeps the old folder.
+        let folder = Bundle.main.bundleIdentifier == "dk.kildahl.cra.dev" ? "CraDev" : "司南"
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(folder, isDirectory: true)
+        if Bundle.main.bundleIdentifier != "dk.kildahl.cra.dev",
+           ProcessInfo.processInfo.environment["CRA_DATA_DIR"] == nil {
+            let legacy = base.deletingLastPathComponent().appendingPathComponent("Cra", isDirectory: true)
+            if !FileManager.default.fileExists(atPath: base.path),
+               FileManager.default.fileExists(atPath: legacy.path) {
+                do {
+                    try FileManager.default.moveItem(at: legacy, to: base)
+                    NSLog("Cra: migrated data folder Cra -> 司南")
+                } catch {
+                    NSLog("Cra: data-folder migration failed (\(error.localizedDescription)); staying on Cra")
+                    return legacy
+                }
+            }
+        }
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         return base
     }()
