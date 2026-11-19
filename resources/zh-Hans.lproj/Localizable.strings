@@ -1312,3 +1312,10 @@
 /* 帮助菜单改指向 GitHub（2026-11-19） */
 "Sinan Help" = "司南帮助";
 "Project Home" = "项目主页";
+
+/* ═══ 使用统计横幅（2026-11-19）═══ */
+"Help improve 司南" = "帮助改进司南";
+"Anonymous, never the sites you visit" = "匿名分享，绝不包括你访问的网站";
+"Share usage stats" = "分享使用统计";
+"What’s sent" = "发送的内容";
+"Thanks! Usage stats are on" = "谢谢！使用统计已开启";

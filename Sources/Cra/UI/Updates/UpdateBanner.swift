@@ -537,19 +537,19 @@ final class SharingCard: BannerCard {
         guard let app = NSApp.delegate as? AppDelegate else { return }
         app.store.settings.answerSharingPrompt(share: share)
         CraLog.note("sharing: the sidebar card was answered, \(share ? "share" : "not now")")
-        if share { app.main.showToast("Thanks! Usage stats are on") }
+        if share { app.main.showToast(L10n.tr("Thanks! Usage stats are on")) }
     }
 
     init() {
-        rows = [BannerRow(symbol: "chart.bar", text: "Share usage stats") { SharingCard.answer(share: true) },
-                BannerRow(symbol: "lock", text: "What’s sent") {
+        rows = [BannerRow(symbol: "chart.bar", text: L10n.tr("Share usage stats")) { SharingCard.answer(share: true) },
+                BannerRow(symbol: "lock", text: L10n.tr("What’s sent")) {
                     guard let app = NSApp.delegate as? AppDelegate else { return }
                     app.store.createTab(url: SiteLinks.tagged("https://github.com/jerry699/sinan-browser#-设计哲学", from: .sharingCard), select: true)
                     app.main.showWindow(nil)
                 }]
         super.init(frame: .zero)
-        title.stringValue = "Help improve Cra"
-        subtitle.stringValue = "Anonymous, never the sites you visit"
+        title.stringValue = L10n.tr("Help improve 司南")
+        subtitle.stringValue = L10n.tr("Anonymous, never the sites you visit")
         subtitle.lineBreakMode = .byTruncatingTail
         close.image = SidebarSymbols.image("xmark", size: 12, weight: .regular)
         addSubview(title)
