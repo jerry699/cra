@@ -182,13 +182,14 @@ struct MemberCardFace: View {
     /// the C's four ribbons, large and cropped by the right and bottom edges, each cut 72 % through the member's
     /// gradient so they overlap like the mark's translucent segments (Victor picked this, variant D, 12 Nov 2026).
     private var art: some View {
+        // 司南: the seal icon on the theme's gradient, in place of upstream's Segmented-C artwork.
         LinearGradient(colors: [theme.light, theme.deep], startPoint: .topLeading, endPoint: .bottomTrailing)
-            .mask {
-                ZStack {
-                    Rectangle()
-                    SegmentedC().blendMode(.destinationOut)
+            .overlay {
+                if let seal = NSImage(named: "sinan-seal") ?? Bundle.main.url(forResource: "sinan-seal", withExtension: "png", subdirectory: "app-icons").flatMap(NSImage.init(contentsOf:)) {
+                    Image(nsImage: seal)
+                        .resizable().scaledToFit()
+                        .frame(maxWidth: 150, maxHeight: 150)
                 }
-                .compositingGroup()
             }
             .frame(height: 192)
             .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
