@@ -11,3 +11,5 @@ xcuserdata/
 build/
 .claude/
 vendor/
+datasets/
+.corpus-cache/
