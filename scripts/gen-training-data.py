@@ -83,7 +83,7 @@ def load_translation_pairs(n):
     f = fetch(MIRROR + "datasets/Helsinki-NLP/opus-100/resolve/main/" + zh[0]["path"],
               CACHE / "opus100-en-zh.parquet")
     table = pq.read_table(f)
-    rows = table.column("translation").to_pylist()[: n * 3]
+    rows = table.column("translation").to_pylist()
     pairs = []
     for r in rows:
         en, zhv = r.get("en", "").strip(), r.get("zh", "").strip()
@@ -170,11 +170,13 @@ def sample_tasks(titles):
             emap.setdefault(name_of[cat_of[t]], []).append(i)
         return tabs, [{"name": g, "ids": ids} for g, ids in emap.items() if len(ids) >= 2]
     if mode < 0.6:
-        chosen = random.sample(cats, 3)
-        spec = [(c, 3) for c in chosen]
+        n_groups = random.choice([2, 3, 3, 4])  # 组数多样化（真实使用 2-4 组都常见）
+        chosen = random.sample(cats, n_groups)
+        spec = [(c, random.choice([2, 3, 3, 4])) for c in chosen]
     elif mode < 0.9:
         chosen = random.sample(cats, 3)
-        spec = [(chosen[0], 2), (chosen[1], 2), (chosen[2], random.choice([3, 4]))]
+        spec = [(chosen[0], 2), (chosen[1], 2),
+                (chosen[2], random.choice([2, 3, 3, 4]))]
     else:
         chosen = random.sample(cats, 6)
         spec = [(c, 1) for c in chosen]
