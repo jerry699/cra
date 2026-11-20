@@ -98,3 +98,40 @@
 
 - **macOS 12 支持**：当前部署目标 macOS 14。降级可行性待研究（SwiftUI API、CEF 最低系统、Sparkle 2 要求）；作为 0.4.x 候选。见 ROADMAP。
 - **8GB 内存机型**：训练/引入 ~0.3-0.5B 更小模型（Qwen2.5-0.5B 级），Q4 量化 ~350MB，8GB 内存可跑「AI 基本功能」（标题整理+翻译）。列入 W3 扩展目标。
+
+## 八、首轮训练复盘与 v2 计划（2026-11-20，v0.3.00 发布后）
+
+### 首轮结果（run-1）
+
+| 项 | 值 |
+|---|---|
+| 实例 | 4090 SUPER 32GB（vGPU-32GB ¥1.58/时），云上全程 |
+| 数据 | 3600 条（tabs-grouped 1800 / tab-title 583 / download-name 569 / translate 600 / unrelated-空组占比 ~11%） |
+| 训练 | 642 步 × 3 epochs，**6.5 分钟完成**，LoRA 40MB |
+| 评测 | 正常分组 ✅ 完美；单例陷阱 ✗ 强行分组；标题简化 ⚠️ 促销词未清除 |
+
+### 教训 → v2 修正
+
+1. **弃权技能**：unrelated 样本与正常样本用同一指令训练，模型学不出「何时弃权」。且生产中 CraCore prompt 恒定严格——模型永远会输出分组。**结论：单例陷阱降级为低优先**（下游 plan() 本就丢弃 <2 标签的组，最坏情况=分组质量一般，不产生系统故障）；改为训练「部分相关集合里把无关标签归入最接近的组」，贴合生产分布。
+2. **标题任务强化（v2 主修）**：样本 583→1200；清洗目标改为三段式（去站名→去促销词【新品首发/官方正品/限时优惠】→保留产品词+类目词）；加入商品标题语料的脏样本。
+3. **组名同义池已验证有效**（18 个唯一组名）——保留并扩充。
+4. **数据量**：3600→4500（tabs 1800 不变，title 583→1200，download 569→800，translate 600 不变）。
+5. **epochs**：首轮 3 epochs 642 步无过拟合迹象（loss 平稳下降）——v2 保持 3 epochs。
+
+### v2 训练卡（下次执行）
+
+```
+数据：python3 scripts/gen-training-data.py --n-tabs 1800 --n-title 1200 --n-dl 800 --n-tr 600
+构建：CRA_RELEASE=1 …（发布）或普通构建；云端：
+  ① scripts/autodl-t2.py create（若 Pro API 已通）或控制台手动租 vGPU-32GB
+  ② AUTO_SSH=<ssh指令> python3 scripts/autodl-t2.py setup
+  ③ AUTO_SSH=… python3 scripts/autodl-t2.py upload
+  ④ AUTO_SSH=… python3 scripts/autodl-t2.py train   # ~25 分钟
+  ⑤ AUTO_SSH=… python3 scripts/autodl-t2.py status  # 直到 SAVED
+  ⑥ AUTO_SSH=… python3 scripts/autodl-t2.py fetch && release
+评测：eval_sft.py 三测试 + 单例陷阱 + 下载名对比（与 run-1 同口径，可复现对比）
+```
+
+### 成本核算（run-1 实测）
+
+实例 1.58 时 × 约 1 小时（含环境安装 11 分钟模型下载 + 训练 6.5 分钟 + 评测推理）≈ **¥1.6**。v2 预估 ¥3-4（含训练 25 分钟与评测推理）。远低于预算。
