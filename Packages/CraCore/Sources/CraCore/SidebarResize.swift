@@ -16,7 +16,7 @@ import Foundation
 ///   up to 241 and 242 at 242; a quick drag to 220 stays 220.
 public struct SidebarResize: Equatable {
     public static let hideBelow: Double = 82
-    public static let snapWidth: Double = 8 + 4 * 47 + 3 * 8 + 8
+    public static let snapWidth: Double = 224  // 8 + 4*47 + 3*8 + 8
     public static let snapReach: Double = 14
     public static let snapMaxSpeed: Double = 50
 

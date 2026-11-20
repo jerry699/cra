@@ -10,7 +10,7 @@ mkdir -p build/fuzz
 xcrun swiftc -swift-version 5 -parse-as-library -sanitize=address -g \
   Packages/CraCore/Sources/CraCore/*.swift Packages/CraCore/Sources/CraCore/Perf/*.swift Sources/Cra/Perf/Perf.swift \
   Sources/Cra/Services/Import/*.swift \
-  Sources/Cra/Services/SidebarStore.swift Sources/Cra/Services/SidebarIntegrity.swift Sources/Cra/Services/Persistence.swift \
+  Sources/Cra/App/L10n.swift Sources/Cra/Services/SidebarStore.swift Sources/Cra/Services/SidebarIntegrity.swift Sources/Cra/Services/Persistence.swift \
   Sources/Cra/Services/FaviconCache.swift \
   Sources/Cra/Services/SafeStorage.swift Sources/Cra/App/EngineFramework.swift Sources/Cra/Services/CraLog.swift Sources/Cra/Services/Scheduler.swift \
   Tests/FuzzTests.swift -o "$TEST_DIR/fuzz"

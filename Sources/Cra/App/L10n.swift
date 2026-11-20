@@ -82,7 +82,7 @@ enum L10n {
         lock.lock()
         tableLanguage = ""  // the next tr() reloads the table
         lock.unlock()
-        NotificationCenter.default.post(name: .craKeyBindingsChanged, object: nil)
+        NotificationCenter.default.post(name: Notification.Name("craKeyBindingsChanged"), object: nil)
     }
 
     private static func load(_ language: String) -> [String: String] {
