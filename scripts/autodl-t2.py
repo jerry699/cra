@@ -106,43 +106,53 @@ def upload():
 
 def train():
     it = find_instance()
-    script = '''
+    script = """
 set -e
-source activate sinan 2>/dev/null || source activate sinan; true
+source activate sinan
+mkdir -p /root/data
+python3 - <<'PY'
+import json
+rows = [json.loads(l) for l in open("/root/train.jsonl")]
+out = []
+for d in rows:
+    msgs = d["messages"]
+    sysm = next((m["content"] for m in msgs if m["role"] == "system"), "")
+    user = next((m["content"] for m in msgs if m["role"] == "user"), "")
+    asst = next((m["content"] for m in msgs if m["role"] == "assistant"), "")
+    out.append({"instruction": user, "input": "", "output": asst, "system": sysm})
+with open("/root/data/sinan.jsonl", "w") as f:
+    for r in out:
+        f.write(json.dumps(r, ensure_ascii=False) + "\n")
+print("converted", len(out))
+PY
+cat > /root/dataset_info.json <<'J'
+{"sinan": {"file_name": "/root/data/sinan.jsonl", "formatting": "alpaca", "columns": {"prompt": "instruction", "query": "input", "response": "output", "system": "system"}}}
+J
 cat > /root/sft.yaml <<'YAML'
-### model
 model_name_or_path: /root/.cache/modelscope/hub/models/Qwen/Qwen3-0.6B
-### method
 stage: sft
 do_train: true
 finetuning_type: lora
 lora_target: all
 lora_rank: 16
 lora_alpha: 32
-### dataset
 dataset: sinan
+dataset_info_path: /root/dataset_info.json
 template: qwen3
 cutoff_len: 2048
-### train
-per_device_train_batch_size: 4
-gradient_accumulation_steps: 4
+per_device_train_batch_size: 8
+gradient_accumulation_steps: 2
 learning_rate: 2.0e-4
 num_train_epochs: 3.0
 bf16: true
-### output
 output_dir: /root/sinan-lora
 logging_steps: 10
 save_steps: 200
 YAML
-mkdir -p /root/data
-cp /root/train.jsonl /root/data/sinan.jsonl
-cat > /root/dataset_info.json <<'J'
-{"sinan": {"file_name": "/root/data/sinan.jsonl", "columns": {"prompt": "instruction", "query": "input", "response": "output"}}}
-J
 nohup llamafactory-cli train /root/sft.yaml > /root/train.log 2>&1 &
-echo "训练已发起，日志 /root/train.log"
-'''
-    run_remote(it, script)
+echo "training started: /root/train.log"
+"""
+    run_remote(it, script, timeout=120)
 
 def status():
     it = find_instance()
