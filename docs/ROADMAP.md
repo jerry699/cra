@@ -51,3 +51,7 @@
 ## 新增需求（2026-11-21 记录）
 
 - **Intel Mac 兼容性持续提升**（用户重点）：0.3.00 已完整支持 Intel，但兼容性不止「能跑」——包含：Swift 版本升级不破坏 Intel 构建（持续守护）、系统版本下探（macOS 12 支持研究见上）、性能优化（Intel 上启动/渲染/内存基线与优化）、各类 Mac 机型的真实场景回归（老机型显卡、低内存、机械盘）。每次发布保留 Intel 构建为一等公民（已是），Intel 专项回归清单待建。
+
+### 同步预警（2026-11-21 记录）
+
+上游 3 天新增 **486 commits**（iPhone 冲刺：搜索联动 Mac Today/Pinned、Peek 侧栏地址栏、分屏改进、Command bar profile 隔离 #609）。基线 7ff42c77（11-17）→ origin/main c77e50d5。涉及我们修改过的热点文件（SuggestionEngine/Command bar/SidebarStore）。**明日同步窗口执行**：rebase daily → CRA_ENGINE=cef 构建验证 → recall-eval 回归 → 合并 main → 双架构打包测试。若冲突超预期则中止报告。
