@@ -75,6 +75,11 @@ else
 fi
 scripts/fetch-sparkle.sh
 
+# The C helpers' static libraries are per-arch: build-llama.sh/build-whisper.sh leave the
+# host CPU's in build/, the other CPU's in build-<arch>/ (Package.swift reads these).
+export CRA_LLAMA_BUILD="$ROOT/vendor/llama.cpp/build$([ "$ARCH" = "$(uname -m)" ] || echo "-$ARCH")"
+export CRA_WHISPER_BUILD="$ROOT/vendor/whisper.cpp/build$([ "$ARCH" = "$(uname -m)" ] || echo "-$ARCH")"
+
 swift build "${SWIFT_ARGS[@]}"
 BIN="$(swift build "${SWIFT_ARGS[@]}" --show-bin-path)"
 
