@@ -1377,25 +1377,16 @@ public:
     // "blocked" error page where the ad was.
     ReturnValue OnBeforeResourceLoad(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                                      CefRefPtr<CefRequest> request, CefRefPtr<CefCallback> callback) override {
-<<<<<<< HEAD
-        if (!cra_blocker::Enabled().load(std::memory_order_relaxed)) return RV_CONTINUE;
-        if (!browser || request->GetResourceType() == RT_MAIN_FRAME) return RV_CONTINUE;
-        CefRefPtr<CefFrame> top = browser->GetMainFrame();  // the tab's top-level page
-        if (!top) return RV_CONTINUE;
-        std::string pageHost = cra_blocker::WebHost(top->GetURL().ToString());
-        std::string requestHost = cra_blocker::WebHost(request->GetURL().ToString());
-        if (cra_blocker::ShouldBlock(requestHost, pageHost)) {
+        if (request->GetResourceType() == RT_SUB_FRAME && Blocks(browser, request)) {
             // CRA_BLOCKER_DEBUG=1 names each cancel, so a page that breaks under
             // blocking can be traced (a payment chain once died here silently).
             static const bool debug = getenv("CRA_BLOCKER_DEBUG") != nullptr;
             if (debug) NSLog(@"Cra blocker: cancelled %@ on page %@",
-                             [NSString stringWithUTF8String:requestHost.c_str()],
-                             [NSString stringWithUTF8String:pageHost.c_str()]);
+                             [NSString stringWithUTF8String:cra_blocker::WebHost(request->GetURL().ToString()).c_str()],
+                             [NSString stringWithUTF8String:cra_blocker::WebHost(browser->GetMainFrame()->GetURL().ToString()).c_str()]);
             return RV_CANCEL;
         }
         return RV_CONTINUE;
-=======
-        return request->GetResourceType() == RT_SUB_FRAME && Blocks(browser, request) ? RV_CANCEL : RV_CONTINUE;
     }
 
     // Everything else a page asks a blocked host for fails instead. A cancelled request is
@@ -1406,7 +1397,6 @@ public:
                                                      CefRefPtr<CefRequest> request) override {
         if (request->GetResourceType() == RT_SUB_FRAME || !Blocks(browser, request)) return nullptr;
         return new CraBlockedRequestHandler();
->>>>>>> origin/main
     }
 
     void OnProtocolExecution(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefRequest> request,
