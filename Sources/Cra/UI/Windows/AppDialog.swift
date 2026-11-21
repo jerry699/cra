@@ -60,26 +60,35 @@ final class AppDialog {
     /// Arc's privacy warning before a share link is made (Share Folder…, Share N Items…; #356,
     /// #357), word for word: Arc 1.17x's Dialogs.SheetWindow, captured at 2x on 11 Nov 2026 (560 pt
     /// card, the envelope 62 × 49.5 pt at 48.5, 44.5). Arc names the picked tabs a Folder too.
-    static func shareLink() -> AppDialog {
-        AppDialog(title: "Send this Folder to anyone, on any browser.",
-                  message: "Anyone with this link can view your Folder. Viewers won’t receive future updates and this permalink cannot be deleted.",
-                  actions: [DialogAction("Copy Link to Folder"), .cancel], suppressionTitle: "Never show me this again.",
+    /// Arc's warning before a share link, worded for what is shared: "Folder", or "Split View" (#600).
+    static func shareLink(kind: String = "Folder") -> AppDialog {
+        AppDialog(title: "Send this \(kind) to anyone, on any browser.",
+                  message: "Anyone with this link can view your \(kind). Viewers won’t receive future updates and this permalink cannot be deleted.",
+                  actions: [DialogAction("Copy Link to \(kind)"), .cancel], suppressionTitle: "Never show me this again.",
                   icon: .envelope, width: 560, buttonSpacing: 32, buttonOutset: 21, older: true)
     }
 
-    static var parentWindow: NSWindow? {
+    static var parentWindow: NSWindow? { parentWindow(fitting: 0) }
+
+    /// The window a dialog `width` wide hangs from: the key or main window, else the frontmost, that is that wide.
+    /// A sheet wider than its window hangs off both sides (the 450 pt "Downloads in progress" over the 270 pt
+    /// updater window, X 17 Nov 2026). Without one that wide, the first that can hold a sheet.
+    static func parentWindow(fitting width: CGFloat) -> NSWindow? {
         let candidates = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 } + NSApp.orderedWindows
+        var narrower: NSWindow?
         for candidate in candidates {
             var window = candidate
             while let parent = window.parent { window = parent }
-            if window.isVisible && window.canBecomeMain { return window }
+            guard window.isVisible && window.canBecomeMain else { continue }
+            if window.frame.width >= width { return window }
+            if narrower == nil { narrower = window }
         }
-        return nil
+        return narrower
     }
 
     @discardableResult
     func runModal() -> NSApplication.ModalResponse {
-        runModal(over: Self.parentWindow)
+        runModal(over: Self.parentWindow(fitting: width))
     }
 
     @discardableResult
@@ -87,12 +96,17 @@ final class AppDialog {
         if let parent, parent.attachedSheet != nil { return .abort }
         let window = prepareWindow(over: parent)
         runningModal = true
+        Self.presented = self
         window.show()
         let response = NSApp.runModal(for: window)
         runningModal = false
         window.close()
         return response
     }
+
+    /// The dialog's window while it shows, for scenario hooks.
+    var window: DialogPanel? { presentedWindow }
+    var isShowing: Bool { presentedWindow != nil }
 
     func present(over parent: NSWindow, completion: @escaping (NSApplication.ModalResponse) -> Void) {
         guard parent.attachedSheet == nil else {
@@ -104,7 +118,7 @@ final class AppDialog {
         prepareWindow(over: parent).show()
     }
 
-    /// The dialog last presented as a sheet, for `cra://debug?answerDialog=`.
+    /// The dialog last presented, for `cra://debug?answerDialog=` and `updaterRelaunch=`.
     static weak var presented: AppDialog?
 
     /// Takes a presented sheet down as if nothing was chosen: its completion gets `.abort`.

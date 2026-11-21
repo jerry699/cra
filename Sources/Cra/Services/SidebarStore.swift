@@ -2121,6 +2121,14 @@ final class SidebarStore {
     private(set) var tidyNotices: [UUID: String] = [:]
     /// Per space, Today's tabs when Tidy last ran: Tidy waits for a new loose tab (TidyTabs.offers).
     /// Not saved, like Arc's.
+    /// A tab's page left incognito (P3-R2 dwell correctness): the dwell accumulator stops counting there.
+    @ObservationIgnored var pageLeftIncognito: (UUID) -> Void = { _ in }
+    /// Tidy Downloads on/off changed in Settings (synchronous, so a stale request can't revive an older name).
+    @ObservationIgnored var tidyDownloadsChanged: (Bool) -> Void = { _ in }
+    /// Tidy Tabs on/off changed in Settings.
+    @ObservationIgnored var tidyTabsChanged: (Bool) -> Void = { _ in }
+    /// Tidy Tab Titles on/off changed in Settings.
+    @ObservationIgnored var tidyTabTitlesChanged: (Bool) -> Void = { _ in }
     private(set) var tidiedTabs: [UUID: Set<UUID>] = [:]
     /// Per space, what past accepted tidy runs taught (title → group), for the prompt.
     private(set) var preferences: [UUID: TidyPreferences] = [:]

@@ -1,23 +1,98 @@
 diff --git a/chrome/browser/devtools/devtools_window.cc b/chrome/browser/devtools/devtools_window.cc
 --- a/chrome/browser/devtools/devtools_window.cc
 +++ b/chrome/browser/devtools/devtools_window.cc
-@@ -3,6 +3,8 @@
- // found in the LICENSE file.
+@@ -4,6 +4,8 @@
  
  #include "chrome/browser/devtools/devtools_window.h"
-+
-+#include "chrome/browser/cra_engine_hooks.h"
  
++#include "chrome/browser/cra_engine_hooks.h"
++
  #include <algorithm>
  #include <memory>
-@@ -1418,6 +1420,10 @@
+ #include <set>
+@@ -116,6 +118,7 @@
+ #include "ui/events/keycodes/dom/keycode_converter.h"
+ #include "ui/events/keycodes/keyboard_code_conversion.h"
+ #include "ui/events/keycodes/keyboard_codes.h"
++#include "ui/views/controls/webview/cra_hosted_page.h"
+ #include "url/origin.h"
+ 
+ #include "base/win/windows_h_disallowed.h"
+@@ -1472,6 +1475,8 @@ DevToolsWindow* DevToolsWindow::Create(
+   }
+ 
+   SessionID inspected_browser_session_id = SessionID::InvalidValue();
++  // Cra: the DevTools of a page of Cra's.
++  [[maybe_unused]] bool cra_page = false;
+ #if BUILDFLAG(IS_ANDROID)
+   // Docking is not supported yet.
+   can_dock = false;
+@@ -1491,14 +1496,28 @@ DevToolsWindow* DevToolsWindow::Create(
      if (!devtools_ui_controller || !devtools_ui_controller->CanDockDevtools()) {
        can_dock = false;
      }
 +    // Cra: its pages' DevTools open in a window of their own, which Cra docks in its card.
 +    if (cra::g_is_cra_page && cra::g_is_cra_page(inspected_web_contents)) {
 +      can_dock = false;
++      cra_page = true;
 +    }
    }
  #endif  // !BUILDFLAG(IS_ANDROID)
  
+   // Create WebContents with devtools.
+-  GURL url(GetDevToolsURL(profile, frontend_type, frontend_url, can_dock, panel,
++  // Cra: Chrome keeps its window (can_dock false), and the frontend docks in Cra's card: it draws the split, its
++  // close button and dock menu, and reports where the page goes (bridge.mm, kDevToolsDockScript), as on CEF.
++  GURL url(GetDevToolsURL(profile, frontend_type, frontend_url, can_dock || cra_page, panel,
+                           has_other_clients, browser_connection));
+   std::unique_ptr<WebContents> main_web_contents =
+       WebContents::Create(WebContents::CreateParams(profile));
++  // Cra: the frontend is a page Cra hosts (cra_hosted_page.h) from the start. Chrome's DevTools window, never
++  // shown, then never attaches it: attached, it drew into that window's compositor, and Cra's card, which takes
++  // its view, stayed white (GitHub #468).
++  if (cra_page) {
++    main_web_contents->SetUserData(views::CraHostedPageKey(),
++                                   std::make_unique<base::SupportsUserData::Data>());
++  }
+   main_web_contents->GetController().LoadURL(
+       DecorateFrontendURL(url), content::Referrer(),
+       ui::PAGE_TRANSITION_AUTO_TOPLEVEL, std::string());
+@@ -1686,6 +1705,10 @@ WebContents* DevToolsWindow::AddNewContents(
+     return nullptr;
+   }
+ 
++  // Cra: the toolbox it didn't take (WebContentsCreated) isn't a page for a tab.
++  if (!can_dock_ && target_url.SchemeIs(content::kChromeDevToolsScheme)) {
++    return nullptr;
++  }
+   WebContents* inspected_web_contents = GetInspectedWebContents();
+   if (inspected_web_contents) {
+     inspected_web_contents->GetDelegate()->AddNewContents(
+@@ -1704,6 +1727,10 @@ void DevToolsWindow::WebContentsCreated(
+   if (target_url.SchemeIs(content::kChromeDevToolsScheme) &&
+       target_url.GetPath().rfind("device_mode_emulation_frame.html") !=
+           std::string::npos) {
++    // Cra: a frontend Cra docks has no toolbox (it opens one when undocked); the page isn't Chrome's to lay out.
++    if (!can_dock_) {
++      return;
++    }
+     CHECK(can_dock_);
+ 
+     // Ownership will be passed in DevToolsWindow::AddNewContents.
+@@ -1865,12 +1892,13 @@ void DevToolsWindow::SetIsDocked(bool dock_requested) {
+     return;
+   }
+ 
+-  // TODO(crbug.com/579584319): CHECK-exclusion: Convert to a CHECK once we are
+-  // confident it won't be triggered.
+-  DCHECK(can_dock_ || !dock_requested);
++  // Cra: its pages' frontends ask to dock (they dock in Cra's card); Chrome's window stays undocked.
+   if (!can_dock_) {
+     dock_requested = false;
+   }
++  // TODO(crbug.com/579584319): CHECK-exclusion: Convert to a CHECK once we are
++  // confident it won't be triggered.
++  DCHECK(can_dock_ || !dock_requested);
+ 
+   bool was_docked = is_docked_;
+   is_docked_ = dock_requested;

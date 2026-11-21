@@ -36,4 +36,44 @@ struct AppLinksTests {
     func kind(url: String, kind: AppLinks.Kind) {
         #expect(AppLinks.kind(of: url) == kind)
     }
+
+    // Slack's "Launching…" page after a browser sign-in redirects to slack: with no click; a
+    // Chromium page dropped it, and there is no button to click instead.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/560")) func aPagesOwnRedirectAsksOncePerPageLoad() {
+        var guarded = AppLinks.RedirectGuard()
+        enum Step { case redirect, click, load }
+        let asked = [
+            Step.redirect, // the page's first redirect asks
+            .redirect,     // a second gets nothing (history.pushState included: it is no load)
+            .click,        // a click always asks
+            .redirect,     // and doesn't renew the redirect's question
+            .load,         // the next page, or this one reloaded,
+            .redirect,     // asks again
+            .redirect,     // once
+        ].compactMap { step -> Bool? in
+            switch step {
+            case .load: guarded.pageLoaded(); return nil
+            case .click: return guarded.mayAsk(userGesture: true)
+            case .redirect: return guarded.mayAsk(userGesture: false)
+            }
+        }
+        #expect(asked == [true, false, true, false, true, false])
+    }
+}
+
+struct TypedAppLinksTests {
+    /// GitHub #604: todoist:// typed in ⌘T and sent with Return opened nothing. Another app's address
+    /// typed in the command bar opens that app; with no app for it, it is searched for; a refused
+    /// scheme stays refused; a web address loads as before.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/604"))
+    func aTypedAppAddressOpensItsApp() {
+        #expect(AppLinks.typed("todoist://", hasApp: true) == .openApp)
+        #expect(AppLinks.typed("zoommtg://zoom.us/join?confno=1", hasApp: true) == .openApp)
+        #expect(AppLinks.typed("mailto:someone@example.com", hasApp: true) == .openApp)
+        #expect(AppLinks.typed("todoist://", hasApp: false) == .search)
+        #expect(AppLinks.typed("afp://server/share", hasApp: true) == .refuse)
+        #expect(AppLinks.typed("cra://open?url=x", hasApp: true) == .refuse)
+        #expect(AppLinks.typed("https://todoist.com", hasApp: true) == .load)
+        #expect(AppLinks.typed("about:blank", hasApp: false) == .load)
+    }
 }

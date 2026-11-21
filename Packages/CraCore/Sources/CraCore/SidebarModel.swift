@@ -136,6 +136,19 @@ public struct SplitData: Codable, Equatable {
     /// The pane that has keyboard focus (Arc: focusItemID).
     public var focusTabID: UUID?
     public var timeLastActiveAt: Date?
+    /// Arc's Change Icon… on a split (customInfo.iconType, #600): an emoji, or an SF Symbol from the
+    /// picker's Icon tab. With one, the row shows it and the name (or "N Tabs") instead of the panes.
+    public var emoji: String?
+    public var symbol: String?
+
+    /// The icon as the picker gives it; `.none` clears it. A picture isn't offered for a split.
+    public var icon: SpaceIcon {
+        get { SpaceIcon(emoji: emoji ?? "", symbol: symbol) }
+        set {
+            emoji = newValue.emoji.isEmpty ? nil : newValue.emoji
+            symbol = newValue.symbol
+        }
+    }
 
     public init() {}
     public init(from decoder: Decoder) throws {
@@ -144,6 +157,8 @@ public struct SplitData: Codable, Equatable {
         orientation = try c.decodeIfPresent(SplitOrientation.self, forKey: .orientation) ?? .horizontal
         focusTabID = try c.decodeIfPresent(UUID.self, forKey: .focusTabID)
         timeLastActiveAt = try c.decodeIfPresent(Date.self, forKey: .timeLastActiveAt)
+        emoji = try c.decodeIfPresent(String.self, forKey: .emoji)
+        symbol = try c.decodeIfPresent(String.self, forKey: .symbol)
     }
 }
 
@@ -264,15 +279,12 @@ public struct SidebarItem: Identifiable, Codable, Equatable {
     public var displayTitle: String {
         if let t = title, !t.isEmpty { return t }
         if let tab {
-            // zh: 新标签页
             if isEmptyTab { return "New Tab" }
             if !tab.savedTitle.isEmpty { return tab.savedTitle }
             if let host = URL(string: tab.url)?.host { return host }
             return tab.url
         }
-        // zh: 分屏视图
         if isSplit { return "Split View" }
-        // zh: 未命名
         return "Untitled"
     }
 
@@ -303,8 +315,14 @@ public struct SidebarItem: Identifiable, Codable, Equatable {
 }
 
 public struct Space: Identifiable, Codable, Equatable {
+    /// User-entered Space names are short labels. Count Swift Characters so a composed emoji or
+    /// non-Latin character consumes one place rather than its UTF-8 byte count.
+    public static let maximumTitleLength = 60
+
     public var id: UUID
-    public var title: String
+    public var title: String {
+        didSet { title = Self.limitedTitle(title) }
+    }
     public var emoji: String
     public var theme: SpaceTheme
     public var favoritesContainerID: UUID
@@ -331,7 +349,7 @@ public struct Space: Identifiable, Codable, Equatable {
                 todayContainerID: UUID, createdAt: Date, profileID: UUID? = nil, symbol: String? = nil, standaloneWindowID: UUID? = nil,
                 iconImage: Data? = nil) {
         self.id = id
-        self.title = title
+        self.title = Self.limitedTitle(title)
         self.emoji = emoji
         self.theme = theme
         self.favoritesContainerID = favoritesContainerID
@@ -342,6 +360,12 @@ public struct Space: Identifiable, Codable, Equatable {
         self.symbol = symbol
         self.standaloneWindowID = standaloneWindowID
         self.iconImage = iconImage
+    }
+
+    public mutating func rename(to title: String) { self.title = Self.limitedTitle(title) }
+
+    public static func limitedTitle(_ title: String) -> String {
+        title.count <= maximumTitleLength ? title : String(title.prefix(maximumTitleLength))
     }
 }
 
@@ -402,7 +426,6 @@ public struct SidebarDocument: Codable, Equatable {
         let fav = SidebarItem.container(.favorites(spaceID: spaceID))
         let pinned = SidebarItem.container(.pinned(spaceID: spaceID))
         let today = SidebarItem.container(.today(spaceID: spaceID))
-        // zh: 个人（新建窗口的默认空间名）
         let space = Space(id: spaceID, title: "Personal", emoji: "🌱", theme: SpaceTheme.presets[0], favoritesContainerID: fav.id,
                           pinnedContainerID: pinned.id, todayContainerID: today.id, createdAt: Date())
         return SidebarDocument(spaceOrder: [spaceID], spaces: [space], items: [fav, pinned, today])
@@ -457,17 +480,11 @@ public enum AutoArchiveThreshold: String, Codable, CaseIterable, Identifiable {
     }
     public var label: String {
         switch self {
-        // zh: 12 小时
         case .twelveHours: return "12 hours"
-        // zh: 24 小时
         case .twentyFourHours: return "24 hours"
-        // zh: 7 天
         case .sevenDays: return "7 days"
-        // zh: 30 天
         case .thirtyDays: return "30 days"
-        // zh: 90 天
         case .ninetyDays: return "90 days"
-        // zh: 180 天
         case .oneHundredEightyDays: return "180 days"
         }
     }
@@ -508,7 +525,7 @@ public enum SearchEngine: String, Codable, CaseIterable, Identifiable {
     }
     public func searchURL(_ query: String) -> String {
         let q = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)?
-            .replacingOccurrences(of: "&", with: "%26") ?? query
+            .replacingOccurrences(of: "&", with: "%26").replacingOccurrences(of: "+", with: "%2B") ?? query
         switch self {
         case .google: return "https://www.google.com/search?q=\(q)"
         case .duckduckgo: return "https://duckduckgo.com/?q=\(q)"
@@ -556,6 +573,14 @@ public struct AppSettings: Codable, Equatable {
     /// Arc; Zen's compact toolbar): the toolbar floats over the page and comes out when the pointer
     /// is at the card's top edge (ToolbarAutoHide). Only means something while `showToolbar` is on.
     public var autoHideToolbar: Bool = false
+    /// Settings ▸ Links ▸ "Hide the Little Window toolbar until you need it" (not in Arc, GitHub #435):
+    /// a Little Window's page takes its toolbar's room, and the toolbar slides in over the page's top
+    /// when the pointer rests there (`ToolbarAutoHide.littleWindowFloats`). ⌘L still edits the address.
+    public var autoHideLittleWindowToolbar: Bool = false
+    /// Settings ▸ Links ▸ "Hide the Peek toolbar until you need it" (not in Arc, GitHub #493): a Peek's
+    /// page takes its 32 pt bar's room, and the bar slides in over the card's top when the pointer rests
+    /// there (`ToolbarAutoHide.peekFloats`). Its own switch: the Little Window's doesn't reach a Peek.
+    public var autoHidePeekToolbar: Bool = false
     public var hasSeenImportPrompt: Bool = false
     /// Arc's per-site Developer Mode (⌃D): the toolbar shows the full URL in
     /// monospace with the developer icons, and the nav buttons move to the sidebar.
@@ -597,6 +622,16 @@ public struct AppSettings: Codable, Equatable {
     /// item leaves the page in front and the tab loading behind it (GitHub #276). A new key: #183's
     /// openLinksInBackground was off (switch) in every settings.json that never turned it on.
     public var openLinksInForeground: Bool = false
+    /// Cra's own, not in Arc (GitHub #498), off by default: a split holds up to eight panes instead of
+    /// Arc's four (`SplitPaneLimit`).
+    public var splitMorePanes: Bool = false
+    /// Cra's own, not in Arc (GitHub #498), off by default: a link middle-clicked in a split's pane opens
+    /// as a new pane beside it instead of a tab behind the page (`LinkSplitClick.middleClickAddsPane`).
+    public var splitMiddleClickAddsPane: Bool = false
+    /// Settings ▸ Links ▸ "Open background tabs below the current tab" (GitHub #532), off by default: a tab a
+    /// link opens behind the page (⌘-click, middle click) goes right below the tab it came from in Today,
+    /// after the ones that tab opened before (`LinkTabPlacement`), instead of where new tabs go.
+    public var backgroundTabsBelowCurrent: Bool = false
     /// Arc's Previews ▸ Folders (folderPreviewEnabled): resting the pointer on a closed folder
     /// lists its tabs, most recent first, with a search field.
     public var folderPreviews: Bool = true
@@ -609,6 +644,10 @@ public struct AppSettings: Codable, Equatable {
     /// Dia's onboarding privacy choice "Block third-party ads and trackers": requests
     /// to listed ad and tracker domains are cancelled unless they are first-party.
     public var blockAdsAndTrackers: Bool = true
+    /// Settings ▸ Privacy ▸ Block lists (#507, not in Arc or Dia): the addresses of lists added on top
+    /// of Cra's own, blocked under `blockAdsAndTrackers` (CustomBlocklist). Fetched copies live in
+    /// the data folder's Blocklists folder.
+    public var customBlocklists: [String] = []
     /// Dia's Tabs ▸ "Haptic feedback when reordering tabs" (tabReorderingHapticsEnabled).
     public var hapticFeedbackOnReorder: Bool = true
     /// Dia's Advanced ▸ "Warn before quitting" (shouldWarnBeforeQuitting, off by default).
@@ -626,6 +665,10 @@ public struct AppSettings: Codable, Equatable {
     public var tabSleepAfter: TabSleepThreshold = .fourHours
     /// Tabs ▸ "Force tabs out of memory when the Mac is short of memory" (GitHub #153), off like Arc.
     public var tabSleepOnMemoryPressure: Bool = false
+    /// Tabs ▸ "Always keep these sites active" (GitHub #458), Arc's list at arc://settings/performance:
+    /// their pages are never closed by the clock or frozen, and go last when the Mac is short of memory.
+    /// For every profile: Cra's settings are one file.
+    public var keepActiveSites: [KeepActiveSite] = []
     /// Privacy ▸ "Always use secure connections": Chrome's HTTPS-Only Mode.
     public var httpsOnly: Bool = false
     /// Privacy ▸ "Fingerprinting protection" (not in Arc, off by default): Cra's Chromium adds
@@ -687,6 +730,14 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #307, not in Arc: ⌘T searches and lists only the open tabs of the window's space
     /// (`TabSearchScope.commandBarTabs`). Off is Arc's bar, which finds a tab in any space.
     public var commandBarCurrentSpaceOnly: Bool = false
+    /// GitHub #601, not in Arc: ⇧⌘T reopens the tab closed last in the window's space and stays
+    /// there (`ReopenClosedTab.next(isInCurrentSpace:)`). Off is Arc's, which switches to the space
+    /// the tab closed last was in.
+    public var reopenClosedTabCurrentSpaceOnly: Bool = false
+    /// Settings ▸ Advanced ▸ Command bar ▸ "Fill the command bar with the site’s color" (not in Arc,
+    /// GitHub #457): while Tab's site search is on, the bar takes the site's colour
+    /// (`ScopedSearchFill`). Off, the bar stays Arc's: the site only in the pill and a one-second wash.
+    public var commandBarSiteColor: Bool = false
     /// GitHub #344, not in Arc: a click on the sidebar's URL field edits the address where it is
     /// (`SidebarAddressEdit`). Off is Arc's, which opens the command bar; ⌘L opens it either way.
     public var editAddressInPlace: Bool = false
@@ -699,6 +750,8 @@ public struct AppSettings: Codable, Equatable {
     /// GitHub #24, not in Arc: the page fills the window with no margin and no rounded
     /// card, like a traditional browser. Off by default.
     public var edgeToEdgeContent: Bool = false
+    /// GitHub #464, not in Arc: the sidebar docks on the window's right (SidebarSide). Left is Arc's.
+    public var sidebarSide: SidebarSide = .left
     /// GitHub #91, Settings ▸ Performance: Cra records its own performance on this Mac (stalls,
     /// CPU and memory per process, tab timings) for Help ▸ Export Diagnostics. On by default in
     /// early releases; nothing leaves the Mac. Changing the default needs no migration.
@@ -815,16 +868,20 @@ public struct WindowSession: Codable, Equatable, Identifiable {
     public var selectedTabPerSpace: [UUID: UUID] = [:]
     public var frame: String?
     public var sidebarVisible = true
+    /// In macOS full screen (the green button, ⌃⌘F; not a page's video), so the window opens in
+    /// full screen again (#426). `frame` stays the windowed frame it leaves full screen to.
+    public var fullScreen = false
     /// Incognito windows show a space of their own, never saved (SidebarStore.addIncognitoWindow).
     public var isIncognito = false
 
     public init(id: UUID = UUID(), focusedSpaceID: UUID? = nil, selectedTabPerSpace: [UUID: UUID] = [:], frame: String? = nil,
-                sidebarVisible: Bool = true, isIncognito: Bool = false) {
+                sidebarVisible: Bool = true, fullScreen: Bool = false, isIncognito: Bool = false) {
         self.id = id
         self.focusedSpaceID = focusedSpaceID
         self.selectedTabPerSpace = selectedTabPerSpace
         self.frame = frame
         self.sidebarVisible = sidebarVisible
+        self.fullScreen = fullScreen
         self.isIncognito = isIncognito
     }
 }
@@ -852,10 +909,13 @@ public struct WindowPrefs: Codable, Equatable {
     }
     /// Last Little Window size (Arc: LittleBrowserWindow_size).
     public var littleWindowSize: String?
+    /// The sidebar as it was last hidden or shown (⌘S, a drag of its edge), in any window: what a new
+    /// window opens with, incognito and Blank Windows too. Arc's sidebarViewPreferences.sidebarMode (#644).
+    public var sidebarVisibleInNewWindows = true
 
     public init(sidebarWidth: Double = 328, expandedFolders: Set<UUID> = [], collapsedPinnedSpaces: Set<UUID> = [],
                 favoritesEmptyStateDismissed: Set<UUID> = [], peekedFolders: [UUID: [UUID]] = [:],
-                windows: [WindowSession] = [WindowSession()], littleWindowSize: String? = nil) {
+                windows: [WindowSession] = [WindowSession()], littleWindowSize: String? = nil, sidebarVisibleInNewWindows: Bool = true) {
         self.sidebarWidth = sidebarWidth
         self.expandedFolders = expandedFolders
         self.collapsedPinnedSpaces = collapsedPinnedSpaces
@@ -863,6 +923,7 @@ public struct WindowPrefs: Codable, Equatable {
         self.peekedFolders = peekedFolders
         self.windows = windows
         self.littleWindowSize = littleWindowSize
+        self.sidebarVisibleInNewWindows = sidebarVisibleInNewWindows
     }
 }
 
@@ -883,13 +944,16 @@ public struct HistoryEntry: Codable, Equatable {
     /// Seconds this page was the VISIBLE tab (P3-R2 行为信号): "认真看完" vs "点进去秒退"
     /// — a ranking signal no embedding can fake. Accumulated in 3 s poll ticks while active.
     public var dwellTime: Int?
+    /// The profiles the page was visited in (CommandBarProfileScope.key), so the command bar of a
+    /// space on one profile doesn't suggest what was browsed on another (#609). nil for an entry
+    /// saved before Cra kept them: its profile isn't known, and it is suggested everywhere as before.
+    public var profiles: [String]? = nil
 
-    public init(url: String, title: String, lastVisit: Date, visitCount: Int, description: String? = nil) {
+    public init(url: String, title: String, lastVisit: Date, visitCount: Int) {
         self.url = url
         self.title = title
         self.lastVisit = lastVisit
         self.visitCount = visitCount
-        self.description = description
     }
 }
 
@@ -936,6 +1000,8 @@ extension AppSettings {
         }
         toolbarShowsFullURL = try c.decodeIfPresent(Bool.self, forKey: .toolbarShowsFullURL) ?? false
         autoHideToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHideToolbar) ?? false
+        autoHideLittleWindowToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHideLittleWindowToolbar) ?? false
+        autoHidePeekToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHidePeekToolbar) ?? false
         hasSeenImportPrompt = try c.decodeIfPresent(Bool.self, forKey: .hasSeenImportPrompt) ?? false
         developerHosts = try c.decodeIfPresent(Set<String>.self, forKey: .developerHosts) ?? []
         disabledDefaultDeveloperHosts = try c.decodeIfPresent(Set<String>.self, forKey: .disabledDefaultDeveloperHosts) ?? []
@@ -943,6 +1009,7 @@ extension AppSettings {
         autoPictureInPicture = try c.decodeIfPresent(Bool.self, forKey: .autoPictureInPicture) ?? true
         autoPictureInPictureSites = (try? c.decodeIfPresent([String: Bool].self, forKey: .autoPictureInPictureSites)) ?? [:]
         blockAdsAndTrackers = try c.decodeIfPresent(Bool.self, forKey: .blockAdsAndTrackers) ?? true
+        customBlocklists = (try? c.decodeIfPresent([String].self, forKey: .customBlocklists)) ?? []
         if let d = try? c.decodeIfPresent(LinkDestination.self, forKey: .defaultLinkDestination) {
             defaultLinkDestination = d
         } else {
@@ -958,6 +1025,9 @@ extension AppSettings {
         littleWindowShortcutEverywhere = try c.decodeIfPresent(Bool.self, forKey: .littleWindowShortcutEverywhere) ?? true
         littleWindowOnOptionCommandClick = try c.decodeIfPresent(Bool.self, forKey: .littleWindowOnOptionCommandClick) ?? false
         openLinksInForeground = try c.decodeIfPresent(Bool.self, forKey: .openLinksInForeground) ?? false
+        splitMorePanes = try c.decodeIfPresent(Bool.self, forKey: .splitMorePanes) ?? false
+        splitMiddleClickAddsPane = try c.decodeIfPresent(Bool.self, forKey: .splitMiddleClickAddsPane) ?? false
+        backgroundTabsBelowCurrent = try c.decodeIfPresent(Bool.self, forKey: .backgroundTabsBelowCurrent) ?? false
         folderPreviews = try c.decodeIfPresent(Bool.self, forKey: .folderPreviews) ?? true
         hapticFeedbackOnReorder = try c.decodeIfPresent(Bool.self, forKey: .hapticFeedbackOnReorder) ?? true
         warnBeforeQuitting = try c.decodeIfPresent(Bool.self, forKey: .warnBeforeQuitting) ?? false
@@ -966,6 +1036,7 @@ extension AppSettings {
         tabSleepTimerEnabled = try c.decodeIfPresent(Bool.self, forKey: .tabSleepTimerEnabled) ?? true
         tabSleepAfter = (try? c.decodeIfPresent(TabSleepThreshold.self, forKey: .tabSleepAfter)) ?? .fourHours
         tabSleepOnMemoryPressure = try c.decodeIfPresent(Bool.self, forKey: .tabSleepOnMemoryPressure) ?? false
+        keepActiveSites = (try? c.decodeIfPresent([KeepActiveSite].self, forKey: .keepActiveSites)) ?? []
         httpsOnly = try c.decodeIfPresent(Bool.self, forKey: .httpsOnly) ?? false
         fingerprintingProtection = try c.decodeIfPresent(Bool.self, forKey: .fingerprintingProtection) ?? false
         websiteAppearance = (try? c.decodeIfPresent(WebsiteAppearance.self, forKey: .websiteAppearance)) ?? .automatic
@@ -993,10 +1064,13 @@ extension AppSettings {
         calendarMeetingLink = (try? c.decodeIfPresent(CalendarPreview.LinkTiming.self, forKey: .calendarMeetingLink)) ?? .twoMinutes
         searchSuggestions = try c.decodeIfPresent(Bool.self, forKey: .searchSuggestions) ?? true
         commandBarCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .commandBarCurrentSpaceOnly) ?? false
+        reopenClosedTabCurrentSpaceOnly = try c.decodeIfPresent(Bool.self, forKey: .reopenClosedTabCurrentSpaceOnly) ?? false
+        commandBarSiteColor = try c.decodeIfPresent(Bool.self, forKey: .commandBarSiteColor) ?? false
         editAddressInPlace = try c.decodeIfPresent(Bool.self, forKey: .editAddressInPlace) ?? false
         showSpaceHeaderOnSingleSpace = try c.decodeIfPresent(Bool.self, forKey: .showSpaceHeaderOnSingleSpace) ?? true
         sharedFavorites = try c.decodeIfPresent(Bool.self, forKey: .sharedFavorites) ?? false
         edgeToEdgeContent = try c.decodeIfPresent(Bool.self, forKey: .edgeToEdgeContent) ?? false
+        sidebarSide = (try? c.decodeIfPresent(SidebarSide.self, forKey: .sidebarSide)) ?? .left
         perfRecording = try c.decodeIfPresent(Bool.self, forKey: .perfRecording) ?? Self.perfRecordingDefault
         perfHidesSiteNames = try c.decodeIfPresent(Bool.self, forKey: .perfHidesSiteNames) ?? false
         tidyTabs = try c.decodeIfPresent(Bool.self, forKey: .tidyTabs) ?? true
@@ -1035,6 +1109,9 @@ extension WindowPrefs {
                                      sidebarVisible: try legacy.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true)]
         }
         littleWindowSize = try c.decodeIfPresent(String.self, forKey: .littleWindowSize)
+        // Files from before #644 carry no choice: the first saved window's sidebar stands in for it.
+        sidebarVisibleInNewWindows = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisibleInNewWindows)
+            ?? windows.first?.sidebarVisible ?? true
     }
 }
 
@@ -1046,6 +1123,7 @@ extension WindowSession {
         selectedTabPerSpace = try c.decodeIfPresent([UUID: UUID].self, forKey: .selectedTabPerSpace) ?? [:]
         frame = try c.decodeIfPresent(String.self, forKey: .frame)
         sidebarVisible = try c.decodeIfPresent(Bool.self, forKey: .sidebarVisible) ?? true
+        fullScreen = try c.decodeIfPresent(Bool.self, forKey: .fullScreen) ?? false
     }
 }
 
@@ -1053,6 +1131,8 @@ extension Space {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
+        // A name saved before the limit, or by another Mac, loads as it was: the limit applies where a
+        // name is typed, and menus abbreviate a long one (SpaceMenuTitle), so loading never rewrites it.
         title = try c.decode(String.self, forKey: .title)
         emoji = try c.decode(String.self, forKey: .emoji)
         theme = try c.decode(SpaceTheme.self, forKey: .theme)
@@ -1113,11 +1193,8 @@ public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
 
     public var title: String {
         switch self {
-        // zh: 自动
         case .automatic: "Automatic"
-        // zh: 浅色
         case .light: "Light"
-        // zh: 深色
         case .dark: "Dark"
         }
     }
@@ -1129,5 +1206,11 @@ public enum WebsiteAppearance: String, Codable, CaseIterable, Sendable {
         case .dark: 2
         }
     }
-}
 
+    /// The choice made in Chromium's own Mode (chrome://settings/appearance), which is this same
+    /// setting (#630); nil for a value Cra doesn't know.
+    public init?(chromiumMode: Int) {
+        guard let appearance = Self.allCases.first(where: { $0.chromiumMode == chromiumMode }) else { return nil }
+        self = appearance
+    }
+}

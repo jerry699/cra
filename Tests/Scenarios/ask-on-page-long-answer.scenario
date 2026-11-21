@@ -1,5 +1,6 @@
-# A long answer streams into Ask on Page without stalling the window: the card redraws at most a
-# few times a second while the model writes, and its panel stops resizing once the conversation
+# promise: #417
+# A long answer streams into Ask on Page without stalling the window: the card redraws at most ten
+# times a second while the model writes, and its panel stops resizing once the conversation
 # scrolls. A real summary from the on-device model streamed 40-60 main-thread stalls over 50 ms.
 pace 0.5
 env CRA_TIDY_FAKE_MODEL=1
@@ -13,17 +14,19 @@ cra://debug?cdp=Runtime.evaluate&params={"expression":"(()=>{const a=document.qu
 expect-log Cra cdp Runtime.evaluate .*"value":"long"
 cra://action/find
 cra://debug?ask=Summarize the key points of this page in bullet points.
-wait 20
-cra://debug?askOnPage=summary
-expect-log ask summary: enabled=true canAsk=true messages=1 finished=true quotes=0
+wait 10
+# Read until the answer is in: one reading after a fixed 20 s caught it still streaming on Nightly's runners.
+pace 2
+repeat 15 cra://debug?askOnPage=summary${i}
+pace 0.5
+expect-log ask summary[0-9]+: enabled=true canAsk=true messages=1 finished=true quotes=0
 cra://debug?ask=And what is StandBy?
 wait 3
 cra://debug?askOnPage=after
-expect-log ask after: enabled=true canAsk=true messages=2 finished=true quotes=1
+expect-log ask after: enabled=true canAsk=true messages=2 finished=true quotes=1 .*height=[0-9]+$
 
-# A quote the page doesn't have says "Quote not found" as soon as the answer is done.
+# A quote the page doesn't have is marked as soon as the answer is done.
 cra://debug?ask=Make up a quote about it.
 wait 3
 cra://debug?askOnPage=madeup
-expect-log Ask on Page: a quote isn't on the page
-expect-log ask madeup: enabled=true canAsk=true messages=3 finished=true quotes=1 .*search=\[.*notFound.*\]
+expect-log ask madeup: enabled=true canAsk=true messages=3 finished=true quotes=1 .* notOnPage=1$

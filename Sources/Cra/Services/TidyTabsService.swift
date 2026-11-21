@@ -11,6 +11,7 @@ import FoundationModels
 /// doesn't show at all. What the answer does to the sidebar is TidyTabs (CraCore) and the store.
 @MainActor @Observable
 final class TidyTabsService {
+<<<<<<< HEAD
     static let shared = TidyTabsService()
 
     /// Where Apple Intelligence stands on this Mac, as Settings explains it.
@@ -47,14 +48,22 @@ final class TidyTabsService {
                 ? "Tidy Tab Titles and Tidy Tabs run on the local model on this Mac. Nothing is sent anywhere."
                 : "Tidy Tab Titles runs on the local model on this Mac. Nothing is sent anywhere."
             }
+=======
+    static let shared: TidyTabsService = {
+        let service = TidyTabsService()
+        service.activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak service] _ in
+            MainActor.assumeIsolated { service?.refresh() }
+>>>>>>> origin/main
         }
+        return service
+    }()
 
-        /// Whether System Settings can fix it.
-        var canOpenSettings: Bool { self == .off || self == .preparing || self == .unavailable }
-    }
+    /// Where Apple Intelligence stands on this Mac, as Settings explains it (CraCore decides).
+    typealias Status = AppleIntelligenceStatus
 
     /// Read again when Cra comes to the front and while Settings shows it, so turning Apple
     /// Intelligence on in System Settings shows the button without a relaunch.
+<<<<<<< HEAD
     private(set) var status: Status = .needsNewerMacOS
     var modelAvailable: Bool { status == .available || status == .remote }
 
@@ -62,7 +71,38 @@ final class TidyTabsService {
     var tabsAvailable: Bool {
         modelAvailable || (status == .local && MaxLocal.canTidyTabs)
     }
+=======
+    private(set) var status: Status = .needsNewerMacOS {
+        didSet {
+            if status != .available {
+                NotificationCenter.default.post(name: AskOnPage.unavailableNotification, object: self)
+            }
+        }
+    }
+    var modelAvailable: Bool { status == .available }
+    /// Re-read where it matters (a download's rename, an Ask request and its answer), even before the
+    /// cached status refreshes.
+    var currentModelAvailable: Bool { Self.currentStatus() == .available }
+    @ObservationIgnored var downloadsUnavailable: () -> Void = {}
+    @ObservationIgnored var previewsUnavailable: () -> Void = {}
+    @ObservationIgnored var titlesUnavailable: () -> Void = {}
+>>>>>>> origin/main
 
+    typealias Generate = @MainActor (TidyTabs.Request) async throws -> TidyTabsModel.Answer
+    private struct Key: Hashable { let store: ObjectIdentifier; let space: UUID }
+    private struct Run {
+        let token = UUID()
+        weak var store: SidebarStore?
+        let today: UUID
+        let started: Date
+        var task: Task<Void, Never>?
+        var delay: ScheduledWork?
+    }
+    /// A failure keeps the request it sent: Arc hides Tidy after any run, even one that grouped nothing.
+    private enum Outcome { case success(TidyTabsModel.Answer), failure(TidyTabs.Request) }
+    @ObservationIgnored private let generate: Generate
+    @ObservationIgnored private let availability: (@MainActor () -> Bool)?
+    @ObservationIgnored private var runs: [Key: Run] = [:]
     @ObservationIgnored private var activation: NSObjectProtocol?
     /// Tidy's work per space, so a second press on the broom cancels it; the store comes along so
     /// a memory warning can cancel every run without one.
@@ -72,37 +112,71 @@ final class TidyTabsService {
     }
     @ObservationIgnored private var tidyRuns: [UUID: Run] = [:]
 
-    private init() {
+    init(generate: Generate? = nil, modelAvailable: (@MainActor () -> Bool)? = nil) {
+        self.generate = generate ?? Self.ask
+        self.availability = modelAvailable
         refresh()
-        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { TidyTabsService.shared.refresh() }
+    }
+
+    deinit {
+        if let activation { NotificationCenter.default.removeObserver(activation) }
+        let pending = Array(runs)
+        pending.forEach { $0.value.task?.cancel() }
+        Task { @MainActor in
+            for (key, run) in pending {
+                run.delay?.cancel()
+                run.store?.setTidying(key.space, false)
+            }
         }
     }
 
     func refresh() {
         let now = Self.currentStatus()
+        // Invalidate synchronously even if the unavailable status was already cached.
+        if now != .available { cancelAll(); downloadsUnavailable(); previewsUnavailable(); titlesUnavailable() }
         if now != status { status = now }
+        else if now != .available {
+            // A repeated unavailable refresh must invalidate work even when the UI cache did not change.
+            NotificationCenter.default.post(name: AskOnPage.unavailableNotification, object: self)
+        }
     }
+
+    func cancelAll(store: SidebarStore? = nil) {
+        let owner = store.map(ObjectIdentifier.init)
+        let keys = runs.keys.filter { owner == nil || $0.store == owner }
+        for key in keys { if let token = runs[key]?.token { finish(key, token: token) } }
+    }
+
+    func cancel(_ sid: UUID, store: SidebarStore) {
+        let key = Key(store: ObjectIdentifier(store), space: sid)
+        if let token = runs[key]?.token { finish(key, token: token) }
+    }
+
+    private var eligibleModel: Bool { availability?() ?? currentModelAvailable }
 
     private static func currentStatus() -> Status {
         // A test copy can stand in a fixed model (CRA_TIDY_FAKE_MODEL=1) where Apple Intelligence is off,
-        // or show Settings as a Mac without it would (=off, =preparing, =ineligible).
+        // or show Settings as a Mac without it would (=off, =preparing, =ineligible for Intel, =not-offered for
+        // Apple silicon whose Apple Intelligence keeps the model from apps, as in China on macOS 27.3).
         switch ProcessInfo.processInfo.environment["CRA_TIDY_FAKE_MODEL"] {
         case "1": return .available
         case "off": return .off
         case "preparing": return .preparing
-        case "ineligible": return .ineligible
+        case "ineligible": return Status(reason: .deviceNotEligible, hardware: .intel)
+        case "not-offered": return Status(reason: .deviceNotEligible, hardware: .appleSilicon)
         default: break
         }
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
+            let reason: Status.Reason?
             switch SystemLanguageModel.default.availability {
-            case .available: return .available
-            case .unavailable(.appleIntelligenceNotEnabled): return .off
-            case .unavailable(.modelNotReady): return .preparing
-            case .unavailable(.deviceNotEligible): return .ineligible
-            case .unavailable: return .unavailable
+            case .available: reason = nil
+            case .unavailable(.appleIntelligenceNotEnabled): reason = .appleIntelligenceNotEnabled
+            case .unavailable(.modelNotReady): reason = .modelNotReady
+            case .unavailable(.deviceNotEligible): reason = .deviceNotEligible
+            case .unavailable: reason = .other
             }
+            return Status(reason: reason, hardware: hardware)
         }
         #endif
         // Apple Intelligence can't run here: the local model (if the user turned it on and the
@@ -111,6 +185,21 @@ final class TidyTabsService {
         if MaxRemote.isConfigured { return .remote }
         return .needsNewerMacOS
     }
+
+    /// Apple silicon, the Intel copy under Rosetta, or an Intel Mac: FoundationModels says only that
+    /// the device isn't eligible, which on Apple silicon means Apple doesn't offer apps the model (#538).
+    private static let hardware: Status.Hardware = {
+        func flag(_ name: String) -> Bool {
+            var value: Int32 = 0
+            var size = MemoryLayout<Int32>.size
+            return sysctlbyname(name, &value, &size, nil, 0) == 0 && value == 1
+        }
+        #if arch(arm64)
+        return .appleSilicon
+        #else
+        return flag("sysctl.proc_translated") ? .rosetta : .intel
+        #endif
+    }()
 
     /// System Settings ▸ Apple Intelligence & Siri (the Siri-Settings extension's pane).
     static let systemSettingsURL = URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!
@@ -131,6 +220,7 @@ final class TidyTabsService {
         return LocalRuntime.shared.tabsPauseReason
     }
 
+<<<<<<< HEAD
     /// The Tidy button: ask the model about the space's loose Today tabs and apply its answer.
     /// Pressed again while it works, it cancels: the local 2B takes a minute or more per stage.
     /// `auto` marks the poller's own runs — they announce themselves in the divider, or the
@@ -198,9 +288,22 @@ final class TidyTabsService {
             CraLog.note(String(format: "Tidy Tabs: %d loose tabs, handling the first %d — the rest wait for the next round",
                                allLoose.count, loose.count))
         }
+=======
+    /// The retained provider task completes after its outcome has scheduled/applied the minimum
+    /// animation. The service also owns any remaining delay; settings and lifecycle cancellation
+    /// invalidate both without waiting for an uncooperative provider.
+    @discardableResult
+    func tidy(_ sid: UUID, store: SidebarStore) -> Task<Void, Never>? {
+        let key = Key(store: ObjectIdentifier(store), space: sid)
+        if let old = runs[key], old.store !== store { finish(key, token: old.token) }
+        guard store.settings.tidyTabs, eligibleModel, store.canTidy(sid),
+              runs[key] == nil, !store.tidyingSpaces.contains(sid), let space = store.space(sid) else { return nil }
+        let loose = store.tidyCandidates(sid).prefix(TidyTabs.maximumTabs)
+>>>>>>> origin/main
         let tabs = loose.map { item in
-            TidyTabs.Tab(title: item.displayTitle, host: item.tab.flatMap { URL(string: $0.url)?.host() } ?? "")
+            TidyTabs.Tab(id: item.id, title: item.displayTitle, host: item.tab.flatMap { URL(string: $0.url)?.host() } ?? "")
         }
+<<<<<<< HEAD
         // Bootstrap the preference memory from the groups that exist: the ⌘Z wipe bug once
         // emptied it, and without those Chinese group names the model drifted to English
         // topic names (the user's report). Two to three tab titles per group as anchors.
@@ -383,6 +486,81 @@ final class TidyTabsService {
             return nil
         }
         return answer.groups.map { TidyTabs.Proposal(name: $0.name, tabs: $0.tabs) }
+=======
+        let groups = store.tabGroups(in: sid).map { TidyTabs.ExistingGroup(id: $0.id, name: $0.title ?? "") }
+        guard let request = TidyTabs.request(tabs: tabs, existingGroups: groups,
+                                             maximumBytes: TidyTabsModel.promptByteLimit) else { return nil }
+        let run = Run(store: store, today: space.todayContainerID, started: store.clock.now)
+        runs[key] = run
+        store.setTidying(sid, true)
+        let generate = self.generate, token = run.token
+        let task = Task { @MainActor [weak self] in
+            await withTaskCancellationHandler {
+                do {
+                    try Task.checkCancellation()
+                    let answer = try await generate(request)
+                    try Task.checkCancellation()
+                    self?.generated(.success(answer), key: key, token: token)
+                } catch is CancellationError {
+                    self?.finish(key, token: token)
+                } catch {
+                    CraLog.note(error is TidyTabsModel.Failure ? "Tidy Tabs: model unavailable or context limit" : "Tidy Tabs: generation failed")
+                    if Task.isCancelled { self?.finish(key, token: token) }
+                    else { self?.generated(.failure(request), key: key, token: token) }
+                }
+            } onCancel: { [weak self] in
+                Task { @MainActor [weak self] in self?.finish(key, token: token) }
+            }
+        }
+        runs[key]?.task = task
+        return task
+    }
+
+    private func generated(_ outcome: Outcome, key: Key, token: UUID) {
+        guard let run = runs[key], run.token == token else { return }
+        runs[key]?.task = nil
+        guard let store = run.store, eligible(key, run: run, store: store) else { finish(key, token: token); return }
+        let rest = TidyTabs.minimumRun - store.clock.now.timeIntervalSince(run.started)
+        if rest > 0 {
+            runs[key]?.delay = store.clock.after(rest) { [weak self] in self?.apply(outcome, key: key, token: token) }
+        } else { apply(outcome, key: key, token: token) }
+    }
+
+    private func eligible(_ key: Key, run: Run, store: SidebarStore) -> Bool {
+        store.settings.tidyTabs && eligibleModel && !store.isIncognito(space: key.space)
+            && store.space(key.space)?.todayContainerID == run.today && store.item(run.today) != nil
+    }
+
+    private func apply(_ outcome: Outcome, key: Key, token: UUID) {
+        guard let run = runs[key], run.token == token else { return }
+        guard let store = run.store, eligible(key, run: run, store: store) else { finish(key, token: token); return }
+        switch outcome {
+        case .success(let answer):
+            // The adapter may have reduced this request: consume its actual fitted mapping only.
+            let plan = answer.request.plan(answer.proposals)
+            store.applyTidy(plan, tabIDs: answer.request.tabIDs, in: key.space)
+            // What the run did: proposals are one per tab since the per-tab answer, so their count said nothing (#594).
+            let names = TidyTabs.distinctNames(answer.proposals)
+            CraLog.note("Tidy Tabs: completed \(answer.request.tabs.count) tabs, \(names) proposed groups, "
+                + "\(plan.newGroups.count) new, \(plan.joins.values.reduce(0) { $0 + $1.count }) joined")
+        case .failure(let request):
+            store.markTidied(key.space, tabIDs: request.tabIDs)
+        }
+        finish(key, token: token)
+    }
+
+    private func finish(_ key: Key, token: UUID) {
+        guard let run = runs[key], run.token == token else { return }
+        runs[key] = nil
+        run.store?.setTidying(key.space, false)
+        run.delay?.cancel()
+        run.task?.cancel()
+    }
+
+    private static func ask(_ request: TidyTabs.Request) async throws -> TidyTabsModel.Answer {
+        if fakeModel { return try await fakeAnswer(request) }
+        return try await TidyTabsModel.group(request)
+>>>>>>> origin/main
     }
 
     // MARK: Test model
@@ -391,35 +569,17 @@ final class TidyTabsService {
 
     /// Groups tabs by site, named after it, after a model-like pause: enough to drive the UI in a
     /// test copy on a Mac without Apple Intelligence.
-    private static func fakeAnswer(_ prompt: String) async -> [TidyTabs.Proposal] {
-        try? await Task.sleep(for: .seconds(1.6))
+    private static func fakeAnswer(_ request: TidyTabs.Request) async throws -> TidyTabsModel.Answer {
+        try await Task.sleep(for: .seconds(1.6))
         var bySite: [String: [Int]] = [:]
         var order: [String] = []
-        for line in prompt.split(separator: "\n") {
-            guard let colon = line.firstIndex(of: ":"), let id = Int(line[..<colon]),
-                  let open = line.lastIndex(of: "("), line.hasSuffix(")") else { continue }
-            let site = String(line[line.index(after: open)..<line.index(before: line.endIndex)])
+        for (id, tab) in request.tabs.enumerated() {
+            let site = tab.host.isEmpty ? "Tabs" : tab.host
             if bySite[site] == nil { order.append(site) }
             bySite[site, default: []].append(id)
         }
-        return order.map { TidyTabs.Proposal(name: $0.replacingOccurrences(of: "www.", with: ""), tabs: bySite[$0] ?? []) }
+        return TidyTabsModel.Answer(request: request, proposals: order.map {
+            TidyTabs.Proposal(name: $0.replacingOccurrences(of: "www.", with: ""), tabs: bySite[$0] ?? [])
+        })
     }
 }
-
-#if canImport(FoundationModels)
-@available(macOS 26.0, *)
-@Generable
-struct TidyAnswer {
-    @Guide(description: "The groups, each with a name and the ids of its tabs")
-    var groups: [TidyGroup]
-}
-
-@available(macOS 26.0, *)
-@Generable
-struct TidyGroup {
-    @Guide(description: "What the tabs have in common, in one or two words, like a folder name: 'Planets', 'Trip to Lisbon', 'Cra Pull Requests'")
-    var name: String
-    @Guide(description: "Ids of every tab that belongs in this group")
-    var tabs: [Int]
-}
-#endif

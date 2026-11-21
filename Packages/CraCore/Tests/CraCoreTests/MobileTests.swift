@@ -23,6 +23,32 @@ struct MobileChromeTests {
         #expect(MobileSearchSheet.rowsInView(screenHeight: 300, keyboardHeight: 290, safeTop: 0) == 0)
     }
 
+    /// The incognito glyph keeps the same room to the field's right end off and on: before, off,
+    /// it sat 7.5 pt from the end and on (with its label) 18.5 pt (#654).
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/654")) func theIncognitoGlyphKeepsItsPlaceOffAndOn() {
+        let field = CGRect(x: 16, y: 16, width: 361, height: 48)
+        let off = MobileSearchSheet.incognitoToggleFrame(field: field)
+        let on = MobileSearchSheet.incognitoToggleFrame(field: field, labelledWidth: 130)
+        #expect(off.maxX == on.maxX)
+        #expect(field.maxX - off.maxX == 18.5)
+        #expect(off.width == 44 && on.width == 130)
+        #expect(off.midY == field.midY && on.midY == field.midY)
+        let accessory = MobileSearchSheet.accessoryFrame(field: field)
+        #expect(field.maxX - accessory.midX == 29.5, "the clear button stays where Arc Search has it")
+        // The 23 pt glyph, right-aligned, is centred where the accessory's centre is, give or take a point.
+        #expect(abs((off.maxX - 11.5) - accessory.midX) <= 1)
+    }
+
+    /// A sheet let go halfway up stays there until the keyboard comes, then goes where the
+    /// keyboard puts it; without the hold it aimed at the keyboard-less spot, lower down (#623).
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/623")) func aLetGoSheetWaitsForTheKeyboardWhereItWasLeft() {
+        let held = MobileSearchSheet.openingTop(screenHeight: 852, keyboardHeight: 34, safeTop: 59, heldAt: 420)
+        #expect(held == 420)
+        let keyboardless = MobileSearchSheet.openingTop(screenHeight: 852, keyboardHeight: 34, safeTop: 59, heldAt: nil)
+        #expect(keyboardless > 420, "what it used to aim at while the keyboard was on its way: lower")
+        #expect(MobileSearchSheet.openingTop(screenHeight: 852, keyboardHeight: 291, safeTop: 59, heldAt: nil) == 259, "with the keyboard up, Arc's place")
+    }
+
     /// The same phone's bar: 76 pt tall, pill 76 × 39 centred 44.5 pt above the bottom edge,
     /// round buttons 35 pt wide centred 41 pt from each side.
     @Test func bottomBarOnAnIPhone15Pro() {
@@ -39,9 +65,65 @@ struct MobileChromeTests {
         #expect(frames.bar.height == 42)
         #expect(frames.pill.midX == 187.5)
     }
+
+    /// With the bar scrolled away, a tap on the home indicator's strip brings it back (#509).
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/509"))
+    func aTapUnderThePageBringsTheBarBack() {
+        let strip = MobileBottomBar.revealStrip(in: CGSize(width: 393, height: 852), safeBottom: 34)
+        #expect(strip == CGRect(x: 0, y: 818, width: 393, height: 34))
+        #expect(MobileBottomBar.revealStrip(in: CGSize(width: 375, height: 667), safeBottom: 0).isEmpty)
+    }
 }
 
 struct MobileSuggestionsTests {
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/650")) func syncedSpaceSitesKeepTheirPlaceAndPhoneWins() {
+        var a = SidebarDocument.fresh()
+        var b = SidebarDocument.fresh()
+        a.spaces[0].title = "A"
+        b.spaces[0].title = "B"
+        let pinned = MobileRecentTabsTests.mac("https://x.example/p", "Manga pinned", 3)
+        let nested = MobileRecentTabsTests.mac("https://nested.example", "Manga folder", 2)
+        let today = MobileRecentTabsTests.mac("https://today.example", "Manga today", 4)
+        let undated = MobileRecentTabsTests.mac("https://undated.example", "Manga undated", nil)
+        let favorite = MobileRecentTabsTests.mac("https://favorite.example", "Manga favorite", 9)
+        var folder = SidebarItem.folder("Folder", parent: a.spaces[0].pinnedContainerID)
+        folder.children = [nested.id]
+        a.items += [pinned, nested, folder, favorite]
+        a.items[a.items.firstIndex { $0.id == a.spaces[0].pinnedContainerID }!].children = [pinned.id, folder.id]
+        a.items[a.items.firstIndex { $0.id == a.spaces[0].favoritesContainerID }!].children = [favorite.id]
+        b.items += [today, undated]
+        b.items[b.items.firstIndex { $0.id == b.spaces[0].todayContainerID }!].children = [today.id]
+        b.items[b.items.firstIndex { $0.id == b.spaces[0].pinnedContainerID }!].children = [undated.id]
+        a.spaces += b.spaces
+        a.items += b.items
+        var blank = SidebarDocument.fresh()
+        blank.spaces[0].standaloneWindowID = UUID()
+        let hidden = MobileRecentTabsTests.mac("https://hidden.example", "Manga hidden", 10)
+        blank.items.append(hidden)
+        blank.items[blank.items.firstIndex { $0.id == blank.spaces[0].pinnedContainerID }!].children = [hidden.id]
+        a.spaces += blank.spaces
+        a.items += blank.items
+        let sites = MobileSuggestions.macSites(in: a)
+        // Today tabs come too (Victor, 20 Nov), newest first with the pinned ones.
+        #expect(sites.map(\.title) == ["Manga today", "Manga pinned", "Manga folder", "Manga undated"])
+        #expect(sites.map { $0.place?.prefix } == ["Today in ", "Pinned in ", "Pinned in ", "Pinned in "])
+        #expect(sites.map { $0.place?.space } == ["B", "A", "A", "B"])
+        let phone = MobileSuggestions.Site(title: "Manga phone", url: "https://www.x.example/p/")
+        let rows = MobileSuggestions.rows(typed: "manga", completions: [], sites: [phone] + sites, limit: 10)
+        #expect(rows.map(\.text) == ["manga", "Manga phone", "Manga today"])
+        #expect(rows[1].place == nil)
+        #expect(rows[2].place?.prefix == "Today in " && rows[2].place?.space == "B")
+        let duplicate = MobileSuggestions.rows(typed: "x.example", completions: [], sites: [phone] + sites)
+        #expect(duplicate.filter { if case .site = $0.kind { return true }; return false }.count == 1)
+        #expect(duplicate[0].place == nil)
+        let extras = (1...2).map { MobileRecentTabsTests.mac("https://extra\($0).example", "Manga extra", 1) }
+        a.items += extras
+        a.items[a.items.firstIndex { $0.id == a.spaces[0].pinnedContainerID }!].children += extras.map(\.id)
+        let many = MobileSuggestions.macSites(in: a)
+        #expect(many.count == 6)
+        #expect(MobileSuggestions.rows(typed: "manga", completions: [], sites: many, limit: 10).count == 3)
+    }
+
     @Test func emptyFieldHasNoRows() {
         #expect(MobileSuggestions.rows(typed: "  ", completions: ["a"]).isEmpty)
     }
@@ -163,6 +245,48 @@ struct MobileTabsTests {
         #expect(document.selected == nil)
     }
 
+    /// A tab picked from the row moves to its newest end, as in Arc Search: the row runs from
+    /// the least to the most recently picked. A plain select (a swipe along the bar) keeps the order.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/647")) func aPickedTabMovesToTheNewestEnd() {
+        var document = MobileTabsDocument()
+        let tabs = ["a", "b", "c", "d"].map { Self.tab($0, hoursAgo: 1) }
+        tabs.forEach { document.open($0) }
+        document.bringToFront(tabs[0].id, now: Self.start)
+        #expect(document.tabs.map(\.title) == ["b", "c", "d", "a"])
+        #expect(document.selected == tabs[0].id)
+        #expect(document.selectedTab?.lastActive == Self.start)
+        document.bringToFront(tabs[0].id, now: Self.start)
+        #expect(document.tabs.map(\.title) == ["b", "c", "d", "a"], "the newest stays where it is")
+        document.select(tabs[2].id, now: Self.start)
+        #expect(document.tabs.map(\.title) == ["b", "c", "d", "a"], "walking the row doesn't reorder it")
+        document.bringToFront(UUID(), now: Self.start)
+        #expect(document.selected == tabs[2].id, "a tab that is gone changes nothing")
+    }
+
+    /// The reporter's follow-up: a popup from a tab further back, once put away, hands the screen
+    /// back to that tab, not to its neighbour at the end of the row.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/647")) func archivingAPopupReturnsToItsOpener() {
+        var document = MobileTabsDocument()
+        let tabs = ["a", "b", "c"].map { Self.tab($0, hoursAgo: 1) }
+        tabs.forEach { document.open($0) }
+        let popup = Self.tab("popup", hoursAgo: 0)
+        document.open(popup)
+        document.archive(popup.id, returningTo: tabs[0].id)
+        #expect(document.selected == tabs[0].id)
+        #expect(document.archived.map(\.title) == ["popup"])
+
+        let other = Self.tab("other", hoursAgo: 0)
+        document.open(other)
+        document.archive(tabs[1].id, returningTo: tabs[0].id)
+        #expect(document.selected == other.id, "a tab off screen leaves the screen alone")
+
+        document.archive(tabs[0].id)
+        let orphan = Self.tab("orphan", hoursAgo: 0)
+        document.open(orphan)
+        document.archive(orphan.id, returningTo: tabs[0].id)
+        #expect(document.selected == other.id, "an opener that is gone falls back to the neighbour")
+    }
+
     @Test func staleTabsGoToTheArchiveNewestFirst() {
         var document = MobileTabsDocument()
         let old = Self.tab("old", hoursAgo: 50), older = Self.tab("older", hoursAgo: 80), fresh = Self.tab("fresh", hoursAgo: 2)
@@ -174,6 +298,25 @@ struct MobileTabsTests {
         #expect(document.archiveStale(after: .thirtyDays, now: Self.start) == 0)
         #expect(MobileArchiveAfter.allCases.map(\.label) == ["12 hours", "1 day", "3 days", "7 days", "30 days"])
         #expect(MobileArchiveAfter.oneDay.settingValue == "After 1 day")
+    }
+
+    /// A flick up on the tab button goes to the tab looked at last, whatever its place in the
+    /// row, and the next flick comes back: Arc Search's toggle between the two newest tabs.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/537")) func theFlickGoesToTheTabLookedAtLast() {
+        var document = MobileTabsDocument()
+        let a = Self.tab("a", hoursAgo: 3), b = Self.tab("b", hoursAgo: 2), c = Self.tab("c", hoursAgo: 1)
+        [a, b, c].forEach { document.open($0) }
+        #expect(document.previousTab?.title == "b")
+        document.select(a.id, now: Self.start)
+        #expect(document.previousTab?.title == "c", "the row's neighbour is b, but c was on screen last")
+        document.select(c.id, now: Self.start.addingTimeInterval(1))
+        #expect(document.previousTab?.title == "a")
+        // Incognito tabs are not in the row, so a flick never lands on one.
+        document.add(Self.tab("secret", hoursAgo: 0, incognito: true))
+        #expect(document.previousTab?.title == "a")
+        var alone = MobileTabsDocument()
+        alone.open(a)
+        #expect(alone.previousTab == nil)
     }
 
     @Test func restoringAnArchivedTabShowsIt() {
@@ -484,6 +627,137 @@ struct MobileSwipeTests {
         #expect(MobileSwipe.mayStart(at: 385, width: 393, mode: .fromEdges))
     }
 
+    /// A scroll view's room to either side: none on a page that fits, both ways in the middle
+    /// of a zoomed page, and none past the end it sits at.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/627")) func scrollRoomIsWhatIsLeftOnEitherSide() {
+        #expect(MobileSwipe.ScrollRoom(offsetX: 0, contentWidth: 393, width: 393) == .init(left: 0, right: 0))
+        #expect(MobileSwipe.ScrollRoom(offsetX: 300, contentWidth: 1179, width: 393) == .init(left: 300, right: 486))
+        #expect(MobileSwipe.ScrollRoom(offsetX: 786, contentWidth: 1179, width: 393) == .init(left: 786, right: 0))
+        #expect(MobileSwipe.ScrollRoom(offsetX: -10, contentWidth: 800, width: 393, insetLeft: 10) == .init(left: 0, right: 417))
+        #expect(MobileSwipe.ScrollRoom(offsetX: 900, contentWidth: 800, width: 393) == .init(left: 900, right: 0), "rubber-banding past the end")
+    }
+
+    /// Zoomed in, or on a carousel, a sideways drag scrolls what is under the finger; at its end,
+    /// or where nothing scrolls, it goes Back or Forward. The screen's edge always navigates.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/627")) func aSidewaysDragScrollsWhatCanScrollBeforeItNavigates() {
+        func starts(at x: CGFloat = 200, right: Bool, mode: MobileSwipeToNavigate = .fromAnywhere, _ scrollers: [MobileSwipe.ScrollRoom]) -> Bool {
+            MobileSwipe.pageSwipeStarts(at: x, width: 393, mode: mode, touches: 1, velocity: CGPoint(x: right ? 600 : -600, y: 40),
+                                        scrollers: scrollers)
+        }
+        let page = MobileSwipe.ScrollRoom(left: 0, right: 0)
+        #expect(starts(right: true, [page]), "a page that fits goes Back")
+        #expect(starts(right: false, [page]), "and Forward")
+
+        let zoomedMiddle = MobileSwipe.ScrollRoom(left: 300, right: 486)
+        #expect(!starts(right: true, [zoomedMiddle]), "zoomed in, the page scrolls")
+        #expect(!starts(right: false, [zoomedMiddle]))
+
+        let zoomedAtLeft = MobileSwipe.ScrollRoom(left: 0, right: 786)
+        #expect(starts(right: true, [zoomedAtLeft]), "at its left end, a drag right goes Back")
+        #expect(!starts(right: false, [zoomedAtLeft]))
+
+        let carousel = MobileSwipe.ScrollRoom(left: 0, right: 1200)
+        #expect(!starts(right: false, [carousel, page]), "the carousel under the finger scrolls")
+        #expect(!starts(right: true, [MobileSwipe.ScrollRoom(left: 120, right: 0), page]), "and back again")
+        #expect(starts(right: true, [carousel, page]), "at its start, a drag right goes Back")
+
+        #expect(starts(at: 10, right: true, [zoomedMiddle]), "the left edge always goes Back")
+        #expect(starts(at: 385, right: false, [carousel]), "the right edge always goes Forward")
+        #expect(!starts(right: true, mode: .fromEdges, [page]), "From Edges keeps its rule")
+    }
+
+    /// Two fingers are a pinch: the page zooms instead of being dragged sideways.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/628")) func twoFingersNeverSwipeThePage() {
+        let page = MobileSwipe.ScrollRoom(left: 0, right: 0)
+        #expect(MobileSwipe.pageSwipeStarts(at: 200, width: 393, mode: .fromAnywhere, touches: 1, velocity: CGPoint(x: 600, y: 0), scrollers: [page]))
+        #expect(!MobileSwipe.pageSwipeStarts(at: 200, width: 393, mode: .fromAnywhere, touches: 2, velocity: CGPoint(x: 600, y: 0), scrollers: [page]))
+        #expect(!MobileSwipe.pageSwipeStarts(at: 10, width: 393, mode: .fromEdges, touches: 2, velocity: CGPoint(x: 600, y: 0), scrollers: [page]))
+        #expect(!MobileSwipe.pageSwipeStarts(at: 200, width: 393, mode: .fromAnywhere, touches: 1, velocity: CGPoint(x: 300, y: 250), scrollers: [page]),
+                "a drag that is not clearly sideways is the page's scroll")
+    }
+
+    /// The flick up from the tab button switches once it is far enough or quick enough upwards.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/537")) func theFlickUpSwitchesByDistanceOrSpeed() {
+        #expect(MobileSwipe.switchesToPreviousTab(dragUp: 120, velocityUp: 0))
+        #expect(!MobileSwipe.switchesToPreviousTab(dragUp: 50, velocityUp: 0))
+        #expect(MobileSwipe.switchesToPreviousTab(dragUp: 50, velocityUp: 700))
+        #expect(!MobileSwipe.switchesToPreviousTab(dragUp: 10, velocityUp: 2000))
+        #expect(!MobileSwipe.switchesToPreviousTab(dragUp: 120, velocityUp: -800), "pulled back down before letting go")
+        #expect(MobileSwipe.previousTabProgress(dragUp: 0) == 0)
+        #expect(MobileSwipe.previousTabProgress(dragUp: 250) == 0.5)
+        #expect(MobileSwipe.previousTabProgress(dragUp: 900) == 1)
+        #expect(MobileSwipe.previousTabProgress(dragUp: -40) == 0)
+    }
+
+    /// The flick for the previous tab starts anywhere on the bar's left end, not only on the
+    /// 47 pt button: a thumb that came down beside it opened the tab row (#537, reporter's
+    /// follow-up). A flick leaning towards the middle still counts as up.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/537")) func theFlickStartsAnywhereOnTheBarsLeftEnd() {
+        let size = CGSize(width: 393, height: 852)
+        let zone = MobileBottomBar.previousTabZone(in: size, safeBottom: 34)
+        let frames = MobileBottomBar.frames(in: size, safeBottom: 34)
+        #expect(zone.contains(frames.tabs.insetBy(dx: -6, dy: -6)), "the button and its slop")
+        #expect(zone.contains(CGPoint(x: 85, y: frames.tabs.midY)), "beside the button, towards the pill")
+        #expect(zone.contains(CGPoint(x: 4, y: 850)), "the screen's corner")
+        #expect(zone.contains(CGPoint(x: 30, y: frames.bar.minY + 1)), "the bar's top edge")
+        #expect(!zone.intersects(frames.pill), "the pill keeps its drag up to the tab row")
+        #expect(!zone.contains(CGPoint(x: 30, y: frames.bar.minY - 1)), "the page above the bar")
+        #expect(abs(zone.maxX - 108.5) < 0.01, "halfway between the button and the pill")
+
+        func drag(_ vx: CGFloat, _ vy: CGFloat, inZone: Bool = true, previous: Bool = true) -> MobileSwipe.BarDrag {
+            MobileSwipe.barDrag(velocity: CGPoint(x: vx, y: vy), startsInPreviousTabZone: inZone, hasPreviousTab: previous)
+        }
+        #expect(drag(0, -900) == .previousTab)
+        #expect(drag(700, -600) == .previousTab, "a thumb's flick leaning towards the middle")
+        #expect(drag(-500, -400) == .previousTab)
+        #expect(drag(900, -300) == .neighbour, "close to flat is a swipe along the bar")
+        #expect(drag(900, 0) == .neighbour)
+        #expect(drag(0, -900, inZone: false) == .tabRow)
+        #expect(drag(700, -600, inZone: false) == .neighbour)
+        #expect(drag(0, -900, previous: false) == .tabRow, "one tab: nothing to flick to, so the row opens")
+    }
+
+    /// Arc Search 1.49 (the reporter's recording): a drag up from the "+" pill pulls the search
+    /// sheet out under the finger, and it opens once let go far enough up or flicked.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/623")) func aDragUpFromThePillPullsTheSearchSheetOut() {
+        let size = CGSize(width: 393, height: 852)
+        let frames = MobileBottomBar.frames(in: size, safeBottom: 34)
+        let zone = MobileBottomBar.searchPullZone(in: size, safeBottom: 34)
+        #expect(zone.contains(frames.pill.insetBy(dx: -6, dy: -6)), "the pill and its slop")
+        #expect(!zone.intersects(MobileBottomBar.previousTabZone(in: size, safeBottom: 34)), "the tab button keeps its flick")
+        #expect(!zone.intersects(frames.menu), "and the menu button its own")
+        #expect(zone.contains(CGPoint(x: 196, y: 850)), "down to the screen's edge")
+        #expect(!zone.contains(CGPoint(x: 196, y: frames.bar.minY - 1)), "not the page above the bar")
+        #expect(!zone.contains(CGPoint(x: 275, y: frames.pill.midY)), "the bar between the pill and the menu drags the tab row")
+
+        func drag(_ vx: CGFloat, _ vy: CGFloat, onPill: Bool = true) -> MobileSwipe.BarDrag {
+            MobileSwipe.barDrag(velocity: CGPoint(x: vx, y: vy), startsInPreviousTabZone: false, hasPreviousTab: true,
+                                startsInSearchPullZone: onPill)
+        }
+        #expect(drag(0, -800) == .searchSheet)
+        #expect(drag(300, -500) == .searchSheet, "leaning a little")
+        #expect(drag(800, -200) == .neighbour, "along the bar from the pill still changes tab")
+        #expect(drag(0, -800, onPill: false) == .tabRow, "from beside the pill the row opens")
+
+        #expect(MobileSwipe.searchPullProgress(dragUp: 0) == 0)
+        #expect(MobileSwipe.searchPullProgress(dragUp: 130) == 0.5)
+        #expect(MobileSwipe.searchPullProgress(dragUp: 600) == 1)
+        #expect(MobileSwipe.searchPullOpens(dragUp: 150, velocityUp: 0))
+        #expect(!MobileSwipe.searchPullOpens(dragUp: 60, velocityUp: 0), "too short: back into the pill")
+        #expect(MobileSwipe.searchPullOpens(dragUp: 40, velocityUp: 800), "a flick")
+        #expect(!MobileSwipe.searchPullOpens(dragUp: 200, velocityUp: -600), "pulled back down before letting go")
+    }
+
+    /// The open sheet goes down with a drag from anywhere on it, its suggestions included, as in
+    /// Arc Search; scrolled suggestions scroll back first.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/623")) func theWholeSheetDragsDown() {
+        #expect(MobileSwipe.sheetDragStarts(velocity: CGPoint(x: 0, y: 600), onList: false, listOffset: 0))
+        #expect(MobileSwipe.sheetDragStarts(velocity: CGPoint(x: 0, y: 600), onList: true, listOffset: 0), "on the suggestions")
+        #expect(!MobileSwipe.sheetDragStarts(velocity: CGPoint(x: 0, y: 600), onList: true, listOffset: 112), "scrolled: they scroll back")
+        #expect(!MobileSwipe.sheetDragStarts(velocity: CGPoint(x: 0, y: -600), onList: true, listOffset: 0), "up scrolls the suggestions")
+        #expect(!MobileSwipe.sheetDragStarts(velocity: CGPoint(x: 600, y: 100), onList: false, listOffset: 0))
+    }
+
     @Test func pullToRefreshActsOnRelease() {
         #expect(MobileSwipe.refreshes(pullAtRelease: 100))
         #expect(!MobileSwipe.refreshes(pullAtRelease: 60))
@@ -612,18 +886,62 @@ struct MobileSpacesTests {
         return (document, folder.id)
     }
 
+    /// Arc Search's Spaces sheet (Victor's screenshots, 13 Nov): the pinned tabs and folders,
+    /// folders shut until tapped, a line, then Today. Favorites stay out, as Arc Search leaves out
+    /// the desktop's favorites.
     @Test func aSpaceListsItsPinsFoldersAndTodayTabs() {
-        let (document, folder) = Self.sidebar()
+        var (document, folder) = Self.sidebar()
+        let space = document.spaces[0]
+        let favorite = SidebarItem.tab("https://fav.example/", title: "Favorite", parent: space.favoritesContainerID)
+        document.items.append(favorite)
+        let favorites = document.items.firstIndex { $0.id == space.favoritesContainerID }!
+        document.items[favorites].children = [favorite.id]
         let spaces = MobileSpaces.spaces(in: document)
         #expect(spaces.map(\.title) == ["Personal", "Play"])
-        #expect(spaces[0].rows.map(\.title) == ["Inbox", "Work", "Docs", "Today", "news.example"])
-        #expect(spaces[0].rows.map(\.depth) == [0, 0, 1, 0, 0])
+        #expect(spaces[0].rows.map(\.title) == ["Inbox", "Work", "Today", "news.example"])
         #expect(spaces[0].rows[0].kind == .tab(url: "https://mail.example/inbox"))
-        #expect(spaces[0].rows[3].kind == .todayHeader)
+        #expect(spaces[0].rows[1].kind == .folder(open: false))
+        #expect(spaces[0].rows[2].kind == .todayHeader)
         #expect(spaces[1].rows.isEmpty)
         #expect(spaces[0].colors == SpaceTheme.presets[0].colors)
-        let closed = MobileSpaces.spaces(in: document, closedFolders: [folder])
-        #expect(closed[0].rows.map(\.title) == ["Inbox", "Work", "Today", "news.example"])
+        let opened = MobileSpaces.spaces(in: document, openFolders: [folder])
+        #expect(opened[0].rows.map(\.title) == ["Inbox", "Work", "Docs", "Today", "news.example"])
+        #expect(opened[0].rows.map(\.depth) == [0, 0, 1, 0, 0])
+        #expect(opened[0].rows[1].kind == .folder(open: true))
+    }
+
+    /// The sheet reads the Mac's sidebar each time it opens, and that read takes a moment. A
+    /// reopened sheet showed "Connecting" (a bright flash in dark mode) for it every time; it now
+    /// opens on what the last read found, and "Connecting" is only for the first opening.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/556")) func aReopenedSheetShowsTheLastReadAtOnce() {
+        var sheet = MobileSpacesSheet()
+        #expect(sheet.opening == nil, "nothing read yet: Connecting")
+        let (document, _) = Self.sidebar()
+        sheet.remember(.spaces(document), askedICloud: true)
+        #expect(sheet.opening == .spaces(document))
+        var changed = document
+        changed.spaces.removeLast()
+        sheet.remember(.spaces(changed), askedICloud: true)
+        #expect(sheet.opening == .spaces(changed), "the newer read replaces it")
+        sheet.remember(.nothingSynced, askedICloud: true)
+        #expect(sheet.opening == .nothingSynced, "Sync turned off on the Mac shows as such")
+        var signedOut = MobileSpacesSheet()
+        signedOut.remember(.unavailable, askedICloud: true)
+        #expect(signedOut.opening == .unavailable, "without iCloud the explanation shows at once too")
+    }
+
+    /// The tab row's look for its sync card doesn't ask iCloud: Spaces it finds make the first
+    /// opening instant, a file not brought down yet doesn't hide Spaces read before.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/556")) func aQuickLookOnlyAddsSpaces() {
+        let (document, _) = Self.sidebar()
+        var sheet = MobileSpacesSheet()
+        sheet.remember(.nothingSynced, askedICloud: false)
+        #expect(sheet.opening == nil)
+        sheet.remember(.spaces(document), askedICloud: false)
+        #expect(sheet.opening == .spaces(document))
+        sheet.remember(.nothingSynced, askedICloud: false)
+        sheet.remember(.unavailable, askedICloud: false)
+        #expect(sheet.opening == .spaces(document))
     }
 
     @Test func theSyncedFileReadsBack() throws {
@@ -637,12 +955,110 @@ struct MobileSpacesTests {
 
     /// The phone reads the sidebar.json the Mac saves, dates as ISO 8601 text and all. A plain
     /// decoder wants numbers there, so every real Mac's Spaces came out as "nothing synced".
-    @Test func theMacsSavedSidebarReads() throws {
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/465")) func theMacsSavedSidebarReads() throws {
         let url = try #require(Bundle.module.url(forResource: "sidebar.json", withExtension: nil, subdirectory: "Fixtures/Model/recorded"))
         let document = try #require(MobileSpaces.document(from: Data(contentsOf: url)))
         #expect(!document.spaces.isEmpty)
         #expect(!MobileSpaces.spaces(in: document).isEmpty)
     }
+
+    /// The phone's build can be older than the Mac that wrote the file. An item kind, a folder
+    /// symbol, a split layout or a whole Space shape the phone doesn't know yet leaves that one
+    /// thing out; the rest of the Mac's Spaces still show, never "nothing synced".
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/465")) func aNewerMacsSidebarStillReads() throws {
+        let document = try #require(MobileSpaces.document(from: Data(Self.newerMacSidebar.utf8)))
+        let spaces = MobileSpaces.spaces(in: document)
+        #expect(spaces.map(\.title) == ["Work"])
+        #expect(spaces[0].symbol == "briefcase")
+        #expect(spaces[0].rows.map(\.title) == ["Inbox", "Odd", "Linear", "Left", "Right", "Notes", "Today", "Story"])
+        #expect(spaces[0].rows[1].kind == .folder(open: false))
+        let opened = MobileSpaces.spaces(in: document, openFolders: [UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!])
+        #expect(opened[0].rows.map(\.title).prefix(3) == ["Inbox", "Odd", "Docs"])
+        #expect(MobileSpaces.document(from: Data(#"{"spaces": "soon"}"#.utf8)) == nil)
+    }
+
+    /// A Mac sidebar.json from a later Cra than this one: today's newest fields (folder symbols,
+    /// live folders, splits, tab groups, theme variants, per-Space engines) plus keys, item kinds
+    /// ("easel", "note"), a container kind, a split orientation, a folder symbol and a Space
+    /// shape that no Cra writes yet.
+    static let newerMacSidebar = #"""
+    {
+      "version": 3,
+      "boosts": [{"host": "example.com"}],
+      "spaceOrder": ["00000000-0000-0000-0000-00000000000A", "00000000-0000-0000-0000-00000000000B"],
+      "spaces": [
+        {"id": "00000000-0000-0000-0000-00000000000A", "title": "Work", "emoji": "", "symbol": "briefcase",
+         "searchEngine": "ddg", "createdAt": "2026-11-17T09:00:00Z", "wallpaper": {"kind": "gradient"},
+         "theme": {"colors": ["#A687C8", "#3A3660"], "intensity": 0.8, "noise": 0.1, "appearance": "auto", "vibrant": true,
+                   "accent": "#FF00AA", "solid": false, "key": ["#A687C8"], "grain": 0.3,
+                   "dark": {"colors": ["#221133"], "intensity": 0.6, "noise": 0.1}},
+         "favoritesContainerID": "00000000-0000-0000-0000-0000000000F1",
+         "pinnedContainerID": "00000000-0000-0000-0000-0000000000F2",
+         "todayContainerID": "00000000-0000-0000-0000-0000000000F3"},
+        {"id": "00000000-0000-0000-0000-00000000000B", "title": "Later", "theme": "aurora", "layout": {"rows": 2},
+         "createdAt": "2026-11-17T09:00:00Z"}
+      ],
+      "items": [
+        {"id": "00000000-0000-0000-0000-0000000000F1", "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"container": {"_0": {"favorites": {"spaceID": "00000000-0000-0000-0000-00000000000A"}}}}},
+        {"id": "00000000-0000-0000-0000-0000000000F2", "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "children": ["00000000-0000-0000-0000-0000000000B1", "00000000-0000-0000-0000-0000000000B2", "00000000-0000-0000-0000-0000000000B4",
+                      "00000000-0000-0000-0000-0000000000E1", "00000000-0000-0000-0000-0000000000C1", "00000000-0000-0000-0000-0000000000B6"],
+         "data": {"container": {"_0": {"pinned": {"spaceID": "00000000-0000-0000-0000-00000000000A"}}}}},
+        {"id": "00000000-0000-0000-0000-0000000000F3", "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "children": ["00000000-0000-0000-0000-0000000000D1", "00000000-0000-0000-0000-0000000000E2"],
+         "data": {"container": {"_0": {"today": {"spaceID": "00000000-0000-0000-0000-00000000000A"}}}}},
+        {"id": "00000000-0000-0000-0000-0000000000F4", "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"container": {"_0": {"standalone": {"windowID": "00000000-0000-0000-0000-0000000000F9"}}}}},
+        {"id": "00000000-0000-0000-0000-0000000000B1", "parentID": "00000000-0000-0000-0000-0000000000F2", "title": "Inbox",
+         "children": [], "isUnread": true, "createdAt": "2026-11-17T09:00:00Z", "pinnedAt": "2026-11-17T09:00:00Z",
+         "data": {"tab": {"_0": {"url": "https://mail.example/inbox", "savedURL": "https://mail.example/", "savedTitle": "Mail",
+                  "muted": false, "timeLastActiveAt": "2026-11-17T10:00:00Z", "referrerID": "00000000-0000-0000-0000-0000000000B6",
+                  "faviconKey": "mail.example", "customIconKey": "pick-1", "tileColor": "#112233", "themeColor": "#445566",
+                  "homeTitle": "Mail", "liveItemURL": "https://github.com/a/b/pull/1", "liveSubtitle": "octocat",
+                  "liveGoneAt": "2026-11-17T11:00:00Z", "readingProgress": 0.4}}}},
+        {"id": "00000000-0000-0000-0000-0000000000B2", "parentID": "00000000-0000-0000-0000-0000000000F2", "title": "Odd",
+         "children": ["00000000-0000-0000-0000-0000000000B3"], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "folderIcon": "tinted", "folderSymbol": "rocket", "tabGroup": false, "data": {"folder": {}}},
+        {"id": "00000000-0000-0000-0000-0000000000B3", "parentID": "00000000-0000-0000-0000-0000000000B2",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"tab": {"_0": {"url": "https://docs.example", "savedURL": "https://docs.example", "savedTitle": "Docs", "muted": false}}}},
+        {"id": "00000000-0000-0000-0000-0000000000B4", "parentID": "00000000-0000-0000-0000-0000000000F2", "title": "Linear",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z", "folderSymbol": "code",
+         "pluginFolder": {"source": "linear", "plugin": {"id": "linear", "settings": {"team": "CRA"}}, "hiddenItems": [],
+                          "lastFetch": "2026-11-17T09:30:00Z", "lastError": "quotaExceeded"},
+         "data": {"folder": {}}},
+        {"id": "00000000-0000-0000-0000-0000000000E1", "parentID": "00000000-0000-0000-0000-0000000000F2", "title": "Sketches",
+         "children": ["00000000-0000-0000-0000-0000000000E3"], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"easel": {"_0": {"canvasID": "00000000-0000-0000-0000-0000000000E9"}}}},
+        {"id": "00000000-0000-0000-0000-0000000000E3", "parentID": "00000000-0000-0000-0000-0000000000E1",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"tab": {"_0": {"url": "https://sketch.example", "savedURL": "https://sketch.example", "savedTitle": "Sketch", "muted": false}}}},
+        {"id": "00000000-0000-0000-0000-0000000000C1", "parentID": "00000000-0000-0000-0000-0000000000F2",
+         "children": ["00000000-0000-0000-0000-0000000000C2", "00000000-0000-0000-0000-0000000000C3"], "isUnread": false,
+         "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"split": {"_0": {"orientation": "grid", "focusTabID": "00000000-0000-0000-0000-0000000000C2",
+                  "widthFactors": {"00000000-0000-0000-0000-0000000000C2": 1, "00000000-0000-0000-0000-0000000000C3": 1}}}}},
+        {"id": "00000000-0000-0000-0000-0000000000C2", "parentID": "00000000-0000-0000-0000-0000000000C1",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"tab": {"_0": {"url": "https://left.example", "savedURL": "https://left.example", "savedTitle": "Left", "muted": false}}}},
+        {"id": "00000000-0000-0000-0000-0000000000C3", "parentID": "00000000-0000-0000-0000-0000000000C1",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"tab": {"_0": {"url": "https://right.example", "savedURL": "https://right.example", "savedTitle": "Right", "muted": true}}}},
+        {"id": "00000000-0000-0000-0000-0000000000B6", "parentID": "00000000-0000-0000-0000-0000000000F2", "title": "Notes",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"tab": {"_0": {"url": "https://notes.example", "savedURL": "https://notes.example", "savedTitle": "", "muted": false,
+                  "sleep": {"after": "never"}}}}},
+        {"id": "00000000-0000-0000-0000-0000000000D1", "parentID": "00000000-0000-0000-0000-0000000000F3",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z",
+         "data": {"tab": {"_0": {"url": "https://news.example/story", "savedURL": "https://news.example/story", "savedTitle": "Story", "muted": false}}}},
+        {"id": "00000000-0000-0000-0000-0000000000E2", "parentID": "00000000-0000-0000-0000-0000000000F3", "title": "Scratch",
+         "children": [], "isUnread": false, "createdAt": "2026-11-17T09:00:00Z", "data": {"note": {"text": "hi"}}}
+      ],
+      "profiles": [{"id": "00000000-0000-0000-0000-0000000000AA", "name": "Work", "color": "#00FF00"}],
+      "profileFavorites": [{"containerID": "00000000-0000-0000-0000-0000000000F1", "pinned": true}]
+    }
+    """#
 }
 
 struct MobileFavoritesTests {
@@ -752,11 +1168,20 @@ struct MobileDownloadsTests {
         #expect(try JSONDecoder().decode(MobileDownloads.self, from: saved) == downloads)
     }
 
-    @Test func aCertificateExceptionIsForOneHost() {
+    /// GitHub #569: Continue Anyway allows the host the warning named, and only that host, for
+    /// the rest of the run. (The load failing again after Continue Anyway was App Transport
+    /// Security, which a web view's trust answer can't override; CertificateTests pins that in the app.)
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/569"))
+    func aCertificateExceptionIsForOneHost() {
         var exceptions = MobileCertificateExceptions()
+        #expect(!exceptions.allows("self-signed.example"))
         exceptions.allow("Self-Signed.Example")
         #expect(exceptions.allows("self-signed.example"))
+        #expect(exceptions.allows("SELF-SIGNED.EXAMPLE"))
         #expect(!exceptions.allows("other.example"))
+        #expect(!exceptions.allows("www.self-signed.example"), "a subdomain is another host")
+        exceptions.allow("self-signed.example")
+        #expect(exceptions.hosts == ["self-signed.example"])
     }
 }
 
@@ -814,6 +1239,15 @@ struct MobileBrowseToggleTests {
         #expect(MobileBrowseToggle.state(tabAddress: "https://example.com/search?q=x", pageURL: "https://example.com/search?q=x", engine: .google) == nil)
         // Another engine's results are not the chosen engine's.
         #expect(MobileBrowseToggle.state(tabAddress: "", pageURL: "https://www.bing.com/search?q=x", engine: .google) == nil)
+    }
+
+    @Test(arguments: ["C++ tutorial", "a+b c&d=e", "100% + # ? /", "café + 東京 🧪"])
+    func literalPlusSearchQueriesRoundTrip(_ query: String) {
+        for engine in MobileSearchEngine.allCases {
+            let address = engine.searchURL(query)
+            #expect(address.contains("%2B"), "literal plus must be percent encoded for \(engine)")
+            #expect(engine.query(fromResultsURL: address) == query, "\(engine)")
+        }
     }
 
     /// Every engine's own results address reads back the query it was made from.
@@ -1002,6 +1436,62 @@ struct MobileSpacesSheetTests {
         #expect(MobileSpaces.sheetStyle(colors: ["#C7CAFF", "#FFE5E5"])?.lightText == false)
         #expect(MobileSpaces.sheetStyle(colors: []) == nil)
     }
+
+    /// In dark mode Arc Search draws a Space's sheet in shades of its colour at fixed perceived
+    /// lightness (OKLCH), the hue the Space's own.
+    @Test func darkModeShadesTheSpacesColour() throws {
+        let cream = try #require(MobileSpaces.darkSheetStyle(colors: ["#F4F1EA", "#E6DCC8"]))
+        // Arc's, measured in Victor's IMG_1900–1902: #3A341B to #433013, bar #5F4307, name #F8E8A0,
+        // rows #FDF7DF, close disc #756843; folder front #6F5600, back #E9B300, edge #FCEDBC.
+        #expect([cream.top, cream.bottom, cream.bar, cream.title, cream.text, cream.closeDisc] ==
+                ["#39331C", "#422F14", "#5F4307", "#F8E8A0", "#FAF5E4", "#726747"])
+        #expect([cream.folderFront, cream.folderBack, cream.folderEdge] == ["#705700", "#E9B303", "#FDEEBD"])
+        // A muted purple Space gets the same perceived lightness as Arc's blue one (IMG_1904: top
+        // #313044, close disc #64637D, folder front #1F2AFF, rows #F2F3FF) in its own hue.
+        let purple = try #require(MobileSpaces.darkSheetStyle(colors: ["#6F5F7F", "#646172"]))
+        #expect(purple.top == "#3C2D40")
+        #expect(purple.closeDisc == "#71607B")
+        #expect(purple.folderFront == "#8500B7")
+        #expect(purple.text == "#FCF1FF")
+        // A grey Space has no hue to keep: neutral shades, not a made-up colour.
+        let grey = try #require(MobileSpaces.darkSheetStyle(colors: ["#808080"]))
+        #expect(grey.top == "#333333")
+        #expect(MobileSpaces.darkSheetStyle(colors: []) == nil)
+    }
+}
+
+/// Site icons for rows the phone never visited: the icons a site's home page names, best first.
+struct MobileFaviconLinkTests {
+    /// A dark, colourless icon with see-through parts (GitHub's mark) would vanish on a dark
+    /// sheet; Arc Search draws it in the text's colour. Coloured or filled-in icons stay as they are.
+    @Test func darkMarksAreDrawnInTheTextsColourOnDark() {
+        #expect(MobileFavicons.drawsAsMark(coverage: 0.55, luminance: 0.08, chroma: 0.02, lightShare: 0))
+        // GitHub's octocat is #1F2328: a ratio-based saturation calls that 22 % saturated.
+        #expect(MobileFavicons.drawsAsMark(coverage: 0.62, luminance: 0.13, chroma: 0.035, lightShare: 0), "a dark slate mark")
+        #expect(!MobileFavicons.drawsAsMark(coverage: 0.55, luminance: 0.4, chroma: 0.5, lightShare: 0.1), "a coloured icon")
+        #expect(!MobileFavicons.drawsAsMark(coverage: 1, luminance: 0.08, chroma: 0.02, lightShare: 0), "a filled square keeps its shape")
+        #expect(!MobileFavicons.drawsAsMark(coverage: 0.55, luminance: 0.7, chroma: 0.02, lightShare: 0.9), "a light mark shows already")
+        #expect(!MobileFavicons.drawsAsMark(coverage: 0.78, luminance: 0.15, chroma: 0, lightShare: 0.14), "Vercel: a white triangle on a black disc")
+    }
+
+    @Test func theHomePagesIconsComeBestFirst() {
+        let html = """
+        <html><head>
+        <link rel="icon" href="/favicon-16.png" sizes="16x16">
+        <LINK REL="shortcut icon" href='/favicon.ico'>
+        <link rel="apple-touch-icon" href="https://cdn.example/touch.png">
+        <link rel="icon" type="image/svg+xml" href="/icon.svg">
+        <link rel="icon" href="/favicon-32.png" sizes="32x32">
+        <link rel="stylesheet" href="/site.css">
+        </head><body><link rel="icon" href="/late.png"></body></html>
+        """
+        let links = MobileFavicons.iconLinks(inHTML: html, page: URL(string: "https://app.example/dashboard")!)
+        // Sized icons largest first (an unsized one, often an .ico holding several, between 32
+        // and 16), then the touch icon, which is drawn as an app icon; SVG and the body are skipped.
+        #expect(links == ["https://app.example/favicon-32.png", "https://app.example/favicon.ico", "https://app.example/favicon-16.png",
+                          "https://cdn.example/touch.png"])
+        #expect(MobileFavicons.iconLinks(inHTML: "<p>none</p>", page: URL(string: "https://x.example/")!) == ["https://x.example/favicon.ico"])
+    }
 }
 
 /// The query capsule on a Browse for Me page edits the question.
@@ -1093,6 +1583,20 @@ struct MobileSyncIntroTests {
         #expect(!MobileSyncIntro.showsCard(hasSpaces: false, dismissed: true))
     }
 
+    /// Arc Search asks to set up the share extension once, after the desktop's Spaces arrive.
+    @Test func theSharePromptAsksOnceTheSpacesAreHere() throws {
+        #expect(MobileSyncIntro.showsSharePrompt(hasSpaces: true, seen: false))
+        #expect(!MobileSyncIntro.showsSharePrompt(hasSpaces: false, seen: false))
+        #expect(!MobileSyncIntro.showsSharePrompt(hasSpaces: true, seen: true))
+        let old = try JSONDecoder().decode(MobileSettings.self, from: Data("{}".utf8))
+        #expect(!old.hasSeenSharePrompt)
+        var settings = MobileSettings()
+        settings.hasSeenSharePrompt = true
+        let back = try JSONDecoder().decode(MobileSettings.self, from: JSONEncoder().encode(settings))
+        #expect(back.hasSeenSharePrompt)
+        #expect(MobileSyncIntro.guideSteps.filter { $0.text.contains("{icon}") }.allSatisfy { $0.symbol != nil })
+    }
+
     @Test func theWayToSyncMentionsICloudOnlyWhenItIsOff() {
         #expect(!MobileSyncIntro.haveMacBody(iCloud: true).contains("Sign in to iCloud"))
         #expect(MobileSyncIntro.haveMacBody(iCloud: false).hasSuffix("Sign in to iCloud on this iPhone too."))
@@ -1124,5 +1628,93 @@ struct MobileAITests {
         #expect(off?.opensSettings == true)
         #expect(off?.message.contains("Settings \u{25B8} Apple Intelligence & Siri") == true)
         #expect(MobileAI.prompt(for: .preparing)?.opensSettings == false)
+    }
+}
+
+/// Arc Search's recent tabs under the empty field (#591): the phone's and the Mac's, newest first.
+struct MobileRecentTabsTests {
+    static func mac(_ url: String, _ title: String, _ date: Double?) -> SidebarItem {
+        var item = SidebarItem.tab(url, title: title, parent: nil)
+        if case .tab(var tab) = item.data {
+            tab.timeLastActiveAt = date.map(Date.init(timeIntervalSince1970:))
+            item.data = .tab(tab)
+        }
+        return item
+    }
+
+    /// A one-Space sidebar with `today` in its Today list.
+    static func sidebar(today: [SidebarItem]) -> SidebarDocument {
+        var document = SidebarDocument.fresh()
+        let container = document.spaces[0].todayContainerID
+        document.items += today
+        if let index = document.items.firstIndex(where: { $0.id == container }) { document.items[index].children = today.map(\.id) }
+        return document
+    }
+
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/591")) func mergesAndFiltersRecentTabs() {
+        let selected = MobileTab(url: "https://selected.example", title: "Selected", lastActive: Date(timeIntervalSince1970: 5))
+        let phone = MobileTab(url: "https://phone.example", title: "Phone", lastActive: Date(timeIntervalSince1970: 4))
+        let privateTab = MobileTab(url: "https://private.example", lastActive: Date(timeIntervalSince1970: 9), isIncognito: true)
+        let mac = Self.mac
+        var renamed = mac("https://rename.example", "Saved", 8)
+        renamed.title = "Renamed"
+        let document = Self.sidebar(today: [renamed, mac("https://saved.example", "Saved", 7), mac("https://host.example/path", "", 6),
+                                            mac("https://host.example/path", "Old", 1), mac(selected.url, "Selected duplicate", 20),
+                                            mac(phone.url, "Phone duplicate", 19), mac("https://undated.example", "Undated", nil),
+                                            mac("", "Empty", 21)])
+        let rows = MobileRecentTabs.rows(phone: [selected, phone, privateTab], selected: selected.id, mac: document, limit: 10)
+        #expect(rows.map(\.title) == ["Renamed", "Saved", "host.example", "Phone"])
+        #expect(rows.last?.source == .phone(phone.id))
+        #expect(rows.first?.source == .mac)
+        #expect(MobileRecentTabs.rows(phone: [selected, phone], selected: selected.id, mac: document, limit: 2).count == 2)
+        #expect(MobileRecentTabs.rows(phone: [selected, phone], selected: selected.id, mac: nil).map(\.title) == ["Phone"])
+    }
+
+    /// The same page in another form (scheme, "www.", trailing slash, fragment) is one row, the
+    /// phone's when the phone has it. An incognito tab is no tab here, so it hides nothing.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/591")) func aPageListedTwiceShowsOnce() {
+        let phone = MobileTab(url: "https://www.news.example/story/", title: "Story", lastActive: Date(timeIntervalSince1970: 1))
+        let privateTab = MobileTab(url: "https://secret.example/", lastActive: Date(timeIntervalSince1970: 2), isIncognito: true)
+        let document = Self.sidebar(today: [Self.mac("http://news.example/story#comments", "Story on the Mac", 9),
+                                            Self.mac("https://docs.example/a", "Doc", 8), Self.mac("https://www.docs.example/a/", "Doc again", 7),
+                                            Self.mac("https://secret.example", "Secret on the Mac", 6),
+                                            Self.mac("https://docs.example/a?page=2", "Doc page 2", 5)])
+        let rows = MobileRecentTabs.rows(phone: [phone, privateTab], selected: nil, mac: document, limit: 10)
+        #expect(rows.map(\.title) == ["Doc", "Secret on the Mac", "Doc page 2", "Story"])
+        #expect(rows.last?.source == .phone(phone.id))
+    }
+
+    /// Arc Sync brought the Mac's Spaces over (pinned tabs, folders, Today) but never its
+    /// favorites (ATH3): a Mac favorite isn't a recent tab, and neither is a blank window's tab.
+    /// Tabs inside folders and splits are.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/591")) func macTabsComeFromItsSyncedSpaces() {
+        var document = Self.sidebar(today: [Self.mac("https://today.example", "Today", 1)])
+        var space = document.spaces[0]
+        var folder = SidebarItem.folder("Work", parent: space.pinnedContainerID)
+        let inFolder = Self.mac("https://folder.example", "In a folder", 4)
+        var split = SidebarItem.split(parent: space.pinnedContainerID)
+        let inSplit = Self.mac("https://split.example", "In a split", 3)
+        folder.children = [inFolder.id]
+        split.children = [inSplit.id]
+        let favorite = Self.mac("https://favorite.example", "Favorite", 9)
+        document.items += [folder, inFolder, split, inSplit, favorite]
+        for (container, children) in [(space.pinnedContainerID, [folder.id, split.id]), (space.favoritesContainerID, [favorite.id])] {
+            if let index = document.items.firstIndex(where: { $0.id == container }) { document.items[index].children = children }
+        }
+        #expect(MobileRecentTabs.rows(phone: [], selected: nil, mac: document, limit: 10).map(\.title) == ["In a folder", "In a split", "Today"])
+
+        space.standaloneWindowID = UUID()
+        document.spaces[0] = space
+        #expect(MobileRecentTabs.rows(phone: [], selected: nil, mac: document).isEmpty)
+    }
+
+    /// The sidebar comes from another device: a folder listed inside itself still ends, and its
+    /// tab is listed once.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/591")) func aFolderInsideItselfStillEnds() {
+        var folder = SidebarItem.folder("Loop", parent: nil)
+        let inFolder = Self.mac("https://loop.example", "In the loop", 1)
+        folder.children = [folder.id, inFolder.id]
+        let document = Self.sidebar(today: [folder, inFolder])
+        #expect(MobileRecentTabs.rows(phone: [], selected: nil, mac: document, limit: 10).map(\.title) == ["In the loop"])
     }
 }

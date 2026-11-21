@@ -72,7 +72,12 @@ from different writes (hashes that don't match the manifest, #378) are waited fo
 minutes (`SyncMixWait`), then the Mac writes a whole bundle again; a file the manifest names that
 is gone with no placeholder is put right the same way, after one minute on the Mac that wrote the
 manifest and ten on another. A Mac that hasn't synced in the folder yet never writes over another
-Mac's bundle: it waits for that Mac, then asks. A newer Cra's bundle is never written over. `cra://debug?sync=<label>` logs what the last look found. `sync.json` in the data
+Mac's bundle: it waits for that Mac, then asks. A newer Cra's bundle is never written over. Each
+bundle's manifest names the bundles its Mac had written or applied, newest first (`parentIDs`); a
+Mac that has one of them (`sync-history.json`, the last eight written or applied, `SyncHistory`)
+merges the bundle with what changed here since the newest it has (`SidebarMerge` in CraCore: a tab closed on either Mac stays
+closed, a tab opened on either is on both, an item both changed takes the other Mac's) and writes
+the merge back. A bundle from an older Cra, or from one too far back, is applied whole. `cra://debug?sync=<label>` logs what the last look found. `sync.json` in the data
 folder holds the location and the last bundle written or applied. To try it on one Mac, run a second instance on another
 `CRA_DATA_DIR` with `CRA_SYNC_DEVICE=<name>` (a Mac is known in the folder by a hash of its
 hardware UUID, which two instances share);
@@ -124,8 +129,28 @@ to Markdown or `docs/` alone runs nothing.
   a stub to `AppServices.swift`.
 - `scripts/test-store.sh`: the real `SidebarStore`, `AppComposition` and importers on a
   `ManualScheduler`, against the made-up Arc and Chromium profiles in `Tests/Fixtures`.
+- `scripts/test-tidy-downloads.sh`: `TidyDownloadsService` and `TidyDownloadFiles` on real files
+  with a fake model: renames, Revert, and a newer download at the same path while a rename or
+  undo is waiting. No Chromium or windows.
+- `scripts/test-tidy-tabs.sh`: Tidy Tabs' service on the real `SidebarStore` with a scripted
+  model: the broom's minimum run, cancellation when the setting goes off or the space goes away,
+  a failed run hiding Tidy like Arc's, undo. `scripts/test-tidy-tabs-model.sh` checks the
+  on-device adapter's context fitting; `--real` also asks the Mac's own model (needs Apple
+  Intelligence) and prints its groups.
+- `scripts/test-tidy-titles.sh`: Tidy Tab Titles' service on the real `SidebarStore` with a
+  scripted model and a manual clock: the pin's own window measures the name, a manual rename or a
+  new home wins over a late answer, and turning the setting or the model off cancels.
+  `scripts/test-tidy-title-layout.sh` checks the row's title width and font and the rename sweep's
+  cleanup. `scripts/test-tidy-titles-model.sh` checks Arc's answer schema; `--real` also asks the
+  Mac's own model (needs Apple Intelligence) for 18 sample titles and prints the names a 230 pt row
+  would pick.
 - `scripts/test-policies.sh`: the decisions pulled out of the window controllers
   (`ExtensionLaunch`, `DevToolsToggle`, `FeatureFlags`).
+- `scripts/test-content-blocker.sh`: the engine's ad and tracker matching
+  (`Sources/CraCEF/CraContentBlocker.h`) on Cra's own list, through a C shim: sites' own hosts
+  stay first party, and what a site needs to load isn't on the list (Reddit, #586).
+- `scripts/test-webkit-stores.sh`: `WebKitStores` in a process where nothing has started WebKit
+  yet, as at launch: a deleted profile's WebKit data goes without crashing.
 - `scripts/test-folder-glyph.sh`: the standalone folder component's real AppKit layers and image
   pixels: emblems follow the front panel's perspective, keep their colors and proportions, and
   update at 1x/Retina. No CEF or visible window; coverage uses the same harness as `scripts/test.sh`.
@@ -135,11 +160,39 @@ to Markdown or `docs/` alone runs nothing.
 - `scripts/test-link-summary-share.sh`: 5-Second Previews' Copy as Image (`LinkSummaryShareImage`)
   against Arc's own copy of a card: size at 3x, the picture's inset, the dashed line's pattern and place,
   the footer colour.
+- `scripts/test-mobile-popup.sh`: the iPhone app's popups (`WebPage`'s `createWebViewWith` callback and
+  `TabStore` against stand-ins, no WebKit or simulator): a popup keeps WebKit's request (POST body included)
+  and takes its source's privacy, closing it returns to its opener, private openers stay only while their
+  popup is in front, and a closed opener's page is let go.
 - `scripts/test-link-summary-panel.sh`: 5-Second Previews' card window (`LinkSummaryPanel`) off screen with
   a stub service: the loading card, the answer growing in under the link, the small card above its link, closing.
+- Ask on Page (⌘F's find-or-ask card), four harnesses:
+  `scripts/test-ask-on-page-service.sh` runs `AskOnPageService`, the card's controller and the find panel's
+  Use Selection path on a `ManualScheduler` with a scripted model (streaming at ten updates a second, follow-ups
+  as turns, an echoed request asked again, overflow and failures); `scripts/test-ask-on-page-lifecycle.sh` the
+  same service on the real `SidebarStore` (Max switches, profiles, availability); `scripts/test-ask-on-page-content.sh`
+  the page-text and quote scripts in a real WKWebView on `Tests/Fixtures/AskOnPage`; `scripts/test-ask-on-page-quotes.sh`
+  the quote script on a scripted DOM in Node, and the CEF bridge's isolated-world evaluation.
+- `scripts/test-link-summary-service.sh`: 5-Second Previews' fetch and model lifecycle (`LinkSummaryFetch`,
+  `LinkSummaryService`) on a manual clock: every redirect hop checked before it's requested (no hosts on the Mac
+  or the local network), the byte and time limits, cancellation dropping late answers, the context-overflow retry,
+  caches kept apart by profile, search and language.
+- `scripts/test-link-summary-hooks.sh`: turning 5-Second Previews off, or Apple Intelligence becoming unavailable,
+  stops the card and the work behind it.
+- `scripts/test-link-summary-image.sh`: the card's picture over a local server: images only, at most 4 MB, every
+  redirect checked, nothing kept and no cookies sent.
 - `scripts/test-emoji-label.sh`: a space's emoji label in the dock and the space header, drawn
   clipped to its frame and with the cell's text cut at the baseline, as macOS 27 draws it: `EmojiLabel`
   shows the emoji's whole picture, in the same place (#399).
+- `scripts/test-pip-corners.sh`: the Picture in Picture hover controls in a transparent window like the
+  overlay, read back through the window server: shown, the dark layer stays inside the window's 6 pt
+  corners at every size class (#463).
+- `scripts/test-pip-overlay.sh`: the Picture in Picture overlay window and view over a stand-in for
+  Chromium's window (transparent and click-through), handed trackpad events made as the window server
+  makes them: a pinch resizes it also after the fingers rest first, and also when its magnify events
+  come through the app's event monitors rather than the view (#573).
+- `scripts/test-theme-noise.sh`: the theme's grain over the main window (`ThemeNoiseView`) is a pattern
+  Core Animation tiles, with no window-sized backing store, and shows the grain the drawn view did at 1x and 2x.
 - `scripts/test-music-notes.sh`: the production note sprites over fixed white and black backgrounds
   at 1x and 2x, checking light-theme contrast and the dark-theme tint without CEF or a visible window.
 - `scripts/test-live-folder-plugins.sh`: the real `CraPluginHost` (sandboxed JavaScriptCore) and
@@ -194,7 +247,7 @@ sleep does: notes Chromium's audio service), `wake=1` (what waking the Mac does:
 re-read their tabs' sound, a tab-sleeping pass runs and cra.log says whether the audio service lived), `stall=<ms>` (blocks the main
 thread), `perfReport=<path>` (the recorder's perf.json now), `systemAppearance=light|dark|system`
 (the appearance Auto space themes follow, without changing the Mac's), `themeEditor=1` (Edit
-Theme Color… for the focused space), `toolbar=out|in|sample|at:<x>,<y>|<label>` (the floating toolbar of Settings ▸ Tabs ▸ "Hide the toolbar until you need it": put it out or in, look at the pointer once, or say what a pointer at that point from the window's top left is to it, then log `toolbar <command>: floats=… out=… inset=… page=… hangs=…`), `findBar=<label>` (whether the find bar shows and how far its panel is from the focused page's top and trailing edges: `findBar <label>: visible=… top=… trailing=… size=…`), `sidebarShown=<label>` (whether the window shows its sidebar,
+Theme Color… for the focused space), `toolbar=out|in|sample|focus|blur|at:<x>,<y>|<label>` (the floating toolbar of Settings ▸ Tabs ▸ "Hide the toolbar until you need it": put it out or in, look at the pointer once, put the keyboard focus on its first button as Tab does with Full Keyboard Access or take it away, or say what a pointer at that point from the window's top left is to it, then log `toolbar <command>: floats=… out=… inset=… page=… hangs=… focus=…`; `littleToolbar=` takes the same for a Little Window's or Peek's bar, and `away` for one pointer sample off its bar), `findBar=<label>` (whether the find bar shows and how far its panel is from the focused page's top and trailing edges: `findBar <label>: visible=… top=… trailing=… size=…`), `littleFind=<label>` (the newest Little Window's or Peek's own find bar, #577: `little find <label>: visible=… top=… trailing=… child=… focused=… count=… active=… query=…`; `littleFindQuery=<text>` types into it, `key=…&target=littleFind` sends it a key), `littleRow=<text in an address>&typed=<text>` (the newest Little Window's ⌘L bar types `typed`, logs the row for that page, `little row <text>: kind=history|tab|archived trailing=…`, and picks it, #599), `littleKey=<n>` (the nth Little Window, oldest first, picked as Mission Control or App Exposé picks one: brought forward, made key, its page focused, #581), `littleOrder=<label>` (Cra's browser and Little Windows front to back as the window server has them: `little order <label>: little1 little0 main0`), `littleActivation=<label>` (whether the newest Little Window is a non-activating panel, its style and AppKit's own flag, and the kind of Space it is on: `little activation <label>: nonactivating=0 prevents=0 space=desktop`, #581), `appActivated=1` (AppKit's didBecomeActive, as when Cra comes forward; a background copy is refused the real thing), `sidebarShown=<label>` (whether the window shows its sidebar,
 and the View menu's Hide/Show Sidebar row: its title and the key it answers to, an App Shortcut's
 when one names it), `relaunch=1`, `quit=1`, and `nowPlaying=state|toggle|next|previous|pip|dismiss` (the sidebar player's
 newest card, then a `Cra nowPlaying[<label>] <host> playing=… prev=… next=… video=… pip=…` line per card
@@ -250,7 +303,7 @@ Unset, or naming no connected display, windows open as usual.
 Tidy Tabs needs Apple Intelligence. `CRA_TIDY_FAKE_MODEL=1` stands in a model that groups by
 site (after a 1.6 s pause), so a test instance on any Mac shows the button, the squiggle and the
 groups, Tidy Tab Titles names a pinned tab after its title's first part and Tidy Downloads tidies a
-download's file name by hand; `CRA_TIDY_FAKE_MODEL=off` (or `preparing`, `ineligible`) shows Settings ▸ Max as a Mac
+download's file name by hand; `CRA_TIDY_FAKE_MODEL=off` (or `preparing`, `ineligible`, `not-offered`) shows Settings ▸ Max as a Mac
 without Apple Intelligence would. `cra://debug?tidy=1` runs Tidy on the window's space without
 hovering the divider, `cra://debug?undoTidy=1` is ⌘Z's undo and `cra://debug?settingsPane=max`
 opens Settings on a pane.

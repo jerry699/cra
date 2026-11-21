@@ -1,12 +1,14 @@
 #!/bin/bash
 # Drives the real Cra.app through a user journey (Tests/Scenarios/<name>.scenario) on a
 # throwaway profile, behind your other windows, then checks the same invariants for every
-# scenario: still running, no new crash report, no fault in cra.log, the sidebar sound,
+# scenario: still running, no new crash report, no page crash ("Aw, Snap!") in the performance
+# recorder's report, no fault in cra.log, the sidebar sound,
 # main-thread stalls and memory inside the scenario's budget, helper processes back to
 # baseline after tabs close, and a clean quit. Never asserts on pixels.
 #
 #   scripts/scenario.sh fifty-tabs        one scenario
 #   scripts/scenario.sh all               every scenario, one after another
+#   scripts/scenario.sh web-features      the web features' scenarios (Tests/web-features.tsv), a release's gate
 #
 # CRA_APP (default build/Cra.app) picks the build; CRA_FLAGS (FeatureFlags) is passed on, so
 # CRA_FLAGS=backdrop=material runs the NSVisualEffectView path. Scenarios marked
@@ -25,8 +27,10 @@
 #     stalls16=<n> (dropped frames: stalls over 16 ms; no budget unless a scenario sets one)
 #     (stalls count from the first command; start-up has its own launchstall budget)
 #   helpers baseline | helpers settle [slack]
+#   renderers <max>             at most that many renderer processes (within 5 s)
 #   relaunch                    cra://debug?relaunch=1, then follow the new process
-#   expect-log <regex>          a line Cra logged (cra.log or stdout), or ${WS}'s "ws open" / "ws closed"
+#   expect-log <regex>          a line Cra logged (cra.log or stdout), ${WS}'s "ws open" / "ws closed", or a
+#                               request the fixture server answered ("GET /page.html?n=1 HTTP/1.1")
 #   reject-log <regex>          no such line logged so far
 #   snapshot <View[,n]> <name>  the nth visible view of that class drawn to PNG and compared with
 #                               Tests/Snapshots/<name>.png (CRA_SNAPSHOT_RECORD=1 records it)
@@ -43,8 +47,15 @@
 #   home                        a throwaway home folder, so downloads stay out of ~/Downloads
 #   crash-report <file>         copied into the throwaway home's Library/Logs/DiagnosticReports
 #                               before launch, as macOS leaves one (needs home)
+#   cover                       another app's window over the browser window, right above it in the window order
+#                               (scripts/cover-window/cover.m); ${COVER} is its pid, for cra://debug?yieldTo=${COVER}
+#   cover link                  that app, once in front, brings Cra forward, as for a link clicked in it (#607)
+#   bare-helper <suffix>        runs the engine's "Cra Helper (<suffix>)" with no arguments, as macOS launches the
+#                               Alerts helper for a notification click after it quit; fails unless it exits 0 in 10 s
 #   requires screen
-#   port <n>                    serve ${PAGE} on a fixed port (snapshots show the address)
+#   port <n>                   serve ${PAGE} on a fixed port (snapshots show the address)
+# The fixture server answers an address with ?delay=<s> (or &delay=<s>) that many seconds late, and /auth with an
+# HTTP sign-in (401 Basic) until the browser sends a user name and password.
 # ${FIXTURES}, ${ORIGIN} (that server's http://127.0.0.1:<port>, which also answers a POST with 204,
 # logs it to server.log and keeps its body in posts/), ${PAGE} (Tests/Fixtures/Pages/page.html from a local server, so it has a host
 # for developer mode and tab sleep), ${WEBKIT} (that server as http://localhost:<port>, a host the
@@ -68,12 +79,22 @@ EXTENSION_ID="$(cat "$FIXTURES/Extension/ID")"
 SIDE_PANEL_EXTENSION_ID="$(cat "$FIXTURES/SidePanelExtension/ID")"
 DOWNLOAD_EXTENSION_ID="$(cat "$FIXTURES/DownloadExtension/ID")"
 WEB_STORE_COPY_ID="$(cat "$FIXTURES/WebStoreCopy/ID")"
+# A Chrome Web Store extension's folder copy, as Cra imports one (#660).
+STORE_COPY_EXTENSION_ID="$(cat "$FIXTURES/StoreCopyExtension/ID")"
 TABS_CREATE_EXTENSION_ID="$(cat "$FIXTURES/TabsCreateExtension/ID")"
 TABS_QUERY_EXTENSION_ID="$(cat "$FIXTURES/TabsQueryExtension/ID")"
 
 if [ "${1:-}" = "all" ]; then
+  # CRA_SCENARIO_SHARD=k/n runs every n-th scenario from the k-th (1-based), so n jobs share the list: one job
+  # ran out of Nightly's hour after 118 of 321, and the rest never ran.
+  shard="${CRA_SCENARIO_SHARD:-1/1}"
+  k="${shard%/*}"; n="${shard#*/}"
+  [[ "$k" =~ ^[0-9]+$ && "$n" =~ ^[0-9]+$ && "$k" -ge 1 && "$k" -le "$n" ]] || { echo "CRA_SCENARIO_SHARD is k/n, 1 <= k <= n: $shard" >&2; exit 2; }
   failed=()
+  i=0
   for f in Tests/Scenarios/*.scenario; do
+    i=$((i + 1))
+    [ $(((i - 1) % n)) -eq $((k - 1)) ] || continue
     name="$(basename "$f" .scenario)"
     "$0" "$name" || failed+=("$name")
   done
@@ -81,7 +102,45 @@ if [ "${1:-}" = "all" ]; then
   echo "Failed: ${failed[*]}"; exit 1
 fi
 
-NAME="${1:?usage: scripts/scenario.sh <name>|all}"
+# web-features: every scenario Tests/web-features.tsv names (docs/web-features.md), what scripts/release.sh runs on
+# a release's build. Those that run without the screen go CRA_LANES at a time (default 3), the screen ones one by
+# one after them (CRA_SCENARIO_SCREEN=1). build/scenarios/web-features.txt says how it went, with the engine.
+if [ "${1:-}" = "web-features" ]; then
+  names=$(python3 -I scripts/web-features.py --scenarios) || exit 2
+  mkdir -p build/scenarios
+  REPORT=build/scenarios/web-features.txt
+  RESULTS="$(mktemp /tmp/cra-web-features.XXXXXX)"
+  quiet=() screen=()
+  for n in $names; do
+    if grep -q '^requires screen' "Tests/Scenarios/$n.scenario"; then screen+=("$n"); else quiet+=("$n"); fi
+  done
+  run_one() { "$1" "$2" > "build/scenarios/$2.out" 2>&1; echo "$2 $?" >> "$3"; }
+  export -f run_one
+  printf '%s\n' ${quiet[@]+"${quiet[@]}"} | xargs -P "${CRA_LANES:-3}" -I{} bash -c 'run_one "$0" "$1" "$2"' "$0" {} "$RESULTS"
+  for n in ${screen[@]+"${screen[@]}"}; do run_one "$0" "$n" "$RESULTS"; done
+  failed=() skipped=() passed=()
+  while read -r n code; do
+    if [ "$code" != 0 ]; then failed+=("$n")
+    elif grep -q ': skipped' "build/scenarios/$n.out"; then skipped+=("$n")
+    else passed+=("$n"); fi
+  done < "$RESULTS"
+  rm -f "$RESULTS"
+  APP_FOR_REPORT="${CRA_APP:-$ROOT/build/Cra.app}"
+  {
+    echo "web features on $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_FOR_REPORT/Contents/Info.plist" 2>/dev/null || echo '?')" \
+         "($(cat "$APP_FOR_REPORT/Contents/Frameworks/Cra Framework.framework/Versions/Current/Resources/Info.plist" 2>/dev/null | plutil -extract CFBundleShortVersionString raw - 2>/dev/null || echo 'engine ?'), $(uname -m))"
+    echo "passed ${#passed[@]}, skipped ${#skipped[@]} (they take the screen), failed ${#failed[@]}"
+    [ ${#failed[@]} -eq 0 ] || echo "failed: ${failed[*]}"
+    [ ${#skipped[@]} -eq 0 ] || echo "skipped: ${skipped[*]}"
+    [ ${#failed[@]} -eq 0 ] && echo "result: passed" || echo "result: failed"
+  } > "$REPORT"
+  cat "$REPORT"
+  for n in ${failed[@]+"${failed[@]}"}; do echo "--- $n"; grep -E '✗' "build/scenarios/$n.out"; done
+  [ ${#failed[@]} -eq 0 ]
+  exit
+fi
+
+NAME="${1:?usage: scripts/scenario.sh <name>|all|web-features}"
 FILE="Tests/Scenarios/$NAME.scenario"
 [ -f "$FILE" ] || { echo "No scenario $FILE"; exit 2; }
 # The app's executable: Cra, or CraEngine for a build on Chrome's own framework (CRA_ENGINE=chromium).
@@ -153,11 +212,50 @@ class Server(http.server.ThreadingHTTPServer):
         socketserver.TCPServer.server_bind(self)
         self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # ?delay=<s> anywhere in the address: the answer (a page, or a 404) comes that many seconds late.
+    def do_GET(self):
+        import base64, html, re, time
+        # /auth: a page behind a user name and password (HTTP Basic), as a router or an intranet asks for one:
+        # 401 until the browser sends credentials, then a page titled with the user it signed in as.
+        if self.path.startswith("/auth"):
+            sent = self.headers.get("Authorization", "")
+            if not sent.startswith("Basic "):
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", "Basic realm=\"Cra fixture\"")
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<title>needs sign-in</title>401")
+                return
+            user = base64.b64decode(sent[6:]).decode("utf-8", "replace").split(":", 1)[0]
+            body = f"<title>signed in as {html.escape(user)}</title>ok".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        m = re.search(r"[?&]delay=([0-9.]+)", self.path)
+        if m:
+            time.sleep(float(m.group(1)))
+            self.path = self.path.split("?", 1)[0]
+        super().do_GET()
     # Settings ▸ Privacy sharing posts here under CRA_SHARING_ENDPOINT=${ORIGIN}.
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
         kind = self.headers.get("Content-Type")
-        print(f"POST {self.path} {len(body)} bytes {kind}", flush=True)
+        # The install check-in is three short fields: logged whole, so a scenario can expect its id.
+        shown = " " + " ".join(body.decode("utf-8", "replace").split()) if self.path.endswith("/checkin") else ""
+        print(f"POST {self.path} {len(body)} bytes {kind}{shown}", flush=True)
+        # /echo: a form that posts and gets a page back (an order, a search), the page a reload asks about.
+        if self.path.startswith("/echo"):
+            text = body.decode("utf-8", "replace")
+            page = f"<title>posted {len(body)} bytes</title>{text}".encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(page)))
+            self.end_headers()
+            self.wfile.write(page)
+            return
         os.makedirs(sys.argv[3], exist_ok=True)
         name = self.path.strip("/").replace("/", "-")
         open(os.path.join(sys.argv[3], f"{name}-{len(os.listdir(sys.argv[3])) + 1}.json"), "wb").write(body)
@@ -177,6 +275,9 @@ WEBKIT="http://localhost:${PORT}"
 # A music host recognized by MusicNotes, mapped to this Mac by the scenario:
 #   arg --host-resolver-rules=MAP nts.live 127.0.0.1
 MUSIC="http://nts.live:${PORT}"
+# A name on the user's own network (#625), mapped to this Mac by the scenario:
+#   arg --host-resolver-rules=MAP nas.local 127.0.0.1
+LOCALNET="http://nas.local:${PORT}"
 # A port that accepts connections (the kernel's backlog does) and never answers one.
 python3 -I -u -c '
 import socket, time
@@ -241,7 +342,7 @@ WS_SERVER=$!
 disown "$WS_SERVER"
 for _ in $(seq 1 50); do WS_PORT=$(head -1 "$OUT/ws.log"); [ -n "$WS_PORT" ] && break; sleep 0.1; done
 WS="ws://127.0.0.1:${WS_PORT:?WebSocket server did not start}"
-expand() { local s="$1"; s="${s//\$\{FIXTURES\}/$FIXTURES}"; s="${s//\$\{ORIGIN\}/$ORIGIN}"; s="${s//\$\{PAGE\}/$PAGE}"; s="${s//\$\{WEBKIT\}/$WEBKIT}"; s="${s//\$\{MUSIC\}/$MUSIC}"; s="${s//\$\{STALL\}/$STALL}"; s="${s//\$\{TRICKLE\}/$TRICKLE}"; s="${s//\$\{WS\}/$WS}"; s="${s//\$\{EXTENSION_ID\}/$EXTENSION_ID}"; s="${s//\$\{SIDE_PANEL_EXTENSION_ID\}/$SIDE_PANEL_EXTENSION_ID}"; s="${s//\$\{DOWNLOAD_EXTENSION_ID\}/$DOWNLOAD_EXTENSION_ID}"; s="${s//\$\{WEB_STORE_COPY_ID\}/$WEB_STORE_COPY_ID}"; s="${s//\$\{TABS_CREATE_EXTENSION_ID\}/$TABS_CREATE_EXTENSION_ID}"; s="${s//\$\{TABS_QUERY_EXTENSION_ID\}/$TABS_QUERY_EXTENSION_ID}"; printf '%s' "$s"; }
+expand() { local s="$1"; s="${s//\$\{FIXTURES\}/$FIXTURES}"; s="${s//\$\{ORIGIN\}/$ORIGIN}"; s="${s//\$\{PAGE\}/$PAGE}"; s="${s//\$\{WEBKIT\}/$WEBKIT}"; s="${s//\$\{MUSIC\}/$MUSIC}"; s="${s//\$\{LOCALNET\}/$LOCALNET}"; s="${s//\$\{STALL\}/$STALL}"; s="${s//\$\{TRICKLE\}/$TRICKLE}"; s="${s//\$\{WS\}/$WS}"; s="${s//\$\{COVER\}/${COVER:-}}"; s="${s//\$\{EXTENSION_ID\}/$EXTENSION_ID}"; s="${s//\$\{SIDE_PANEL_EXTENSION_ID\}/$SIDE_PANEL_EXTENSION_ID}"; s="${s//\$\{DOWNLOAD_EXTENSION_ID\}/$DOWNLOAD_EXTENSION_ID}"; s="${s//\$\{WEB_STORE_COPY_ID\}/$WEB_STORE_COPY_ID}"; s="${s//\$\{STORE_COPY_EXTENSION_ID\}/$STORE_COPY_EXTENSION_ID}"; s="${s//\$\{TABS_CREATE_EXTENSION_ID\}/$TABS_CREATE_EXTENSION_ID}"; s="${s//\$\{TABS_QUERY_EXTENSION_ID\}/$TABS_QUERY_EXTENSION_ID}"; printf '%s' "$s"; }
 # AppKit asks "reopen windows?" after a test copy was killed, and that modal blocks every command;
 # Cra restores its own windows from windows.json, so AppKit's restoration is off.
 app_args=(-ApplePersistenceIgnoreState YES)
@@ -259,6 +360,7 @@ PIDS+=("$PID")
 
 cleanup() {
   for p in "${PIDS[@]}"; do kill -KILL "$p" 2>/dev/null; done
+  [ -n "${COVER:-}" ] && kill "$COVER" 2>/dev/null
   kill "$SERVER" "$STALLER" "$TRICKLER" "$WS_SERVER" 2>/dev/null
   cp "$DATA"/cra*.log "$OUT/" 2>/dev/null
   [ -n "${CRA_SCENARIO_DATA:-}" ] || rm -rf "$DATA"
@@ -276,6 +378,12 @@ count_faults() {
 }
 send() { printf '%s\n' "$1" >> "$CMD"; }
 helpers() { pgrep -P "$PID" 2>/dev/null | wc -l | tr -d ' '; }
+# Cra's renderer processes, as Chrome names them on their command lines.
+renderers() {
+  local n=0 c
+  for c in $(pgrep -P "$PID" 2>/dev/null); do ps -ww -o command= -p "$c" | grep -q -- '--type=renderer' && n=$((n + 1)); done
+  echo "$n"
+}
 alive() { kill -0 "$PID" 2>/dev/null; }
 
 # Ready once Cra reads the command file (it empties the file when it starts reading).
@@ -316,6 +424,11 @@ while IFS= read -r raw || [ -n "$raw" ]; do
         for _ in $(seq 1 25); do now=$(helpers); [ "$now" -le $((BASELINE + slack)) ] && break; sleep 0.2; done
         [ "$now" -le $((BASELINE + slack)) ] || problem "helper processes: $now, baseline $BASELINE (+$slack) after 5 s"
       fi ;;
+    renderers)
+      now=$(renderers)
+      for _ in $(seq 1 25); do now=$(renderers); [ "$now" -le "$2" ] && break; sleep 0.2; done
+      echo "  renderers: $now (at most $2)"
+      [ "$now" -le "$2" ] || problem "renderer processes: $now, at most $2" ;;
     relaunch)
       count_faults
       # The next Cra starts its hitch log afresh: keep this one's.
@@ -333,11 +446,11 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       sleep 2 ;;
     expect-log)
       shift; re="$*"; found=""
-      for _ in $(seq 1 150); do grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" 2>/dev/null && { found=1; break; }; sleep 0.2; done
+      for _ in $(seq 1 150); do grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" "$OUT/server.log" 2>/dev/null && { found=1; break; }; sleep 0.2; done
       [ -n "$found" ] || problem "no log line matching: $re" ;;
     reject-log)
       shift; re="$*"
-      ! grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" 2>/dev/null || problem "a log line matching: $re" ;;
+      ! grep -Eq "$re" "$DATA"/cra*.log "$OUT/stdout.log" "$OUT/ws.log" "$OUT/server.log" 2>/dev/null || problem "a log line matching: $re" ;;
     snapshot)
       shot="$OUT/snapshots/$3.png"; ref="$ROOT/Tests/Snapshots/$3.png"
       # A name shot twice (before and after a relaunch) must not find the first file and stop waiting.
@@ -355,6 +468,32 @@ while IFS= read -r raw || [ -n "$raw" ]; do
       else
         [ -x "$OUT/compare-png" ] || xcrun swiftc -O "$ROOT/scripts/compare-png.swift" -o "$OUT/compare-png" 2>"$OUT/compare-png.log"
         verdict=$("$OUT/compare-png" "$ref" "$shot" "$OUT/snapshots/$3.diff.png" 2>&1) || budget_problem "snapshot $3: $verdict"
+      fi ;;
+    cover)
+      if [ "${2:-}" = "link" ]; then
+        if [ -n "${COVER:-}" ] && kill -USR1 "$COVER" 2>/dev/null; then sleep 0.3; else problem "cover link: no cover window"; fi
+        continue
+      fi
+      [ -x "$OUT/cover" ] || clang -fobjc-arc -framework AppKit "$ROOT/scripts/cover-window/cover.m" -o "$OUT/cover" 2>"$OUT/cover-build.log"
+      if [ ! -x "$OUT/cover" ]; then problem "the cover window did not build (cover-build.log)"
+      else
+        "$OUT/cover" "$PID" >"$OUT/cover.log" 2>&1 & COVER=$!
+        for _ in $(seq 1 50); do grep -q '^covering' "$OUT/cover.log" && break; sleep 0.2; done
+        grep -q '^covering' "$OUT/cover.log" && echo "  $(head -1 "$OUT/cover.log")" || problem "no cover window: $(cat "$OUT/cover.log")"
+      fi ;;
+    bare-helper)
+      helper="Cra Helper (${line#bare-helper })"
+      exe="$APP/Contents/Frameworks/Cra Framework.framework/Versions/Current/Helpers/$helper.app/Contents/MacOS/$helper"
+      if [ ! -x "$exe" ]; then problem "no $helper in the engine"
+      else
+        "$exe" >"$OUT/bare-helper.log" 2>&1 & hp=$!
+        for _ in $(seq 1 50); do kill -0 "$hp" 2>/dev/null || break; sleep 0.2; done
+        if kill -0 "$hp" 2>/dev/null; then kill -9 "$hp" 2>/dev/null; wait "$hp" 2>/dev/null; problem "$helper launched bare still runs after 10 s"
+        else
+          wait "$hp"; hs=$?
+          echo "  $helper launched bare: exit $hs"
+          [ "$hs" -eq 0 ] || problem "$helper launched bare exited $hs$([ "$hs" -gt 128 ] && echo " (signal $((hs - 128)))")"
+        fi
       fi ;;
     fresh|requires|port|seed|env|arg|extension|profile|home|crash-report) ;;
     *) problem "unknown scenario line: $line" ;;
@@ -404,10 +543,17 @@ print(f"perf: recording costs {cpu:.3f} % of a core (budget {budget}); stalls �
 if cpu > budget: print(f"PROBLEM the performance recorder costs {cpu:.3f} % of a core, budget {budget} %")
 # This run's HitchMonitor log starts after the launch the recorder also saw; a few either way is timing.
 if abs(seen - hitch) > max(2, hitch // 5): print(f"PROBLEM the recorder counted {seen} stalls of 250 ms or more, HitchMonitor {hitch}")
+# What the app does, so never a budget: no scenario crashes a page, and a renderer Cra let go
+# (tab sleep's discard) is no crash either (0.1.44 counted each one).
+ended = r["counters"].get("rendererTerminated", {})
+if ended: print("CRASH pages crashed (“Aw, Snap!”) per the recorder: " + ", ".join(f"{k} ×{n}" for k, n in sorted(ended.items())))
 PY
 )
     echo "  $(head -1 <<< "$verdict")"
-    while IFS= read -r l; do [[ "$l" == PROBLEM* ]] && budget_problem "${l#PROBLEM }"; done <<< "$verdict"
+    while IFS= read -r l; do
+      [[ "$l" == PROBLEM* ]] && budget_problem "${l#PROBLEM }"
+      [[ "$l" == CRASH* ]] && problem "${l#CRASH }"
+    done <<< "$verdict"
   fi
 fi
 

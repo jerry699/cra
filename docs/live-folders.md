@@ -99,6 +99,9 @@ session permissions and the provider API are documented in [Live folder plugins]
   space's profile, so it carries that profile's cookies. The GitHub plugin runs one search per enabled
   filter: `/pulls?q=…` with the JSON headers first, `/search?type=pullrequests` when that gives nothing it
   can read. The reader accepts GitHub's JSON routes, embedded React data and the classic list.
+  Whatever the answer carries, only open pull requests (drafts too) become items: a merged or closed
+  one (`state`, `merged`, `mergedAt`, `closed`, or the classic list's merge/closed icon) is left out, so a
+  pull request merged since the last refresh leaves after the 120 s grace (#523).
 - Folder: `SidebarItem.liveFolder` (LiveFolderData), tabs carry `liveItemURL` and `liveSubtitle`.
   SidebarStore.applyPluginResults adds and updates tabs, moves a Today tab already on a new pull request into
   the folder, and marks ones that left the results (`liveGoneAt`); `expireLiveItems` removes them 120 s later
@@ -134,6 +137,11 @@ session permissions and the provider API are documented in [Live folder plugins]
   pull request was moved into the folder without a duplicate; no fetch for 2.5 minutes in the background,
   one within a second of the window taking focus.
 - Not verified: the review trigger (`#pullrequestreview-` anchor) with a real review.
+- Organisation SSO (19 Nov 2026, Victor's session with jysk-dev's SAML lapsed): `/pulls` with the JSON headers
+  lists pull requests but never the organisations waiting for SSO; the `/pulls` HTML page has them in its
+  layout's `sso.sso_organizations[].login` (what Arc reads) and the search JSON in `protected_org_logins`. The
+  plugin read only those two keys from the JSON answers, so a folder with pull requests from elsewhere showed
+  no key (#521). It now reads the `/pulls` page once per refresh when no answer named them.
 
 ## GitLab live folders (Cra only; contributed by STRENCH0, #223)
 

@@ -13,9 +13,23 @@ enum DownloadDestinations {
         self.store = store
         CraCEFRuntime.setDownloadDestinationHandler { profilePath, name, completion in
             MainActor.assumeIsolated {
+                // A test copy can hold the answer, as a download that never gets a file name (#491).
+                if holdsAnswers { held.append { completion(nil) }; return }
                 destination(profilePath: profilePath, suggestedName: name) { completion($0?.path) }
             }
         }
+    }
+
+    /// CRA_TEST_HOLD_DOWNLOAD_DESTINATION=1: Chromium's question where a download goes waits
+    /// until `cra://debug?downloadDestination=cancel` answers it, with no window on screen.
+    private static let holdsAnswers = ProcessInfo.processInfo.environment["CRA_TEST_HOLD_DOWNLOAD_DESTINATION"] == "1"
+    private static var held: [() -> Void] = []
+
+    /// For `cra://debug?downloadDestination=cancel`: the held questions answered as Cancel is.
+    static func debugCancelHeld() {
+        let answers = held
+        held.removeAll()
+        answers.forEach { $0() }
     }
 
     static var downloadsFolder: URL { FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0] }
@@ -40,11 +54,11 @@ enum DownloadDestinations {
     }
 
     /// The file to save as, or nil when the user cancelled the save panel.
-    static func destination(profilePath: String?, suggestedName: String, completion: @escaping @MainActor (URL?) -> Void) {
+    static func destination(profilePath: String?, suggestedName: String, replaceExisting: Bool = false, completion: @escaping @MainActor (URL?) -> Void) {
         let id = profileID(profilePath: profilePath)
         let folder = folder(profileID: id)
         guard location(profileID: id).askWhereToSave else {
-            completion(DownloadFileName.unique(suggestedName, in: folder) { FileManager.default.fileExists(atPath: $0) })
+            prepare(DownloadFileName.unique(suggestedName, in: folder) { FileManager.default.fileExists(atPath: $0) }, replacing: false, completion: completion)
             return
         }
         asks.append { done in
@@ -54,7 +68,7 @@ enum DownloadDestinations {
             panel.canCreateDirectories = true
             let finish: (NSApplication.ModalResponse) -> Void = { response in
                 MainActor.assumeIsolated {
-                    completion(response == .OK ? panel.url : nil)
+                    prepare(response == .OK ? panel.url : nil, replacing: replaceExisting, completion: completion)
                     // The sheet is still attached while its handler runs: the next one next turn.
                     DispatchQueue.main.async { done() }
                 }
@@ -71,6 +85,14 @@ enum DownloadDestinations {
             }
         }
         if asks.count == 1 { asks[0](next) }
+    }
+
+    /// Both engines reserve before their destination callback can start writing. WebKit also
+    /// needs the approved existing file removed; CEF handles that replacement itself.
+    static func prepare(_ destination: URL?, replacing: Bool, service: TidyDownloadsService? = nil, completion: @escaping @MainActor (URL?) -> Void) {
+        guard let destination else { completion(nil); return }
+        let preparation = (service ?? .shared).prepareDestination(destination.path, replacing: replacing)
+        Task { @MainActor in completion(await preparation.value ? destination : nil) }
     }
 
     /// Save panels one at a time: a second download asks once the first panel has closed.

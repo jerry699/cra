@@ -17,8 +17,14 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     let pageContainer = PassthroughView()
     /// Darkens the page while it sits pushed back behind the search sheet.
     let pageDim = UIView()
+    /// The band behind the status bar over a page (updateStatusBand), and the colour it shows.
+    let statusBand = UIView()
+    private var statusBandFill: String?
     var pagePushedBack = false
     let dismissArea = UIControl()
+    /// Over the home indicator's strip while scrolling has put the bar away: a tap there brings
+    /// it back (#509). A button, since a plain control there loses its tap to the page's gestures.
+    let barReveal = UIButton(type: .custom)
     let bar = BottomBar()
     let sheet = SearchSheet()
 
@@ -37,7 +43,16 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     var swipeNeighbour: UIImageView?
     var swipeNeighbourStep = 0
     var tabArchivedBySwipe: UUID?
+    /// What the finger was on when the swipe across the page started (#627).
+    weak var pageSwipeTouchView: UIView?
     var barSwipeOpensRow = false
+    var barSwipePullsSearch = false
+    /// How far up the search sheet is being pulled out of the pill, while it is (#623).
+    var searchPull: CGFloat?
+    /// A pulled sheet let go: where it stays, and how open its field is, until the keyboard comes (#623).
+    var pulledSheetHold: (top: CGFloat, openness: CGFloat)?
+    /// A drag up from the tab button: the tab it brings back (#537).
+    var barSwipeTarget: MobileTab?
     // Voice search (BrowserGestures.swift).
     var voice: VoiceSearch?
     var voiceOverlay: VoiceOverlayView?
@@ -52,10 +67,14 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     var browseToggleState: (side: MobileBrowseToggle.Side, query: String)?
     var isSearching = false
     var incognitoSearch = false
+    /// The sheet is editing the address of the page on screen (#572): what it opens loads there.
+    var editsShownTab = false
     var keyboardHeight: CGFloat = 0
+    var keyboard = MobileKeyboard()
     var keyboardDroveLayout = false
-    var barHiddenByScroll = false
-    var scrollTravel: CGFloat = 0
+    /// Scrolling puts the bar away where Collapse Bottom Bar is on (`MobileBarCollapse`).
+    var barCollapse = MobileBarCollapse()
+    var barHiddenByScroll: Bool { barCollapse.isHidden }
 
     init(store: TabStore, settings: MobileSettingsStore) {
         self.store = store
@@ -77,6 +96,9 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         pageDim.alpha = 0
         pageDim.isUserInteractionEnabled = false
         pageContainer.addSubview(pageDim)
+        // Over the page, under nothing: pages, the reader and the loading views go in below pageDim.
+        statusBand.isUserInteractionEnabled = false
+        pageContainer.addSubview(statusBand)
         pageContainer.layer.cornerCurve = .continuous
         pageContainer.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
 
@@ -93,6 +115,11 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         browseToggle.alpha = 0
         browseToggle.onPick = { [weak self] side in self?.browseTogglePicked(side) }
         view.addSubview(browseToggle)
+        barReveal.addTarget(self, action: #selector(revealBar), for: .touchUpInside)
+        barReveal.isHidden = true
+        barReveal.accessibilityIdentifier = "bar-reveal"
+        barReveal.accessibilityLabel = "Show Bottom Bar"
+        view.addSubview(barReveal)
         view.addSubview(bar)
 
         sheet.delegate = self
@@ -104,13 +131,18 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         installGestures()
 
         let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillChangeFrameNotification,
+                     UIResponder.keyboardWillHideNotification, UIResponder.keyboardDidHideNotification] {
+            center.addObserver(self, selector: #selector(keyboardWillChange(_:)), name: name, object: nil)
+        }
         center.addObserver(self, selector: #selector(appWillResignActive), name: UIApplication.willResignActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(appDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         Self.saveFakeShareForTest()
         center.addObserver(self, selector: #selector(performLaunchAction), name: LaunchAction.notification, object: nil)
+        center.addObserver(self, selector: #selector(faviconsChanged), name: FaviconStore.didChange, object: nil)
 
         ContentBlocker.shared.prepare()
+        BlockLists.shared.set(addresses: settings.value.customBlocklists)
         DownloadManager.shared.load(from: LaunchOptions.dataDirectory)
         DownloadManager.shared.onFinish = { [weak self] item in self?.downloadFinished(item) }
         store.archiveStale(after: settings.value.archiveAfter)
@@ -179,7 +211,27 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         layoutChrome()
     }
 
-    override var preferredStatusBarStyle: UIStatusBarStyle { .default }
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        guard !statusBand.isHidden, let fill = statusBandFill else { return .default }
+        return MobileStatusBand.lightContent(fill: fill) ? .lightContent : .darkContent
+    }
+
+    /// The solid band behind the status bar over a page, in the page's colour, as in Arc Search (#657).
+    func updateStatusBand() {
+        let page = shownPage
+        let fill = page.flatMap { MobileStatusBand.fill(themeColor: Palette.hex($0.webView.themeColor, traits: traitCollection),
+                                                        underPage: Palette.hex($0.webView.underPageBackgroundColor, traits: traitCollection)) }
+        let shown = fill != nil && MobileStatusBand.shown(hasPage: page != nil, searching: isSearching, switching: switcher != nil)
+        statusBand.frame = CGRect(x: 0, y: 0, width: pageContainer.bounds.width, height: view.safeAreaInsets.top)
+        if let fill, let rgb = HexColor.components(fill) {
+            statusBand.backgroundColor = UIColor(red: rgb.r, green: rgb.g, blue: rgb.b, alpha: 1)
+        }
+        if statusBand.isHidden == shown || statusBandFill != fill {
+            statusBand.isHidden = !shown
+            statusBandFill = fill
+            setNeedsStatusBarAppearanceUpdate()
+        }
+    }
 
     // MARK: Layout
 
@@ -193,6 +245,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         switcher?.frame = bounds
         shownPage?.webView.frame = pageContainer.bounds
         pageDim.frame = pageContainer.bounds
+        updateStatusBand()
         let logoSide: CGFloat = 132
         logo.bounds = CGRect(x: 0, y: 0, width: logoSide, height: logoSide)
         logo.center = CGPoint(x: bounds.midX, y: bounds.height * 0.505)
@@ -219,17 +272,25 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         let keyboardUpForPage = keyboardHeight > safeBottom && !isSearching
         if (barHiddenByScroll || keyboardUpForPage) && !isSearching { barFrame.origin.y = bounds.height }
         bar.frame = barFrame
-        bar.controlsVisibility = isSearching ? 0 : 1
+        // Pulled out of the pill (#623), the sheet's top follows the finger and its field grows
+        // from the pill on the way up.
+        let pull = isSearching ? nil : searchPull
+        let pulled = pull.map { MobileSwipe.searchPullProgress(dragUp: $0) }
+        bar.controlsVisibility = isSearching ? 0 : 1 - (pulled ?? 0)
+        barReveal.frame = MobileBottomBar.revealStrip(in: bounds.size, safeBottom: safeBottom)
+        barReveal.isHidden = !barHiddenByScroll || isSearching || switcher != nil || shownPage == nil
         placeBlockerNotices()
         placeCoachMark()
 
         let keyboard = max(keyboardHeight, safeBottom)
         let safeTop = view.safeAreaInsets.top
         sheet.rowsInView = MobileSearchSheet.rowsInView(screenHeight: bounds.height, keyboardHeight: keyboard, safeTop: safeTop)
-        let top = isSearching ? MobileSearchSheet.top(screenHeight: bounds.height, keyboardHeight: keyboard, safeTop: safeTop) : barFrame.minY
+        let top = isSearching ? MobileSearchSheet.openingTop(screenHeight: bounds.height, keyboardHeight: keyboard, safeTop: safeTop,
+                                                             heldAt: pulledSheetHold?.top)
+            : barFrame.minY - max(0, pull ?? 0)
         sheet.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(MobileSearchSheet.height(rows: sheet.rowsInView) + keyboard, bounds.height - top))
         sheet.collapsedFieldFrame = bar.pillFrame
-        sheet.openness = isSearching ? 1 : 0
+        sheet.openness = isSearching ? pulledSheetHold?.openness ?? 1 : pulled ?? 0
         dismissArea.frame = CGRect(x: 0, y: 0, width: bounds.width, height: max(0, top))
         logo.alpha = isSearching || store.selected != nil || switcher != nil ? 0 : 1
         layoutBrowseToggle(barTop: barFrame.minY)
@@ -257,7 +318,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     }
 
     func chromeSettled() {
-        guard !isSearching else { return }
+        guard !isSearching, searchPull == nil else { return }
         sheet.isHidden = true
         bar.pill.alpha = 1
     }
@@ -266,9 +327,20 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         guard let info = note.userInfo, let end = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
         let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval ?? 0.25
         let curve = info[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
-        let local = view.convert(end, from: nil)
-        keyboardHeight = max(0, view.bounds.height - local.minY)
+        let event: MobileKeyboard.Event
+        switch note.name {
+        case UIResponder.keyboardWillShowNotification: event = .willShow
+        case UIResponder.keyboardWillHideNotification: event = .willHide
+        case UIResponder.keyboardDidHideNotification: event = .didHide
+        default: event = .willChangeFrame
+        }
+        keyboard.apply(event, endFrame: view.convert(end, from: nil))
+        let height = keyboard.height(in: view.bounds)
+        // The did-hide is only a backstop: nothing to move when the will-hide already counted it gone.
+        guard event != .didHide || height != keyboardHeight else { return }
+        keyboardHeight = height
         keyboardDroveLayout = true
+        pulledSheetHold = nil
         if duration > 0 {
             animateChrome(duration: duration, options: UIView.AnimationOptions(rawValue: curve << 16))
         } else {
@@ -279,6 +351,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
 
     @objc func appDidBecomeActive() {
         takeSharedLinks()
+        BlockLists.shared.refreshDue()
     }
 
     @objc func appWillResignActive() {
@@ -300,26 +373,20 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
 
     func setSearching(_ searching: Bool, incognito: Bool? = nil) {
         guard searching != isSearching else { return }
-        if searching {
-            dropBlockerNotices()
-            if let incognito { incognitoSearch = incognito }
-            sheet.isIncognito = incognitoSearch
-            backdrop.isIncognito = incognitoSearch
-            sheet.text = ""
-            sheet.setRows([])
-            sheet.offersBrowseForMe = BrowseForMe.isOffered
-            sheet.setFavorites(favorites.value.shown().map { ($0, favicons.icon(for: $0.url)) })
-            sheet.setStarters(MobileSuggestions.starterRows(favorites: favorites.value.sites.count,
-                                                            hasSearched: settings.value.hasSearched, incognito: incognitoSearch))
-            sheet.isHidden = false
-            bar.pill.alpha = 0
+        // A sheet pulled out of the pill is already laid out under the finger: it goes on from there.
+        let pulled = searchPull != nil
+        searchPull = nil
+        pulledSheetHold = searching && pulled ? (sheet.frame.minY, sheet.openness) : nil
+        if searching, !pulled {
+            prepareSearchSheet(incognito: incognito)
             // Starts from the pill: lay the closed state out before anything animates.
             UIView.performWithoutAnimation {
                 self.layoutChrome()
                 self.sheet.layoutIfNeeded()
             }
-        } else {
+        } else if !searching {
             suggestions.cancel()
+            editsShownTab = false
         }
         isSearching = searching
         dismissArea.isHidden = !searching
@@ -329,10 +396,60 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         } else {
             sheet.field.resignFirstResponder()
         }
-        // No software keyboard (a hardware one is attached): move the chrome ourselves.
+        // No software keyboard (a hardware one is attached): move the chrome ourselves. A pulled
+        // sheet waits a moment for the keyboard, whose animation takes it up (#623).
         if !keyboardDroveLayout {
-            animateChrome(duration: 0.35, options: .curveEaseInOut)
+            if pulledSheetHold != nil {
+                // The page behind sits back now; the sheet stays where it was let go.
+                animateChrome(duration: 0.35, options: .curveEaseInOut)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                    guard let self, self.isSearching, self.pulledSheetHold != nil else { return }
+                    self.pulledSheetHold = nil
+                    self.animateChrome(duration: 0.35, options: .curveEaseInOut)
+                }
+            } else {
+                animateChrome(duration: 0.35, options: .curveEaseInOut)
+            }
         }
+    }
+
+    /// Fills the sheet for a new search and puts it in place of the pill, still closed.
+    func prepareSearchSheet(incognito: Bool? = nil) {
+        dropBlockerNotices()
+        editsShownTab = false
+        if let incognito { incognitoSearch = incognito }
+        sheet.isIncognito = incognitoSearch
+        backdrop.isIncognito = incognitoSearch
+        sheet.text = ""
+        sheet.setRows([])
+        sheet.offersBrowseForMe = BrowseForMe.isOffered
+        sheet.setFavorites(favorites.value.shown().map { ($0, favicons.icon(for: $0.url)) })
+        updateRecentTabs()
+        SyncedSidebar.hasSpaces { [weak self] _ in
+            guard let self, self.isSearching else { return }
+            if self.sheet.text.isEmpty { self.updateRecentTabs() }
+            else { self.searchSheet(self.sheet, didChangeText: self.sheet.text) }
+        }
+        sheet.setStarters(MobileSuggestions.starterRows(favorites: favorites.value.sites.count,
+                                                        hasSearched: settings.value.hasSearched, incognito: incognitoSearch))
+        sheet.isHidden = false
+        bar.pill.alpha = 0
+    }
+
+    private func updateRecentTabs() {
+        let mac: SidebarDocument?
+        if case .spaces(let document) = SyncedSidebar.sheet.opening { mac = document } else { mac = nil }
+        let rows = MobileRecentTabs.rows(phone: store.tabs, selected: store.selected?.id, mac: mac)
+        for row in rows where row.source == .mac && favicons.icon(for: row.url) == nil {
+            favicons.fetchFromHomePage(for: row.url)
+        }
+        sheet.setRecentTabs(rows.map { ($0, favicons.icon(for: $0.url)) })
+    }
+
+    /// A Mac tab's icon, asked of its site, arrived while the recent tabs show.
+    @objc private func faviconsChanged() {
+        guard isSearching else { return }
+        if sheet.text.isEmpty { updateRecentTabs() } else { sheet.refreshRows() }
     }
 
     func searchSheet(_ sheet: SearchSheet, didChangeText text: String) {
@@ -340,11 +457,19 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         let engine = settings.value.search
         // Incognito keeps what is typed on the phone until Go, and leaves the phone's own pages out.
         let sites = incognitoSearch ? [] : knownSites()
-        sheet.setRows(MobileSuggestions.rows(typed: text, completions: [], sites: sites, limit: MobileSearchSheet.listedRows))
+        showSuggestions(typed: text, completions: [], sites: sites)
         guard !incognitoSearch else { return }
         suggestions.completions(for: text, engine: engine) { [weak self, weak sheet] found in
             guard let self, let sheet, self.isSearching, sheet.text == text else { return }
-            sheet.setRows(MobileSuggestions.rows(typed: text, completions: found, sites: sites, limit: MobileSearchSheet.listedRows))
+            self.showSuggestions(typed: text, completions: found, sites: self.incognitoSearch ? [] : self.knownSites())
+        }
+    }
+
+    private func showSuggestions(typed: String, completions: [String], sites: [MobileSuggestions.Site]) {
+        let rows = MobileSuggestions.rows(typed: typed, completions: completions, sites: sites, limit: MobileSearchSheet.listedRows)
+        sheet.setRows(rows)
+        for row in rows where row.place != nil {
+            if case .site(let url) = row.kind, favicons.icon(for: url) == nil { favicons.fetchFromHomePage(for: url) }
         }
     }
 
@@ -353,7 +478,9 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     private func knownSites() -> [MobileSuggestions.Site] {
         let favoriteSites = favorites.value.sites.map { MobileSuggestions.Site(title: $0.title, url: $0.url) }
         let tabs = (store.rowTabs + store.archived).sorted { $0.lastActive > $1.lastActive }
-        return favoriteSites + tabs.map { MobileSuggestions.Site(title: $0.displayTitle, url: $0.url) }
+        let mac: [MobileSuggestions.Site]
+        if case .spaces(let document) = SyncedSidebar.sheet.opening { mac = MobileSuggestions.macSites(in: document) } else { mac = [] }
+        return favoriteSites + tabs.map { MobileSuggestions.Site(title: $0.displayTitle, url: $0.url) } + mac
     }
 
     /// Browse for Me is the search engine and this device can run it.
@@ -372,22 +499,67 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
 
     func searchSheet(_ sheet: SearchSheet, didSubmit text: String) {
         noteSearched()
-        open(searchDestination(text))
+        go(searchDestination(text))
     }
 
     func searchSheet(_ sheet: SearchSheet, didPick row: MobileSuggestions.Row) {
         noteSearched()
-        open(MobileSuggestions.destination(for: row, engine: settings.value.search, browsesForMe: searchesWithBrowseForMe))
+        go(MobileSuggestions.destination(for: row, engine: settings.value.search, browsesForMe: searchesWithBrowseForMe))
+    }
+
+    func searchSheet(_ sheet: SearchSheet, didPickRecentTab row: MobileRecentTabs.Row) {
+        switch row.source {
+        case .phone(let id):
+            store.bringToFront(id)
+            guard let tab = store.selected else { return }
+            show(tab)
+            setSearching(false)
+            refreshTabStack()
+        case .mac:
+            go(row.url)
+        }
     }
 
     func searchSheet(_ sheet: SearchSheet, didPickFavorite site: MobileFavorites.Site) {
-        open(site.url)
+        go(site.url)
     }
 
     func searchSheet(_ sheet: SearchSheet, didAskToBrowseFor row: MobileSuggestions.Row) {
         guard appleIntelligenceIsReady() else { return }
         noteSearched()
-        open(MobileBrowseForMe.tabAddress(query: row.text))
+        go(MobileBrowseForMe.tabAddress(query: row.text))
+    }
+
+    /// Where the sheet's choice loads: in the page on screen when its address is being edited
+    /// (`MobileAddressEdit`), otherwise in a new tab, as + does.
+    func go(_ address: String) {
+        guard let page = shownPage, let tab = store.tabs.first(where: { $0.id == page.tabID }),
+              MobileAddressEdit.target(editing: editsShownTab, tabIsIncognito: tab.isIncognito, sheetIsIncognito: incognitoSearch) == .currentTab
+        else { return open(address) }
+        setSearching(false)
+        if let query = MobileBrowseForMe.query(fromTabAddress: address) {
+            store.update(page.tabID, url: address, title: query)
+            browse(for: query, in: page)
+        } else {
+            page.load(address)
+        }
+        updateBrowseToggle()
+    }
+
+    /// The search sheet over the page with `text` (its address, or a Browse for Me page's
+    /// question) in the field, selected, ready to change; what is chosen loads in this tab.
+    func editAddress(of page: WebPage, text: String) {
+        setSearching(true, incognito: page.isIncognito)
+        editsShownTab = true
+        sheet.text = text
+        if MobileBrowseForMe.query(fromTabAddress: store.tabs.first { $0.id == page.tabID }?.url ?? "") != nil {
+            // A question: its suggestions, as for any typed question.
+            searchSheet(sheet, didChangeText: text)
+        } else {
+            // An address is not sent to the engine for suggestions until it is changed.
+            showSuggestions(typed: text, completions: [], sites: incognitoSearch ? [] : knownSites())
+        }
+        DispatchQueue.main.async { [weak self] in self?.sheet.field.selectAll(nil) }
     }
 
     func searchSheet(_ sheet: SearchSheet, didMoveFavoriteFrom source: Int, to destination: Int) {
@@ -425,10 +597,16 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         refreshTabStack()
     }
 
-    func show(_ tab: MobileTab) {
+    /// The tab's page, following the app's site settings.
+    func page(for tab: MobileTab) -> WebPage {
         let page = store.page(for: tab)
         page.siteOptions = { [weak self] host in self?.settings.value.options(for: host) ?? MobileSiteOptions() }
         page.appLinks = { [weak self] in self?.settings.value.openAppLinksIn ?? .nativeApp }
+        return page
+    }
+
+    func show(_ tab: MobileTab) {
+        let page = self.page(for: tab)
         guard page !== shownPage else { return }
         closeReader()
         dropBlockerNotices()
@@ -439,9 +617,13 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         page.webView.allowsBackForwardNavigationGestures = false
         page.webView.frame = pageContainer.bounds
         pageContainer.insertSubview(page.webView, belowSubview: pageDim)
-        if page.webView.url == nil, !page.isBrowsing {
+        if page.webView.url == nil, !page.isBrowsing, !page.webKitOwnsInitialNavigation {
             if let query = MobileBrowseForMe.query(fromTabAddress: tab.url) {
                 browse(for: query, in: page)
+            } else if let history = store.history(for: tab) {
+                // Where the tab was, scrolled as it was, with its back and forward list (#656).
+                page.webView.interactionState = history.state
+                if page.webView.backForwardList.currentItem == nil { page.load(tab.url) }
             } else {
                 page.load(tab.url)
             }
@@ -450,15 +632,15 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
             browseLoading.isHidden = browseLoading.tabID != page.tabID
             pageContainer.insertSubview(browseLoading, belowSubview: pageDim)
         }
-        barHiddenByScroll = false
-        scrollTravel = 0
+        barCollapse.reveal()
         updateBrowseToggle()
     }
 
     func refreshTabStack() {
         let tabs = store.rowTabs
         let front = store.selected ?? tabs.last
-        let back = tabs.last { $0.id != front?.id }
+        // Behind it, the tab a flick up on the button goes to.
+        let back = store.selected == nil ? tabs.last(where: { $0.id != front?.id }) : store.previousTab
         bar.tabsButton.setSnapshots(front: front.flatMap { store.snapshot($0.id) }, back: back.flatMap { store.snapshot($0.id) })
     }
 
@@ -492,7 +674,9 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         let switcher = TabSwitcherView(frame: view.bounds)
         switcher.delegate = self
         let onRow = store.selected.map { !$0.isIncognito } ?? false
-        switcher.setTabs(store.rowTabs, focus: store.selected?.id, snapshot: store.snapshot, favicon: { self.favicons.icon(for: $0.url) })
+        // On a private page the private tabs waiting unseen are cards too, marked with the eyes.
+        switcher.setTabs(store.switcherTabs, focus: store.selected?.id, snapshot: store.snapshot,
+                         favicon: { $0.isIncognito ? UIImage(systemName: "eyes")?.withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal) : self.favicons.icon(for: $0.url) })
         // An incognito page has no card to shrink into; the row just appears.
         switcher.expandedID = onRow ? store.selected?.id : nil
         switcher.expansion = onRow ? 1 : 0
@@ -500,12 +684,13 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         switcher.layoutIfNeeded()
         self.switcher = switcher
         pageContainer.isHidden = true
-        barHiddenByScroll = false
+        barCollapse.reveal()
         return switcher
     }
 
     func settleSwitcher(_ switcher: TabSwitcherView) {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        SyncedSidebar.readAhead()
         offerSyncCard(in: switcher)
         UIView.animate(spring: MobileMotion.tabRowSettle) {
             switcher.expansion = 0
@@ -529,7 +714,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     }
 
     func tabSwitcher(_ switcher: TabSwitcherView, didSelect id: UUID) {
-        store.select(id)
+        store.bringToFront(id)
         guard let tab = store.selected else { return }
         show(tab)
         switcher.expandedID = id
@@ -631,6 +816,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     @objc func showSpaces() {
         let model = SpacesModel()
         model.favicon = { [weak self] in self?.favicons.icon(for: $0) }
+        model.fetchFavicon = { [weak self] in self?.favicons.fetchFromHomePage(for: $0) }
         model.close = { [weak self] in self?.dismiss(animated: true) }
         model.open = { [weak self] address in
             guard let self else { return }
@@ -638,9 +824,30 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
             self.incognitoSearch = false
             self.open(address)
         }
+        model.sharePromptSeen = { [weak self] in self?.settings.value.hasSeenSharePrompt ?? true }
+        model.markSharePromptSeen = { [weak self] in self?.settings.update { $0.hasSeenSharePrompt = true } }
+        model.showShareGuide = { [weak self] closed in self?.showShareGuide(closed: closed) }
+        model.showLastRead()
         let sheet = UIHostingController(rootView: SpacesView(model: model))
-        sheet.sheetPresentationController?.detents = [.large()]
-        topPresenter.present(sheet, animated: true)
+        sheet.view.backgroundColor = .clear
+        CardSheet.present(sheet, from: topPresenter)
+    }
+
+    /// Arc Search's "Save to Arc from any app" how-to, over the Spaces sheet; its button opens a
+    /// share menu to find Cra in.
+    func showShareGuide(closed: @escaping () -> Void) {
+        weak var guide: UIViewController?
+        let view = ShareGuideView(
+            close: { guide?.dismiss(animated: true) },
+            showShareMenu: {
+                guard let guide, let url = URL(string: "https://crabrowser.app") else { return }
+                let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                share.popoverPresentationController?.sourceView = guide.view
+                guide.present(share, animated: true)
+            })
+        let controller = UIHostingController(rootView: view)
+        guide = controller
+        CardSheet.present(controller, from: topPresenter, style: .stacked, onDismiss: closed)
     }
 
     // MARK: Settings and archive
@@ -866,6 +1073,12 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     }
     func pageMenuCopyLink() { copyLink() }
 
+    func pageMenuEditAddress() {
+        guard let page = shownPage, let tab = store.tabs.first(where: { $0.id == page.tabID }) else { return }
+        let text = MobileAddressEdit.text(tabAddress: tab.url, pageAddress: page.webView.url?.absoluteString)
+        menuHost?.dismiss { [weak self] in self?.editAddress(of: page, text: text) }
+    }
+
     /// Display Options opened or closed: the sheet follows the menu's new height.
     func pageMenuDidChangeHeight() {
         UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: [.allowUserInteraction]) {
@@ -949,6 +1162,7 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
 
     func webPageDidChange(_ page: WebPage) {
         if page === shownPage {
+            updateStatusBand()
             refreshMenu()
             // Reader belongs to the page it was opened on.
             if page.isLoading { closeReader() }
@@ -959,6 +1173,11 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
         store.update(page.tabID, url: address == "about:blank" ? nil : address, title: page.webView.title)
         if page === shownPage { updateBrowseToggle() }
         if page === shownPage { blockerNoticesFollow(page) }
+        // A site whose Collapse Bottom Bar is off never has the bar away, even arriving by a link
+        // from one that put it away (#505).
+        if page === shownPage, !isSearching, barCollapse.pageChanged(collapses: settings.value.options(for: page.webView.url?.host).collapseBottomBar) {
+            animateChrome(duration: 0.25, options: .curveEaseInOut)
+        }
     }
 
     func webPage(_ page: WebPage, didFinishLoading success: Bool) {
@@ -981,23 +1200,77 @@ final class BrowserViewController: UIViewController, SearchSheetDelegate, WebPag
     func webPage(_ page: WebPage, didScrollBy delta: CGFloat, atTop: Bool) {
         guard page === shownPage, !isSearching else { return }
         // The bar leaves after 24 pt of scrolling down and returns on the way back up.
-        scrollTravel = delta * scrollTravel < 0 ? delta : scrollTravel + delta
         let collapses = settings.value.options(for: page.webView.url?.host).collapseBottomBar
-        let hide: Bool
-        if atTop || !collapses { hide = false } else if scrollTravel > 24 { hide = true } else if scrollTravel < -24 { hide = false } else { return }
-        guard hide != barHiddenByScroll else { return }
-        barHiddenByScroll = hide
+        guard barCollapse.scrolled(by: delta, atTop: atTop, collapses: collapses) else { return }
         animateChrome(duration: 0.25, options: .curveEaseInOut)
     }
 
+    /// A tap on the strip under the page brings the bar back, as scrolling up does.
+    @objc func revealBar() {
+        guard barCollapse.reveal() else { return }
+        animateChrome(duration: 0.25, options: .curveEaseInOut)
+    }
+
+    /// The question capsule on a Browse for Me page: the same editing as the page menu's address,
+    /// so the changed question is asked in this tab too.
     func webPage(_ page: WebPage, editQuery query: String) {
-        setSearching(true, incognito: store.tabs.first { $0.id == page.tabID }?.isIncognito ?? false)
-        sheet.text = query
-        searchSheet(sheet, didChangeText: query)
+        editAddress(of: page, text: query)
+    }
+
+    /// "Open in Incognito" (#572): a new private tab with the link, shown.
+    func webPage(_ page: WebPage, openInIncognito url: URL) {
+        incognitoSearch = true
+        open(url.absoluteString)
     }
 
     func webPage(_ page: WebPage, openInNewTab url: URL) {
-        incognitoSearch = store.selected?.isIncognito ?? false
+        incognitoSearch = store.tabs.first(where: { $0.id == page.tabID })?.isIncognito ?? false
         open(url.absoluteString)
+    }
+
+    /// Arc Search's "Open in Background Tab": the link loads in a tab at the end of the row and
+    /// the page stays on screen. From a private page it is private, and waits unseen in the
+    /// private session (`MobileTabsDocument.addInBackground`).
+    func webPage(_ page: WebPage, openInBackground url: URL) {
+        let tab = store.addInBackground(url: url.absoluteString, incognito: page.isIncognito)
+        let background = self.page(for: tab)
+        // Its title and icon reach the row while it loads off screen.
+        background.delegate = self
+        background.load(url.absoluteString)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        refreshTabStack()
+    }
+
+    func webPage(_ page: WebPage, createPopupWith configuration: WKWebViewConfiguration, request: URLRequest) -> WKWebView? {
+        captureSnapshot()
+        guard let popup = store.openPopup(configuration: configuration, request: request, from: page),
+              let tab = store.selected else { return nil }
+        show(tab)
+        // Opener callbacks can update its address/title while the popup is in front.
+        page.delegate = self
+        incognitoSearch = tab.isIncognito
+        leaveSwitcherForPage()
+        setSearching(false)
+        refreshTabStack()
+        return popup.webView
+    }
+
+    func webPageDidClose(_ page: WebPage) {
+        let wasShown = page === shownPage
+        if wasShown {
+            page.webView.removeFromSuperview()
+            shownPage = nil
+        }
+        page.delegate = nil
+        store.close(page.tabID)
+        if wasShown {
+            if let tab = store.selected {
+                show(tab)
+                if let shownPage { webPageDidChange(shownPage) }
+            } else {
+                setSearching(true, incognito: false)
+            }
+        }
+        refreshTabStack()
     }
 }

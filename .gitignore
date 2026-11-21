@@ -8,8 +8,12 @@ xcuserdata/
 *.xcworkspace
 .DS_Store
 .swiftpm/
+<<<<<<< HEAD
 build/
 .claude/
 vendor/
 datasets/
 .corpus-cache/
+=======
+__pycache__/
+>>>>>>> origin/main

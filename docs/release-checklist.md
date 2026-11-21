@@ -20,6 +20,11 @@ built release app with a test profile. Note anything that fails in the release's
   name, its colour and nickname, EARLY '26, a months stamp after a month), Share / Save / Copy under it (the saved PNG is the card at 2x),
   and Share Cra: the sheet's COPY LINK puts the tagged crabrowser.app link on the clipboard and Share… offers Messages and Mail. (The scenario checks the
   size, the tab order and the first tab; this is how it looks.)
+- **Displays:** On a Mac with two displays of different scale (a 2x and a 1x), drag the window from one display to the other and
+  back, several times, by the strip above the toolbar, by the toolbar's URL and by the sidebar's top next to the traffic lights:
+  the window stays under the pointer the whole way, with no jump at the crossing and no flicker. AppKit's screen-layout adjustment
+  ran mid-drag for a window a window controller owns (16 Nov 2026); `CraWindow` skips it for moves the window server reports. The
+  `window-frame-adjust` scenario only checks that answer is in place; a test copy never crosses a display.
 
 - **#155:** a space on Auto, with one colour or two, changes look when macOS switches between
   light and dark. A space on Light or Dark doesn't.
@@ -30,15 +35,26 @@ built release app with a test profile. Note anything that fails in the release's
   swipes. With it off, a Dock restore and Stage Manager show no matte frame, and a ⌃←/⌃→
   full-screen round trip doesn't step.
 - **#46:** waking a slept tab in dark mode shows a black page area, not white.
-- **#6:** a new window's empty card has rounded corners.
+- **#6, #483:** a new window's empty card has rounded corners, is white over the space's colour
+  (stronger in light themes and faint in dark), casts the page card's soft shadow, and remains
+  below the find and status bars.
 - **#24:** edge to edge, there is no margin and the card is square, with the sidebar shown and
   hidden.
+- **#464:** with Settings ▸ Tabs ▸ Sidebar on the right, the sidebar and its traffic lights sit on the
+  right, ⌘S slides it out to the right and back, and dragging its left edge resizes it (snap and
+  drag-to-hide too). Hidden, the right edge brings it out on Arc's spring with its shadow and the
+  window's rounded corners clipping it; folder, pinned-tab and favorite previews open to its left.
+  (The scenario checks where things are; this is how the motion looks.)
 - **#10:** neighbouring tab highlights keep a 5 pt gap.
 - **#11:** the Library glyph is centred in its hover square.
 - **#39:** the header chevron is about 12.5 pt and points right when the pinned tabs are
   collapsed.
 - **#31, #48:** the tab-list scroller shows a 4 pt knob 3 pt from the edge with "When
   scrolling", and a 5 pt knob with "Always".
+- **#544:** with "When scrolling", flick a long tab list up and down on the trackpad, touching down
+  again while it still glides: the knob stays up the whole time, without blinking at each touch, and a
+  two-finger swipe between spaces from a list at rest shows no knob. (`ListKnobGate` decides; no test
+  can post a trackpad gesture's phases.)
 - **#189:** colour swatches grow on hover and shrink when pressed; "Back to Pinned URL" slides
   in over 0.16 s.
 - **#88:** importing from Arc copies its Show Full URL setting.
@@ -48,8 +64,24 @@ built release app with a test profile. Note anything that fails in the release's
 - **#400 (macOS 27 only):** a white page with DevTools docked right and set to dark, toolbar shown,
   Edge to edge on and off: no white shows at any corner of the page or DevTools. This Mac runs
   macOS 26, where the test stands in for 27 with AppKit's own window radius; ask the reporter to confirm.
+- **#533 (macOS 27 only):** Cra alone on a second display playing a YouTube video with sound; click
+  another app on the first display: the video keeps playing in its tab. Cover Cra's window with
+  another app, or minimise it: the video goes to Picture in Picture. macOS 26 never called the window
+  not visible here, so WindowCoverageTests and `window-coverage-own-parts` stand in; ask the reporter.
+- **#550 (macOS 27 only):** in macOS full screen with the sidebar hidden, bring it out over a white
+  page and a pink one: its top rests 5 pt below the screen's edge and its shadow touches it all round,
+  with no strip of page colour above it. macOS 26 places the panels right without the fix, so
+  FloatingSidebarTests (AppKit's own constraint) and `floating-sidebar-shadow` stand in; ask the reporter.
 
 ### Sidebar, tabs and the command bar
+
+- **#483:** with no selected tab and the sidebar saved hidden, it comes straight out floating and
+  stays visible when the pointer leaves and when another app comes to the front. Its button switches
+  between docked and floating. Open a page: it remains while the pointer is over it, then slides away
+  when the pointer leaves. Switch to an empty space and it comes straight back.
+- **#483, docking:** dock the sidebar from floating over both the empty card and a real page. It grows
+  into place, its corners square and its shadow fades without the page jumping. Undocking in the empty
+  window still snaps to floating; smoothing that direction is a follow-up.
 
 - **PR #268, ⌘T:** next to Arc on a themed space and on a default one: the selected row is the
   space's colour (gold on a gold space), white text and a white arrow tile; the info badge takes the
@@ -63,9 +95,10 @@ built release app with a test profile. Note anything that fails in the release's
 
 - **#393, Ask on Page:** with Apple Intelligence on and Settings ▸ Max ▸ Ask on Page on, press ⌘F on a
   long article: the card reads "Find or ask…"; typing a word finds it (count, ↑ ↓, highlights in the
-  page). Type a question and press Ask (or Return): the question in the space's colour, "This page was
-  long, so I read the first N%.", an answer with a quote on a rule. Find on Page highlights and scrolls to
-  the quote in the page, or says "Quote not found". Ask a follow-up; past 450 pt the conversation scrolls
+  page). Type a question: Return asks once the count says 0 (Ask asks at once). The question in the space's
+  colour, "This page was long, so I read the first N%.", an answer with its key words in bold and a quote on
+  a rule. Find on Page selects and scrolls to the whole quote in the page, also one across a Wikipedia "[3]";
+  a quote the page doesn't have says "Quote not found" when the answer is done. Ask a follow-up; past 450 pt the conversation scrolls
   with fades. Esc or ✕ closes it and the next ⌘F starts over. Compare with Arc's card on the same page
   (Arc's own numbers are in arc-reverse-engineering.md; its placement, corner and colours weren't read).
 
@@ -73,9 +106,15 @@ built release app with a test profile. Note anything that fails in the release's
   salvador succeed?"), then "Summarize the key points of this article in bullet points": the second answer
   is a summary, not the first answer again, and no answer starts with "BEGIN DIALOGUE", "Human:" or a made-up
   question. Then a factual follow-up gets its own quote. The model is on-device and varies, so ask a few times.
+  On a release-notes page (crabrowser.app's 0.1.43 notes), ask "summarize the top features", then "list out
+  all the features released today": each answer is a list of at most eight short points, one per line, with
+  no quotes and no Find on Page, naming more than the first feature and no point twice. "Summarize it with
+  quotes" still quotes the page.
 
 - **Ask on Page, long answers and unanswerable questions:** ask a long article something it doesn't say
-  ("why did el salvador succeed?"): the answer never quotes a solar-power page or J.W. Peters. Ask for "the
+  ("why did el salvador succeed?"): the answer never quotes a solar-power page or J.W. Peters. Known on
+  the on-device model (16 Nov 2026): it often adds page quotes that don't answer such a question, and it
+  refuses some topics (slavery, disasters, religion) with "Sorry, I encountered an error". Ask for "the
   key points of this entire article in detailed bullet points": the window and the page keep scrolling smoothly
   while it writes, and the answer never vanishes and starts over.
 
@@ -114,6 +153,13 @@ built release app with a test profile. Note anything that fails in the release's
 - **#196:** hover a Today tab and move onto its ✕ several times. The ✕ never vanishes before
   the click.
 - **#7:** click a tab while moving the pointer a few points on a trackpad. It opens.
+- **#429:** two windows on pages with a text field. Press ⌘L in the first, then click the second's
+  field without closing the bar, and type and paste. The text lands in the second window, never the
+  first. Do the same from a Little Window's bar.
+- **#551:** ⌘T, type part of an address, ⌘Tab to another app and back. The bar is still open with
+  what was typed and takes typing at once; while the other app was in front it stayed behind that
+  app's windows. Leave again and come back by clicking the page: the bar closes. Same with ⌘L in a
+  Little Window.
 - **Row press:** next to Arc, hold the button on a pinned tab, a Today tab, a split, New Tab and a
   Favorites tile. Each pushes in slightly about its centre (a tile a little more) and springs back
   on release; a drag doesn't leave it pushed in, a double-click on a tab dips once, folders don't move.
@@ -139,14 +185,20 @@ built release app with a test profile. Note anything that fails in the release's
   history the arrow never shows; a tab with pages behind it swipes through those first. The
   `swipe-back` scenario asks the swipe's two questions (`cra://debug?swipeBack=`); only a finger
   makes the gesture.
+- **#495:** open a Little Window (⌥⌘N, then a page, or a link from another app) and swipe back with
+  two fingers over its page: Chromium's back arrow shows, and letting go closes the window, as ⌘[
+  does. A page it went on to comes first; a Peek never closes this way. The
+  `little-window-swipe-back` scenario asks the swipe's questions (`cra://debug?littleSwipeBack=`).
+  The same swipe over the window's address bar does the same, and a swipe to the left there goes
+  forward (`little-window-bar-swipe` feeds the bar trackpad events, `cra://debug?littleBarSwipe=`).
 - **#12:** a two-finger swipe in the hidden sidebar (⌘S) switches spaces, and the next space
   draws mid-swipe. There is one link bubble only, and the dashed ring shows only on a
   cross-space keyboard switch.
 - **#28:** the speaker sits between favicon and title, a click mutes, and it doesn't blink
   between tracks.
 - **#47:** ⌘T highlights the New Tab row; the list scrolls only enough to show the active row.
-- **#85:** ⌘Return keeps the bar open; the "New Tab Created" toast shows only while the sidebar
-  is hidden.
+- **#85, #543:** ⌘Return keeps the bar open; the "New Tab Created" toast shows only while the sidebar
+  is hidden, for a ⌘-clicked, middle-clicked or Open Link in New Tab link too.
 - **#92:** in a Little Window, ⌃⌘2 sends the page to the window already on space 2.
 - **#174:** with a page text field focused, ⌘Space switches input source and ⌘` switches
   windows.
@@ -168,6 +220,20 @@ built release app with a test profile. Note anything that fails in the release's
   a normal tab, a pinned tab, a target=_blank link and a WebKit tab (a DRM site, whose page gets no posted click). With the switch off, ⌥⌘-click opens Split View (#298);
   with ⇧ or ⌃ down as well, it is another click. (`option-command-click-little-window` posts the click through
   the app's event queue; a click from the hardware, with the keys held on the keyboard, is this line.)
+- **#435:** with Settings ▸ Links ▸ "Hide the Little Window toolbar until you need it" on, open a Little Window
+  over another app and rest the pointer at its top edge: the bar and the traffic lights slide in over the page,
+  which doesn't move; move down past the bar and they go. Open "Open in"'s list and the command bar from the bar:
+  it stays out while they are open. (`little-window-toolbar-auto-hide` checks the layout, the strip and the keep
+  zone through `cra://debug`; the real pointer's events over the page's view are this line.)
+- **#493:** with Settings ▸ Links ▸ "Hide the Peek toolbar until you need it" on, Shift-click a link: the Peek's
+  page fills the card. Rest the pointer at the card's top edge: its bar slides in over the page, which doesn't move;
+  move down past the bar and it goes. ⌘L opens the address with the bar away, and ✕, Expand and Add to Split beside
+  the card still work. (`peek-toolbar-auto-hide` checks the layout, the strip and the keep zone through
+  `cra://debug`; the real pointer's events over the card are this line.)
+- **#520:** open Gmail in a Peek (Shift-click a mail.google.com link, signed in) and press Escape: Close turns
+  into the red Confirm pill, and a second Escape closes the Peek. A quick double Escape closes it at once. Then a
+  plain site (github.com) in a Peek: one Escape closes it. (`peek-escape-closes` and `peek-escape-page-uses-it`
+  stand in for Gmail with a page that cancels Escape; Gmail's own key handling, which can change, is this line.)
 - **#381:** click a link to another site in a favorite, next to Arc doing the same: the peeked page's
   favicon springs onto the tile's top right corner on a white square (black in a dark space), 4 pt
   past the corner, with a soft shadow, and springs off when the Peek closes. Check a split favorite
@@ -181,6 +247,13 @@ built release app with a test profile. Note anything that fails in the release's
   address and "Open in": each works on the first click. Capture and scroll: the page moves and
   the grey picture and the lens follow. With another app full screen, ⌥⌘N opens a Little
   Window over it, and doesn't when Settings ▸ Links ▸ "Open Little Window when I press ⌥⌘N in any app" is off.
+- **#585:** signed in to Netflix (it plays in WebKit, docs/protected-media.md), play a film and choose
+  View ▸ Picture in Picture: the film opens in the system's Picture in Picture window, and choosing it
+  again puts it back. Switch tabs while it plays: it opens by itself, and comes home when you go back; press the
+  window's ↖ instead and Cra switches to Netflix's tab, where the film plays on (the button is PIPAgent's, which a
+  scenario can't press); ✕ pauses it without switching. Netflix's
+  player makes its video with `disablePictureInPicture`; the `webkit-pip-opted-out` scenario covers such
+  a video on a fixture, this checks the real player and its FairPlay video.
 - **#357:** play an embedded YouTube video aloud on a blog (the player in an iframe), switch tabs:
   it goes into Picture in Picture. A background test copy can't hand the iframe its key press,
   before or after #357; the pip-leave-tab scenario covers a player in the page itself.
@@ -217,6 +290,18 @@ built release app with a test profile. Note anything that fails in the release's
 - **#298:** in a tab on a DRM service (it opens in WebKit, docs/protected-media.md), Option-click a
   link: it opens as a split pane beside the page, as it does in any other tab (that scenario's
   posted click never reaches a WebKit page behind other windows).
+- **Fandango at Home** (docs/protected-media.md; a mixed site whose player is a frame, which
+  widevine-in-a-frame.scenario and protected-video-prompt.scenario show on fixtures, not the site):
+  signed in to athome.fandango.com in Chromium, play a film you own. The toast offers Safari's
+  engine with Once and Always. Once: the play page opens in WebKit signed in and the film plays,
+  with no reloading. Back on the film's details page the tab is Chromium's again.
+- **Protected videos on YouTube** (docs/protected-media.md; it takes an account that owns a
+  film, which protected-video-prompt.scenario's fixture can't stand in for): signed in to YouTube
+  in Chromium, open a bought film. The toast offers Safari's engine with Once and Always. Once: the
+  page opens in WebKit signed in with only `youtube.com`'s cookies copied (cra.log: "copies N cookies
+  of youtube.com"; Google's stay in Chromium), the film goes on from where it was, and its quality menu offers
+  more than 480p. An ordinary video opened in that tab is Chromium's again, extensions and all.
+  The Chromium session is still signed in afterwards.
 - **#172:** with a space on its own profile, a Little Window from that space and a Peek from its
   tab see that profile's cookies. The chip names the profile; switching it reloads the page in
   the other profile.
@@ -233,10 +318,28 @@ built release app with a test profile. Note anything that fails in the release's
   PiP and coming back closes it. The tab shows the recording dot and doesn't sleep.
 - **#134:** with another app in front, the PiP edges show resize cursors, and a click on play
   doesn't move the window.
+- **#516:** on a trackpad, swipe the PiP with two fingers hard into each edge of the screen, into
+  the menu bar and into the Dock, and keep pushing before you lift. The window stops with the hidden
+  pointer still on it, then flies into a corner on the lift, and the pointer shows again there.
+  The CraCore test covers where it stops; only real fingers show that the lift still reaches it.
+- **#534:** on a trackpad, pinch the PiP open and closed, with Cra in front and with another app in
+  front: it follows the fingers smoothly in the video's shape, stops where an edge drag does at its
+  smallest and at the screen's edges, a window in a corner grows out of it, and a two-finger swipe
+  still throws it. Next to Arc's, check where it grows from. **#573:** rest two fingers on the
+  trackpad first, then pinch: it resizes as well, with Cra in front and with another app in
+  front, and `pip: pinched` shows in cra.log. The overlay harness and the scenario hand AppKit the
+  events in an order a trackpad can send (scroll and magnify that may begin, the pinch, the
+  scroll's cancel at the lift) and the magnify through the app's event monitor; synthetic gestures
+  posted through the window server didn't reach a background app at all, so only real fingers show
+  that a trackpad's do.
 - **#246:** a YouTube video's PiP shows no Chrome strip (site icon, host, dark top band) at any
   point, also in the first seconds; with the pointer away it is the bare video. On hover: Back to
   Tab on the left (with its words from 400 pt wide), the host centred and whole, Close on the
   right, one even dim layer.
+- **#460:** a YouTube PiP opened from the player's button and by leaving the tab: hover it, click
+  it, press keys while it is in front, swipe it, switch apps and Spaces. Only Arc's controls ever
+  show, never Chrome's (Back to Tab, ±10 s, progress bar, captions) under them. If they do, cra.log
+  has a "pip: Chromium's window got event type N, dropped" or "became key" line saying how.
 - **#262:** hover a YouTube PiP after a drag on its edges, a resize, a trip to another app's
   full-screen Space and back, and a click on Cra's window: only Cra's controls show (no grey ±10,
   no second ✕, no scrubber). Play/pause alone in a window under 280 pt wide, with the ±15 pair
@@ -273,6 +376,9 @@ built release app with a test profile. Note anything that fails in the release's
 - **#89:** in developer mode the ⌄ chevron lists Refresh ⌘R, Force Refresh ⇧⌘R, Clear Cookies
   and Refresh, Clear Cache and Refresh, View Source ⌥⌘U and Developer Tools ⌥⌘I. Tab row
   context menus show their shortcuts.
+  A right-click or ⌃-click on the toolbar's ↻ shows the same menu, outside developer mode too
+  (#517); a plain click still reloads. In a split, a right-click on the other pane's ↻ focuses that
+  pane and Clear Cookies and Refresh reloads that pane, not the one that had the focus.
 - **#265:** signed in to a paid Claude plan, Claude in Chrome's toolbar button opens its panel
   and Claude works in it: no "Claude isn't available on this page" and no "Can't reach Claude
   in Chrome". The scenario covers what the extension checks, but only an account gets past
@@ -294,6 +400,27 @@ built release app with a test profile. Note anything that fails in the release's
   `secure dns: secure via dns.google` and chrome://settings/security shows the same choice.
 - **#190:** with Ask Where to Save Each File on, the save panel is a sheet on Cra's window, and
   Cancel cancels the download.
+- **#574:** what a page shows over itself needs a real site or macOS's own prompts, so the
+  scenarios (`page-dialogs`, `page-dialog-sign-in`, …) can't reach these: on meet.google.com,
+  Present now shows Chrome's picker over the page (after macOS's Screen Recording prompt the first
+  time), and Cancel ends it; on webauthn.io, Register shows Chrome's passkey dialog over the page,
+  then Touch ID; a site that asks for a client certificate shows the certificate picker over the page.
+- **Web features without a scenario** (docs/web-features.md: macOS's own prompts or a real site; each
+  line names its row in Tests/web-features.tsv):
+  - web feature: screen share picker. On meet.google.com, Present now ▸ A window shows the picker over
+    the page and shares the window picked; Stop sharing ends it.
+  - web feature: passkey with Touch ID. On webauthn.io, Register and then Authenticate each show the
+    passkey sheet over the page and take Touch ID.
+  - web feature: client certificate. On a site that asks for one (badssl.com's client certificate
+    page), the certificate picker shows over the page, and Cancel shows the site's error.
+  - web feature: Bluetooth chooser. On a Web Bluetooth demo (googlechrome.github.io/samples/web-bluetooth),
+    Scan asks macOS for Bluetooth the first time, then shows Chrome's chooser on Cra's window; Cancel
+    tells the page no device was picked.
+  - Keyboard lock: on a page that goes full screen and locks the keyboard (keyboard-lock.glitch.me, or Chrome
+    Remote Desktop's full screen), a press of Esc stays with the page, and holding Esc for two seconds leaves full
+    screen. (`page-fullscreen-keyboard-lock` presses it; a scenario can't hold a key.)
+  - web feature: SaveFrame. Open a PDF (any link to one) and press the viewer's Save button: the file
+    saves as a download (or into the save panel with Ask Where to Save Each File on) and shows in the bin.
 - **#272:** download a large file. The bin over the Library button keeps a ring that fills as it
   downloads; right-clicking its row in the tray and on Library ▸ Downloads offers Pause Download and
   Cancel Download, and a paused row reads "Paused". ⌘Q while it runs asks "Downloads in progress";
@@ -310,6 +437,14 @@ built release app with a test profile. Note anything that fails in the release's
   hand. The window stays put. With the sidebar hidden, the pointer at the top of the screen
   reveals the title bar with the traffic lights in it. The `fullscreen-window-chrome` scenario
   checks the window's flags; only a hand drag shows that AppKit honours them.
+- **Blocked requests:** with Block Ads & Trackers on, ziplyfiber.com, fidelity.com and
+  allstate.com show their pages. They stayed white while a blocked request was cancelled instead of
+  failed: Adobe Target hides the page until its request ends. (The scenario checks the failure and
+  that the blocked host is never asked; this needs the real sites.)
+- **Install count:** within an hour of the release going live, Phantom's "Cra installs" site
+  (phantom.kildahl.dk) shows check-ins from the new version under Version, and from Intel too under
+  Chip once Intel Macs have updated. None means released copies aren't checking in (docs/sharing.md,
+  "Install count"); the `install-checkin` scenario only proves a test copy does.
 
 ### Sync
 
@@ -318,6 +453,40 @@ built release app with a test profile. Note anything that fails in the release's
   shows "Synced" on both and never asks which sidebar to keep after the first answer. Needs
   real iCloud: the harness only stands in for a file that is still downloading.
 - **PR #289:** the same with a folder in Dropbox, OneDrive or a similar service instead of iCloud.
+
+### iPhone
+
+- **#504:** on a TestFlight build with the default-browser entitlement, Settings ▸ Set Cra as
+  Default Browser opens Cra's page in iOS Settings with a "Default Browser App" row; picking Cra
+  there makes a link tapped in Messages open in Cra. Settings ▸ Apps ▸ Default Apps ▸ Browser App
+  lists Cra too. Needs a real iPhone and Apple's signing: the policy test only sees the file.
+
+- **#536:** on a TestFlight build, sign in to a site with a passkey saved in iCloud Keychain and
+  one saved in 1Password (webauthn.io works for both): iOS's passkey sheet comes up and the sign-in
+  completes. The simulator only reaches the sheet (it has no Face ID enrolled or passkeys saved).
+
+- **#570:** with the default settings, open `https://ww7.readopm.com/read-manga/` and
+  `https://ww13.readonepiece.com/` and wait half a minute on each: no "Anna has sent (7) photos",
+  "The file is ready to download" or "Something Amazing Awaits!" overlay, tapping the page opens no
+  ad tab, and the page menu counts what was scrubbed. "Reload without ad blockers" brings the ads
+  back. Needs the real sites (their ad hosts change every few days) and a network that doesn't
+  filter them: the Mac this was built on resolves both to a DNS sinkhole. CraCore's FilterListTests
+  and the UI test `testAnAdLoaderFromAnUnlistedDomainIsStoppedByItsPath` pin the rules themselves.
+
+- **#570, added lists:** on a real iPhone, add `https://easylist.to/easylist/easylist.txt` under
+  Default Site Settings ▸ Block Lists. Its row says "N rules · M rules Cra can’t use" within a few
+  seconds of the fetch, the next page load has its rules (a news site loses its ad slots), and a
+  relaunch opens the first page without a wait (the compiled lists are looked up, not compiled
+  again). Needs a phone for WebKit's compile time and the real list: CraCore's
+  `AddedListRulesTests` compile a list of EasyList's shape on the Mac, and
+  `testAnAddedListsPathRuleStopsAScriptFromAnUnlistedDomain` pins a served list in the simulator.
+
+- **#623, the pull-up's motion:** on a real iPhone at 60 fps, record a drag up from the + pill let go
+  halfway and compare it frame by frame with the reporter's Arc Search recording
+  (streamable.com/vbu4dx): let go, the sheet stays put until the keyboard comes, then rises with it
+  and rests about 0.28 s after letting go, with no sink towards the bar and no overshoot. The
+  simulator records at a variable rate, so only a phone settles the timing; CraCore's
+  `aLetGoSheetWaitsForTheKeyboardWhereItWasLeft` pins the hold.
 
 ## Not pinned yet
 

@@ -1,6 +1,19 @@
 import AppKit
 import CraCEF
 
+/// The agent's cursor over its tab (AgentCursor): told where the pointer goes and when it presses.
+/// While the user is on the tab (isWatched), the pointer glides slowly enough to follow and rests
+/// on its target before pressing (MCPAgentPresence); unwatched, input runs at its own pace.
+@MainActor
+protocol MCPPointerWatcher: AnyObject {
+    var isWatched: Bool { get }
+    func moved(to point: CGPoint, duration: Double)
+    func pressed()
+    /// The page scrolls under the pointer at `point` (page CSS pixels), toward `direction`: the
+    /// cursor shows where it is and looks along the scroll.
+    func scrolls(at point: CGPoint, toward direction: CGVector)
+}
+
 /// Performs input through Chromium. JavaScript in an isolated world only locates targets
 /// and observes delivered events; it never clicks, focuses, selects or edits the page.
 @MainActor
@@ -24,6 +37,9 @@ final class MCPInput {
     private var mouseDown = false
     private var heldKey: [String: Any]?
     private(set) var position: CGPoint
+    /// The cursor the user may be watching; `watching` is read once a call.
+    var pointer: MCPPointerWatcher?
+    private var watching = false
 
     /// Mouse button, click count and modifiers of a page_click.
     private var button = "left"
@@ -52,6 +68,7 @@ final class MCPInput {
         }
         defer { deadline.cancel() }
         humanize = arguments["humanize"] as? Bool == true
+        watching = pointer?.isWatched == true
         button = arguments["button"] as? String ?? "left"
         clickCount = arguments["clickCount"] as? Int ?? 1
         if name == "page_click" { mouseModifiers = (arguments["modifiers"] as? String).flatMap(MCPProtocol.modifierFlags) ?? 0 }
@@ -251,7 +268,7 @@ final class MCPInput {
             throw Failure(message: "That is a <select>. Use page_select with its ref (page_snapshot) so no native menu opens.")
         }
         for step in path(to: point) {
-            try await pace(step.delay)
+            try await self.step(step)
             dispatched = true
             _ = try await call("Input.dispatchMouseEvent", ["type": "mouseMoved", "x": step.point.x, "y": step.point.y, "buttons": 0])
             position = step.point
@@ -373,13 +390,15 @@ final class MCPInput {
     }
 
     private func wheel(dx: Int, dy: Int) async throws {
-        // Notches of about 40 px, at most 8: a few-pixel scroll is one whole event, not eight fractions Chromium drops.
-        let steps = max(1, min(8, max(abs(dx), abs(dy)) / 40))
+        // Whole notches of about 40 px (MCPAgentPresence.wheel); a watched page scrolls at a pace
+        // the eye can follow, under the cursor.
+        let (steps, gap) = MCPAgentPresence.wheel(dx: dx, dy: dy, watched: watching)
+        if watching { pointer?.scrolls(at: position, toward: CGVector(dx: dx, dy: dy)) }
         for _ in 0..<steps {
             dispatched = true
             _ = try await call("Input.dispatchMouseEvent", ["type": "mouseWheel", "x": position.x, "y": position.y,
                                                            "deltaX": Double(dx) / Double(steps), "deltaY": Double(dy) / Double(steps)])
-            try await pace(0.012 + Double.random(in: 0...0.012))
+            if watching { try await pause(gap) } else { try await pace(0.012 + Double.random(in: 0...0.012)) }
         }
         // Chromium scrolls a wheel step over a few frames; let it land before the result reads it.
         try await pause(0.2)
@@ -399,10 +418,19 @@ final class MCPInput {
         if humanize { try await pause(seconds) } else { try check() }
     }
 
-    /// The pointer's way to `end`: a curved, eased path when humanized, else one move.
+    /// The pointer's way to `end`: a glide the user can follow while they watch the tab, a curved,
+    /// eased path when humanized, else one move.
     private func path(to end: CGPoint) -> [MCPInputPlan.Move] {
-        humanize ? MCPInputPlan.movement(from: position, to: end, variation: Double.random(in: 0...1))
+        watching && !humanize ? MCPAgentPresence.watchedGlide(from: position, to: end, variation: Double.random(in: 0...1))
+            : humanize ? MCPInputPlan.movement(from: position, to: end, variation: Double.random(in: 0...1))
             : Array(MCPInputPlan.movement(from: position, to: end, variation: 0.5).suffix(1))
+    }
+
+    /// A pointer step's pause: paced input takes it, and so does a pointer the user watches, whose
+    /// cursor is told first so it arrives as the event does.
+    private func step(_ move: MCPInputPlan.Move) async throws {
+        pointer?.moved(to: move.point, duration: move.delay)
+        if humanize || watching { try await pause(move.delay) } else { try check() }
     }
 
     private func pause(_ seconds: Double) async throws {
@@ -521,6 +549,7 @@ final class MCPInput {
         guard let node else { throw Failure(message: "No target node.") }
         if scroll {
             _ = try await inspect()
+            if watching { try? await reveal() }  // best effort: scrollIntoViewIfNeeded follows
             do { _ = try await call("DOM.scrollIntoViewIfNeeded", ["objectId": node]) }
             catch let failure as MCPCDP.Failure where failure.message.contains("layout object") {
                 throw Failure(message: "That element isn't shown on the page (it has no box): something may reveal it, like a menu or a search icon. Take a screenshot or snapshot.")
@@ -529,6 +558,46 @@ final class MCPInput {
             _ = try? await call("Runtime.evaluate", ["expression": "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))",
                                                     "awaitPromise": true, "contextId": context, "timeout": 500])
         }
+    }
+
+    /// A target out of view, while the user watches: the page scrolls to it smoothly, the cursor
+    /// showing where it is and looking that way, instead of jumping (MCPAgentPresence.revealDirection).
+    /// DOM.scrollIntoViewIfNeeded then finishes whatever the smooth scroll didn't.
+    private func reveal() async throws {
+        let measured = try await function("""
+        function() {
+          const r = this.node.getBoundingClientRect(), d = document.documentElement;
+          return [r.left, r.top, r.width, r.height, d.clientWidth || innerWidth, d.clientHeight || innerHeight];
+        }
+        """)
+        guard let box = (measured["result"] as? [String: Any])?["value"] as? [Double], box.count == 6,
+              let direction = MCPAgentPresence.revealDirection(element: CGRect(x: box[0], y: box[1], width: box[2], height: box[3]),
+                                                               viewport: CGSize(width: box[4], height: box[5])) else { return }
+        CraLog.note("mcp cursor: the page scrolls to the target")
+        pointer?.scrolls(at: position, toward: direction)
+        guard let object else { return }
+        // Settled once the box has stopped for three frames after moving, or 0.25 s without
+        // starting (no smooth scrolling here); a timer ends it when frames don't come.
+        _ = try await call("Runtime.callFunctionOn", ["objectId": object, "returnByValue": true, "awaitPromise": true, "objectGroup": group,
+                                                      "arguments": [["value": MCPAgentPresence.revealLimit * 1000]], "functionDeclaration": """
+        function(limit) {
+          const n = this.node, start = performance.now();
+          n.scrollIntoView({behavior: 'smooth', block: 'center', inline: 'nearest'});
+          return new Promise(done => {
+            let last = '', still = 0, moved = false;
+            setTimeout(() => done(false), limit);
+            const tick = () => {
+              const r = n.getBoundingClientRect(), now = r.left + ',' + r.top, waited = performance.now() - start;
+              if (last && now !== last) moved = true;
+              still = now === last ? still + 1 : 0;
+              last = now;
+              if (moved && still >= 3 || !moved && waited > 250 || waited > limit) return done(moved);
+              requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          });
+        }
+        """])
     }
 
     /// For a ref in a same-site iframe (page_snapshot lists their elements): the child frame
@@ -608,7 +677,7 @@ final class MCPInput {
         let target = try await inspect(editing: editing, hit: true)
         let end = CGPoint(x: target["x"] as? Double ?? 0, y: target["y"] as? Double ?? 0)
         for move in path(to: end) {
-            try await pace(move.delay)
+            try await step(move)
             dispatched = true
             _ = try await call("Input.dispatchMouseEvent", ["type": "mouseMoved", "x": move.point.x, "y": move.point.y, "buttons": 0])
             position = move.point
@@ -640,6 +709,9 @@ final class MCPInput {
     private func pressMouse(at point: CGPoint, between: (() async throws -> Void)? = nil) async throws {
         let buttons = ["left": 1, "right": 2, "middle": 4][button] ?? 1
         if button == "right" { browser.suppressesContextMenu = true }
+        // The user sees what is about to be pressed before the page answers it.
+        if watching { try await pause(MCPAgentPresence.dwell) }
+        pointer?.pressed()
         for count in 1...clickCount {
             mouseDown = true
             dispatched = true
@@ -781,7 +853,7 @@ final class MCPInput {
         }
         let point = CGPoint(x: x, y: y)
         for step in path(to: point) {
-            try await pace(step.delay)
+            try await self.step(step)
             _ = try await call("Input.dispatchMouseEvent", ["type": "mouseMoved", "x": step.point.x, "y": step.point.y, "buttons": 0])
             position = step.point
         }
@@ -986,12 +1058,16 @@ final class MCPInput {
             browser.interceptedDragData = nil
             dragIntercepted = true
             _ = try await call("Input.setInterceptDrags", ["enabled": true])
+            if watching { try await pause(MCPAgentPresence.dwell) }
+            pointer?.pressed()
             mouseDown = true; dispatched = true
             _ = try await call("Input.dispatchMouseEvent", ["type": "mousePressed", "x": position.x, "y": position.y, "button": "left", "buttons": 1, "clickCount": 1])
             try await pace(MCPInputPlan.clickHold(Double.random(in: 0...1)))
             var dragData: [String: Any]?
-            for step in MCPInputPlan.movement(from: position, to: end, variation: Double.random(in: 0...1)) {
-                try await pace(step.delay)
+            let way = watching ? MCPAgentPresence.watchedGlide(from: position, to: end, variation: Double.random(in: 0...1))
+                : MCPInputPlan.movement(from: position, to: end, variation: Double.random(in: 0...1))
+            for step in way {
+                try await self.step(step)
                 let current = try await target.inspect(hit: true)
                 guard abs((current["x"] as? Double ?? -100) - end.x) < 2, abs((current["y"] as? Double ?? -100) - end.y) < 2 else {
                     throw Failure(message: "Drop target moved. Drag aborted; cleanup sends Escape and releases the button.")

@@ -43,6 +43,35 @@ enum ChromiumDialogs {
         }.joined(separator: "; ")
     }
 
+    /// For scenarios: presses the button with that title in the Chromium dialog showing, the way
+    /// VoiceOver does (its accessibility press), so no pointer or key goes anywhere (#484).
+    static func press(_ title: String) -> String {
+        for w in NSApp.windows where w.isVisible && NSStringFromClass(type(of: w)) == ChromiumDialog.windowClass
+            && w.styleMask.rawValue == ChromiumDialog.windowModalStyle {
+            if let button = button(title, in: w.contentView, depth: 0) {
+                button.accessibilityPerformPress()
+                return "Chromium dialog pressed \(title)"
+            }
+        }
+        return "Chromium dialog press \(title): no such button"
+    }
+
+    /// For scenarios: the dialog showing moved to `origin`, as Chromium moves it.
+    static func move(to origin: NSPoint) -> String {
+        guard let w = framed.allObjects.first(where: \.isVisible) else { return "Chromium dialog move: none showing" }
+        w.setFrameOrigin(origin)
+        return "Chromium dialog moved to \(Int(origin.x)),\(Int(origin.y))"
+    }
+
+    private static func button(_ title: String, in element: Any?, depth: Int) -> NSAccessibilityProtocol? {
+        guard depth < 40, let e = element as? NSAccessibilityProtocol else { return nil }
+        if e.accessibilityRole() == .button, e.accessibilityTitle() == title || e.accessibilityLabel() == title { return e }
+        for child in e.accessibilityChildren() ?? [] {
+            if let found = button(title, in: child, depth: depth + 1) { return found }
+        }
+        return nil
+    }
+
     private static func willOrderIn(_ w: NSWindow) {
         guard !framed.contains(w),
               ChromiumDialog.isParentless(className: NSStringFromClass(type(of: w)), styleMask: w.styleMask.rawValue,
@@ -57,11 +86,15 @@ enum ChromiumDialogs {
             w.standardWindowButton(button)?.isHidden = true
         }
         place(w, over: owner)
-        NotificationCenter.default.addObserver(forName: NSWindow.didResizeNotification, object: w, queue: .main) { note in
-            // The install prompt grows when it shows a field: it stays centred under the bar.
-            MainActor.assumeIsolated {
-                guard let w = note.object as? NSWindow, let parent = w.parent else { return }
-                place(w, over: parent)
+        // The install prompt grows when it shows a field: it stays centred under the bar. Chromium also moves the
+        // dialog on its own after it shows (on Nightly's runner, with Cra's window on the display below the main one,
+        // to x 0 at the main display's top, off every screen): it goes back over its window. Nobody else moves it.
+        for name in [NSWindow.didResizeNotification, NSWindow.didMoveNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: w, queue: .main) { note in
+                MainActor.assumeIsolated {
+                    guard let w = note.object as? NSWindow, let parent = w.parent else { return }
+                    place(w, over: parent)
+                }
             }
         }
         // Attached once Chromium's own ordering is done: addChildWindow orders it again.

@@ -10,7 +10,12 @@ public enum TypedURL {
         if t.hasPrefix("localhost") || t.hasPrefix("about:") || t.hasPrefix("view-source:") || t.hasPrefix("data:") || t.hasPrefix("file:") { return true }
         if t.range(of: #"^(\d{1,3}\.){3}\d{1,3}(:\d+)?(/.*)?$"#, options: .regularExpression) != nil { return true }
         // host.tld[:port][/path]
-        return t.range(of: #"^[\w\-]+(\.[\w\-]+)+(:\d+)?(/\S*)?$"#, options: .regularExpression) != nil
+        guard t.range(of: #"^[\w\-]+(\.[\w\-]+)+(:\d+)?(/\S*)?$"#, options: .regularExpression) != nil else { return false }
+        // A top-level domain is never all digits: "3.14" or "chapter-2.16" is a search, as in Chrome (#545).
+        // IPv4 addresses matched above.
+        let host = t.prefix { $0 != "/" && $0 != ":" }
+        let tld = host.split(separator: ".").last ?? ""
+        return tld.contains { $0.isLetter }
     }
 
     public static func fromInput(_ s: String) -> String {
@@ -22,6 +27,14 @@ public enum TypedURL {
         }
         if t.range(of: #"^[a-zA-Z][a-zA-Z0-9+.\-]*:"#, options: .regularExpression) != nil { return t }
         return "https://" + t
+    }
+
+    /// The page a command bar "go to" row opens on Return. While the typed text is still what the
+    /// row was made for, the row's own address. Text typed past it before the rows caught up (a comma
+    /// after "example.com") opens only if it is an address itself; nil means search it (#512).
+    public static func navigation(typed: String, rowURL: String?, rowIsForTyped: Bool) -> String? {
+        if rowIsForTyped { return rowURL ?? fromInput(typed) }
+        return looksLikeURL(typed) ? fromInput(typed) : nil
     }
 
     /// Arc's Edit Pinned URL dialog: the address a pinned tab or favorite gets from the typed text,

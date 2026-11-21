@@ -1,6 +1,6 @@
 # Live folder plugins
 
-Live folders use JavaScript providers and native sidebar rows. GitHub, GitLab and Jira ship in
+Live folders use JavaScript providers and native sidebar rows. GitHub, GitLab, Jira and Azure DevOps ship in
 `resources/live-folder-plugins`; they use the same execution and presentation API as installed
 packages. Service-specific requests, parsing, filters, icons, labels and navigation triggers belong
 to the package. Cra owns tabs, persistence, scheduling, profile selection and permission checks.
@@ -20,13 +20,15 @@ ZIP archives are limited to 10 MiB compressed,
 20 MiB expanded, 4 MiB per entry and 100 entries. Encrypted archives, links, duplicate paths
 and paths outside the package are rejected. Temporary files are removed on cancellation or failure.
 
-## Jira Data Center
+## Jira
 
-Add **Live Folders → Jira…** and enter your Jira base address, including a context path
-or non-default port if needed (for example `https://jira.example.com:8443/jira`).
-Sign in to Jira in the same Space’s Profile. The plugin uses the browser session with
-[Jira Data Center REST API v2](https://developer.atlassian.com/server/jira/platform/jira-rest-api-examples/);
-Jira Cloud is not currently supported by this provider.
+Add **Live Folders → Jira…** and enter the address you open Jira at: a Jira Cloud site
+(`https://example.atlassian.net`; an address copied from a Cloud page keeps only the site) or a
+Jira Data Center server, including a context path or non-default port if needed (for example
+`https://jira.example.com:8443/jira`). Sign in to Jira in the same Space’s Profile. The plugin uses
+the browser session with Jira REST API v2. `/myself` tells the two apart: Cloud users have an
+`accountId` and no `name`, and Cloud lists issues from `/search/jql` with page tokens (it answers
+the retired `/search` with an error), while Data Center pages `/search` by `startAt` (#524).
 
 The folder shows issues assigned to you in **To Do** and **In Progress** by default. **Reported by Me** and
 **Watched by Me** can be enabled independently; these ownership filters are combined with OR.
@@ -36,6 +38,21 @@ At least one ownership filter and one category must be enabled to show issues.
 Rows show the issue key, summary and status. **Projects** lists project keys from matching
 issues and lets you hide projects separately for each folder. Switching a filter refreshes
 the folder; excluded issues are removed after a successful refresh without the usual retention.
+
+## Azure DevOps
+
+Add **Live Folders → Azure DevOps…** and enter your organization's address (`https://dev.azure.com/example`
+or `https://example.visualstudio.com`; an address copied from any page in it keeps only the organization) or
+an Azure DevOps Server collection (`https://tfs.example.com/tfs/DefaultCollection`). Sign in to Azure DevOps
+in the same Space's Profile. The plugin reads `/_apis/connectionData` for your id and lists active pull requests
+across every project with `/_apis/git/pullrequests` (REST 6.0), 100 at a time. Requests carry
+`X-TFS-FedAuthRedirect: Suppress`, so a signed-out session answers 401 instead of Microsoft's sign-in page.
+
+**My Pull Requests** lists the ones you created, **Review Requests** the ones that name you as a reviewer while
+your vote is still "No vote", so a pull request leaves once you approve, wait for the author or reject it, as
+Arc's GitHub review requests do. Reviews requested from a team you're in aren't listed: the API matches reviewers
+by id only. Rows show the title and the author; **Repositories** groups them by `project/repository`, or by the
+repository alone when it has the project's name. Opening a page in the organization refreshes the folder 2 s later.
 
 ## Saved folders
 
@@ -102,7 +119,9 @@ exclusion submenu. Optional `setup` has `key`, `title`, `message`, `placeholder`
 
 A snapshot contains `items`, `actions` and `preservedGroups`. Each item has a unique `id` and `url`,
 `title`, optional `subtitle`, `group` and `createdAt` (Unix seconds). Actions have `title` and `url`;
-optional `actionMessage` and `warning` describe additional sign-in requirements. `preservedGroups`
+optional `actionMessage` and `warning` describe additional sign-in requirements; while a snapshot has a
+`warning`, the folder row shows a key (Arc's single sign-on glyph) with it as the tip, and a click opens
+the first action. A sign-in or refresh error shows a warning triangle instead and wins over it. `preservedGroups`
 keeps already visible items from those groups when partial authorization hides them from a response.
 Return the complete result or throw; a failed request must not turn into an empty successful folder.
 

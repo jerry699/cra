@@ -32,6 +32,8 @@ public struct PerfProcessTable: Sendable {
     private var previousAtNs: UInt64 = 0
     private var started: [PerfProcessKind: Int] = [:]
     private var ended: [PerfProcessKind: Int] = [:]
+    /// Each process at the last update, for the history's largest and busiest and the runaway watch.
+    public private(set) var usage: [PerfProcessUsage] = []
 
     public init() {}
 
@@ -41,20 +43,27 @@ public struct PerfProcessTable: Sendable {
         let interval = previousAtNs > 0 && atNs > previousAtNs ? Double(atNs - previousAtNs) : 0
         var groups = Dictionary(uniqueKeysWithValues: PerfProcessKind.allCases.map { ($0, PerfProcessGroup(kind: $0, available: false)) })
         var cpu: [Int32: UInt64] = [:]
+        usage = []
         for r in readings {
             var g = groups[r.kind]!
             g.count += 1
+            var pct = 0.0
             if let now = r.cpuNs {
                 g.available = true
                 cpu[r.pid] = now
                 if interval > 0, let before = previousCPU[r.pid], now >= before {
-                    g.cpuPct += Double(now - before) / interval * 100
+                    pct = Double(now - before) / interval * 100
+                    g.cpuPct += pct
                 }
             }
-            g.footprintBytes += r.footprintBytes ?? 0
-            g.diskReadBytes += r.diskReadBytes ?? 0
-            g.diskWriteBytes += r.diskWriteBytes ?? 0
-            g.wakeups += r.wakeups ?? 0
+            if r.cpuNs != nil || r.footprintBytes != nil {
+                usage.append(PerfProcessUsage(pid: r.pid, kind: r.kind, cpuPct: pct, footprintBytes: r.footprintBytes ?? 0))
+            }
+            // The sampler clamps macOS's UInt64 counters, so a reading can be Int64.max: sums saturate.
+            g.footprintBytes = g.footprintBytes.saturatingAdding(r.footprintBytes ?? 0)
+            g.diskReadBytes = g.diskReadBytes.saturatingAdding(r.diskReadBytes ?? 0)
+            g.diskWriteBytes = g.diskWriteBytes.saturatingAdding(r.diskWriteBytes ?? 0)
+            g.wakeups = g.wakeups.saturatingAdding(r.wakeups ?? 0)
             groups[r.kind] = g
         }
         let kinds = Dictionary(readings.map { ($0.pid, $0.kind) }, uniquingKeysWith: { a, _ in a })
@@ -73,5 +82,13 @@ public struct PerfProcessTable: Sendable {
             if g.count == 0 { g.available = true }
             return g.count > 0 || g.started > 0 || g.ended > 0 ? g : nil
         }
+    }
+}
+
+extension Int64 {
+    /// Counters only grow: a sum past Int64.max stays there instead of trapping.
+    func saturatingAdding(_ value: Int64) -> Int64 {
+        let (sum, overflow) = addingReportingOverflow(Swift.max(value, 0))
+        return overflow ? .max : sum
     }
 }

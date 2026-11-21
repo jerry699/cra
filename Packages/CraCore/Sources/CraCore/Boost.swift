@@ -72,19 +72,71 @@ public struct Boost: Codable, Equatable, Identifiable, Sendable {
 
     /// The boost for a page, if one applies: same host, or a subdomain of it.
     public static func applying(to url: String, from boosts: [Boost]) -> [Boost] {
+        onSite(of: url, from: boosts).filter(\.enabled)
+    }
+
+    /// Every boost on a page's site, on or off: the Site Control Center's Boosts section (#478).
+    public static func onSite(of url: String, from boosts: [Boost]) -> [Boost] {
         guard let host = URL(string: url)?.host.map(siteHost) else { return [] }
-        return boosts.filter { $0.enabled && (host == $0.host || host.hasSuffix("." + $0.host)) }
+        return boosts.filter { host == $0.host || host.hasSuffix("." + $0.host) }
     }
 
     /// Whether the editor's colour controls are at the site's own colours.
     public var colorsUntouched: Bool { strength == 0 && !invert && contrast == 50 && brightness == 50 && saturation == 50 }
 
     /// The stylesheet the page gets.
-    public var stylesheet: String {
+    public var stylesheet: String { stylesheet(engineTints: false) }
+
+    /// The tint as Arc draws it (#602): a colorize in sRGB's HSL that leaves images alone. Measured in an offline
+    /// Arc 1.174 on 21 Nov 2026 (40 swatches at 18 handle positions, within 3/255 on average, 8 at most):
+    /// a colour keeps its lightness, squeezed into a band that narrows with the strength, and takes the big
+    /// handle's hue when light and the small one's (an eighth of a turn on) when dark, with the saturation the
+    /// handle adds plus half its own. So every saturated colour of one lightness becomes the same colour.
+    /// Cra's Chromium engine draws every colour of the page but its images through it. nil without a tint.
+    public var tint: Colorize? {
+        guard strength > 0 else { return nil }
+        let added = 0.5 * pow(min(1, strength), 1.2)
+        return Colorize(hue: hue, darkHue: BoostWheel.accentOffset, saturationAdded: added, saturationKept: 0.5,
+                        lightnessAtBlack: 0.4 * added, lightnessScale: 1 - 0.6 * added)
+    }
+
+    /// Arc's Boost colorize, in sRGB's HSL: hue = `hue` + `darkHue` × (1 − l) turns, saturation = `saturationAdded`
+    /// + `saturationKept` × s, lightness = `lightnessAtBlack` + `lightnessScale` × l.
+    public struct Colorize: Equatable, Sendable {
+        public var hue, darkHue, saturationAdded, saturationKept, lightnessAtBlack, lightnessScale: Double
+
+        /// What the engine reads (cc::ColorFilter::MakeCraColorize): the six numbers in that order.
+        public var engineString: String {
+            [hue, darkHue, saturationAdded, saturationKept, lightnessAtBlack, lightnessScale]
+                .map { String(format: "%.6g", $0) }.joined(separator: ",")
+        }
+
+        /// An sRGB colour (0–1) as the page draws it under the tint.
+        public func apply(_ r: Double, _ g: Double, _ b: Double) -> (r: Double, g: Double, b: Double) {
+            let mx = max(r, g, b), mn = min(r, g, b), l = (mx + mn) / 2, d = mx - mn
+            let s = d <= 0 ? 0 : d / (1 - abs(2 * l - 1))
+            let h = hue + darkHue * (1 - l)
+            let sat = max(0, min(1, saturationAdded + saturationKept * s))
+            let light = max(0, min(1, lightnessAtBlack + lightnessScale * l))
+            let q = light < 0.5 ? light * (1 + sat) : light + sat - light * sat, p = 2 * light - q
+            func channel(_ t: Double) -> Double {
+                let t = t - floor(t)
+                if t < 1.0 / 6 { return p + (q - p) * 6 * t }
+                if t < 0.5 { return q }
+                if t < 2.0 / 3 { return p + (q - p) * (2.0 / 3 - t) * 6 }
+                return p
+            }
+            return (channel(h + 1.0 / 3), channel(h), channel(h - 1.0 / 3))
+        }
+    }
+
+    /// The stylesheet, without the tint's filter when the engine draws the tint itself (`tint`), so the
+    /// page's images keep their colours (#602).
+    public func stylesheet(engineTints: Bool) -> String {
         var rules: [String] = []
         var filters: [String] = []
         if invert { filters.append("invert(1) hue-rotate(180deg)") }
-        if strength > 0 {
+        if strength > 0, !engineTints {
             // A tint: the page washed toward the hue, as much as the handle is out from the middle.
             filters.append("sepia(\(fmt(strength)))")
             filters.append("hue-rotate(\(fmt(hue * 360 - 38))deg)")

@@ -60,8 +60,10 @@ enum EaselCanvasTests {
         secondEditor.deleteBackward(nil)
         precondition(sheet.document.items.count == 1 && field.superview === sheet, "deleting characters while editing keeps the block")
         precondition(!sheet.control(field, textView: secondEditor, doCommandBy: #selector(NSResponder.moveLeft(_:))), "ordinary editing commands stay with the text editor")
-        precondition(sheet.control(field, textView: secondEditor, doCommandBy: #selector(NSResponder.insertNewline(_:))), "Enter finishes editing")
-        precondition(window.firstResponder === sheet, "Enter returns focus to the canvas")
+        precondition(sheet.control(field, textView: secondEditor, doCommandBy: #selector(NSResponder.insertNewline(_:))), "Return is the text box's")
+        precondition(window.firstResponder === secondEditor && secondEditor.string.hasSuffix("\n"), "Return starts a new line and typing goes on (#580)")
+        precondition(sheet.control(field, textView: secondEditor, doCommandBy: #selector(NSResponder.cancelOperation(_:))), "Escape finishes editing")
+        precondition(window.firstResponder === sheet, "Escape returns focus to the canvas")
         click(NSPoint(x: 600, y: 400))
         precondition(pill.isHidden, "clicking empty canvas clears the text selection")
         click(NSPoint(x: 220, y: 240))
@@ -101,8 +103,247 @@ enum EaselCanvasTests {
         sheet.tool = .pointer
         objectsAndHistory(sheet, window) { makeMouse($0, $1, clicks: $2) }
         drawingAndMenus(window)
+        longText()
+        severalItems()
+        endlessCanvas()
         window.close()
         print("Easel canvas: selection, movement, editing and deletion passed")
+    }
+
+    // promise: #580
+    /// "It should be an endless canvas to put ideas on board, but it isn't" (#580). The canvas was the
+    /// window's width and 2436 pt tall: an item further down or to the left was off it. Now the canvas
+    /// holds every item with a view's room past it, grows as you scroll toward any edge without moving
+    /// what is in view, keeps the title over the home sheet, and zooms (View ▸ Zoom, a pinch).
+    @MainActor
+    static func endlessCanvas() {
+        let low = Easel.Item(kind: .rectangle, frame: .init(x: 200, y: 3000, width: 100, height: 100))
+        let left = Easel.Item(kind: .ellipse, frame: .init(x: -400, y: 100, width: 100, height: 100))
+        let canvas = EaselCanvasView(document: Easel(items: [low, left]))
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = canvas
+        canvas.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        let sheet = canvas.sheetView
+        guard let scroll = sheet.enclosingScrollView else { fatalError("the canvas scrolls") }
+        let clip = scroll.contentView
+        func contains(_ outer: NSRect, _ f: Easel.Rect) -> Bool { outer.contains(NSRect(x: f.x, y: f.y, width: f.width, height: f.height)) }
+        precondition(contains(sheet.bounds, low.frame), "an item below Arc's 2436 pt is on the canvas: \(sheet.bounds)")
+        precondition(contains(sheet.bounds, left.frame), "an item left of the home sheet is on the canvas: \(sheet.bounds)")
+        precondition(sheet.bounds.maxY >= 3100 + 700 && sheet.bounds.minX <= -400 - 900, "a view's room past the furthest items: \(sheet.bounds)")
+        precondition(sheet.visibleRect.minX == 0 && sheet.visibleRect.minY == 0, "it opens on the home sheet's top left: \(sheet.visibleRect)")
+        let title = sheet.subviews.compactMap { $0 as? NSTextField }.first!
+        precondition(abs(title.frame.midX - 450) < 1, "the title stays centred over the home sheet: \(title.frame)")
+
+        // Scrolled to the bottom right end of the canvas, there is more past it, and the view stays put.
+        clip.scroll(to: NSPoint(x: sheet.frame.width - clip.bounds.width, y: sheet.frame.height - clip.bounds.height))
+        scroll.reflectScrolledClipView(clip)
+        let atEnd = sheet.visibleRect
+        precondition(sheet.bounds.maxX >= atEnd.maxX + 900 && sheet.bounds.maxY >= atEnd.maxY + 700, "scrolling to the end grows the canvas: \(sheet.bounds) \(atEnd)")
+        // Up and to the left the same, without the canvas jumping under the view.
+        clip.scroll(to: .zero)
+        scroll.reflectScrolledClipView(clip)
+        let atStart = sheet.visibleRect
+        precondition(sheet.bounds.minX <= atStart.minX - 900 && sheet.bounds.minY <= atStart.minY - 700, "scrolling to the start grows it back there: \(sheet.bounds) \(atStart)")
+        let anchor = sheet.convert(NSPoint(x: atStart.midX, y: atStart.midY), to: nil)
+        canvas.settle()
+        let after = sheet.convert(anchor, from: nil)
+        precondition(abs(after.x - atStart.midX) < 1 && abs(after.y - atStart.midY) < 1, "the canvas under the view doesn't move when it grows or shrinks")
+        precondition(contains(sheet.bounds, low.frame) && contains(sheet.bounds, left.frame), "settling keeps every item on the canvas")
+
+        // An item dragged far up and left stays where it was put.
+        func event(_ type: NSEvent.EventType, _ q: NSPoint) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: sheet.convert(q, to: nil), modifierFlags: [], timestamp: 1,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+        }
+        let from = NSPoint(x: left.frame.x + 50, y: left.frame.y + 50), to = NSPoint(x: left.frame.x - 950, y: left.frame.y - 750)
+        let viewBefore = sheet.visibleRect
+        sheet.mouseDown(with: event(.leftMouseDown, from))
+        let up = event(.leftMouseDragged, to)
+        sheet.mouseDragged(with: up)
+        sheet.mouseUp(with: event(.leftMouseUp, to))
+        // The drag ended past the view's edge, so the canvas scrolled on under the pointer: the item is
+        // where the pointer is on the canvas now, far up and left of the home sheet.
+        let under = sheet.convert(up.locationInWindow, from: nil)
+        let moved = sheet.document.items.first { $0.id == left.id }!.frame
+        precondition(moved.x == under.x - 50 && moved.y == under.y - 50 && moved.x <= -1400 && moved.y <= -700,
+                     "an item goes to negative places on the canvas, under the pointer: \(moved) \(under)")
+        precondition(to.x - viewBefore.minX < 0 && sheet.visibleRect.minX < viewBefore.minX,
+                     "a drag past the edge scrolls the view on: \(viewBefore) → \(sheet.visibleRect)")
+        precondition(contains(sheet.bounds, moved), "the canvas takes in the moved item: \(sheet.bounds)")
+
+        // View ▸ Zoom In and Out (and a pinch) magnify the canvas, within Easel.zoomRange.
+        precondition(scroll.allowsMagnification && scroll.minMagnification == 0.1 && scroll.maxMagnification == 4, "the canvas zooms with a pinch")
+        let middle = NSPoint(x: sheet.visibleRect.midX, y: sheet.visibleRect.midY)
+        canvas.zoomLevel = -6
+        precondition(abs(scroll.magnification - Easel.magnification(zoomLevel: -6)) < 0.001, "Zoom Out shrinks the canvas: \(scroll.magnification)")
+        precondition(abs(sheet.visibleRect.midX - middle.x) < 2 && abs(sheet.visibleRect.midY - middle.y) < 2,
+                     "zooming keeps the middle of the view where it was: \(middle) → \(sheet.visibleRect)")
+        precondition(abs(canvas.zoomLevel + 6) < 0.001, "the zoom level reads back for View ▸ Zoom")
+        precondition(sheet.bounds.width >= sheet.visibleRect.width * 3 - 1, "zoomed out, the room past the view grows with it")
+        canvas.zoomLevel = 0
+        precondition(scroll.magnification == 1, "Actual Size goes back to 1×")
+        print("Easel canvas: endless in every direction, zooms (#580)")
+    }
+
+    // promise: #580
+    /// A long text widens its box up to 560 pt, then wraps and grows down; Return adds a line; a box saved
+    /// by older Cra as one 240 pt line is fitted to its text when the easel opens (#580: "…hover over" lost "over").
+    @MainActor
+    static func longText() {
+        let long = String(repeating: "Lorem ipsum dolor sit amet, hover over ", count: 4)
+        let saved = Easel.Item(kind: .text(long, size: 18), frame: .init(x: 40, y: 60, width: 240, height: 26))
+        let sheet = EaselSheetView(document: Easel(items: [saved]))
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = sheet
+        sheet.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        let field = sheet.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == saved.id.uuidString }!
+        var frame = sheet.document.items[0].frame
+        precondition(frame.width == 560 && frame.height > 2 * 27, "an older box is fitted to its whole text when the easel opens: \(frame)")
+        precondition(field.frame == NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height), "the text field shows the fitted box")
+        precondition(field.cell?.wraps == true && field.cell?.isScrollable == false, "the text wraps in its box instead of scrolling out of it")
+
+        precondition(window.makeFirstResponder(field), "the text box takes the keyboard")
+        guard let editor = field.currentEditor() as? NSTextView else { fatalError("the text box edits") }
+        editor.string = "Short"
+        sheet.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        frame = sheet.document.items[0].frame
+        precondition(frame.width == 240 && frame.height == 27, "a short text keeps one 240 pt line: \(frame)")
+        editor.string = "Lorem ipsum dolor sit amet, consectetur"
+        sheet.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        frame = sheet.document.items[0].frame
+        precondition(frame.width > 240 && frame.width < 560 && frame.height == 27, "a longer line widens the box on one line: \(frame)")
+        let oneLine = frame.height
+        editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+        precondition(sheet.control(field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))), "Return is the text box's")
+        frame = sheet.document.items[0].frame
+        precondition(sheet.document.items[0].kind == .text("Lorem ipsum dolor sit amet, consectetur\n", size: 18), "Return adds a line to the text")
+        precondition(frame.height > oneLine + 15, "the box grows down by the new line: \(frame)")
+        precondition(field.frame.height == frame.height, "the text field grows with it")
+        editor.string = long
+        sheet.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+        frame = sheet.document.items[0].frame
+        precondition(frame.width == 560 && frame.height > 2 * 27, "past 560 pt the text wraps and the box grows down: \(frame)")
+        print("Easel canvas: long text widens, wraps and takes Return (#580)")
+    }
+
+    // promise: #580
+    /// Picking several items as on the rest of the Mac (#580): ⌘- and ⇧-click add and remove, a drag from
+    /// empty canvas draws a box that picks what it touches, and the picked items move, snap, colour,
+    /// layer, duplicate, copy, paste, delete and undo together. ⌘A picks them all.
+    @MainActor
+    static func severalItems() {
+        let saved = NSPasteboard.general.pasteboardItems?.map { item -> NSPasteboardItem in
+            let copy = NSPasteboardItem()
+            for t in item.types { if let d = item.data(forType: t) { copy.setData(d, forType: t) } }
+            return copy
+        } ?? []
+        defer { NSPasteboard.general.clearContents(); NSPasteboard.general.writeObjects(saved) }
+        let a = Easel.Item(kind: .rectangle, frame: .init(x: 100, y: 150, width: 100, height: 100))
+        let b = Easel.Item(kind: .ellipse, frame: .init(x: 300, y: 150, width: 100, height: 100))
+        let t = Easel.Item(kind: .text("Note", size: 18), frame: .init(x: 100, y: 450, width: 240, height: 27))
+        let sheet = EaselSheetView(document: Easel(items: [a, b, t]))
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = sheet
+        sheet.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        let field = sheet.subviews.compactMap { $0 as? NSTextField }.first { $0.identifier?.rawValue == t.id.uuidString }!
+        func event(_ type: NSEvent.EventType, _ p: NSPoint, _ flags: NSEvent.ModifierFlags = []) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: sheet.convert(p, to: nil), modifierFlags: flags, timestamp: 1,
+                               windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)!
+        }
+        func click(_ p: NSPoint, _ flags: NSEvent.ModifierFlags = []) {
+            sheet.mouseDown(with: event(.leftMouseDown, p, flags))
+            sheet.mouseUp(with: event(.leftMouseUp, p, flags))
+        }
+        func drag(_ from: NSPoint, _ to: NSPoint, _ flags: NSEvent.ModifierFlags = [], check: () -> Void = {}) {
+            sheet.mouseDown(with: event(.leftMouseDown, from, flags))
+            sheet.mouseDragged(with: event(.leftMouseDragged, NSPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2), flags))
+            sheet.mouseDragged(with: event(.leftMouseDragged, to, flags))
+            check()
+            sheet.mouseUp(with: event(.leftMouseUp, to, flags))
+        }
+        func frame(_ id: UUID) -> Easel.Rect { sheet.document.items.first { $0.id == id }!.frame }
+
+        click(NSPoint(x: 150, y: 200))
+        precondition(sheet.picked == [a.id], "a click picks one item")
+        click(NSPoint(x: 350, y: 200), .command)
+        precondition(sheet.picked == [a.id, b.id], "⌘-click adds an item to the picks")
+        click(NSPoint(x: 150, y: 200), .shift)
+        precondition(sheet.picked == [b.id], "⇧-click takes a picked item out")
+        click(NSPoint(x: 150, y: 200), .shift)
+        precondition(sheet.picked == [b.id, a.id], "⇧-click adds it back")
+        precondition(!sheet.colorPicker.isHidden, "two shapes show the colour picker")
+        sheet.setShade(.purple)
+        precondition(sheet.document.items[0].shade == .purple && sheet.document.items[1].shade == .purple, "a colour goes to every picked shape")
+
+        // Dragging one of them moves both by the same amount; the text box stays.
+        drag(NSPoint(x: 150, y: 200), NSPoint(x: 170, y: 230))
+        precondition(frame(a.id) == .init(x: 120, y: 180, width: 100, height: 100) && frame(b.id) == .init(x: 320, y: 180, width: 100, height: 100),
+                     "the picked items move together: \(frame(a.id)) \(frame(b.id))")
+        precondition(frame(t.id) == t.frame && sheet.picked == [b.id, a.id], "the others stay, and the group stays picked")
+        sheet.undo(nil)
+        precondition(frame(a.id) == a.frame && frame(b.id) == b.frame, "one Undo puts the whole group back")
+        // The group snaps as one box: its left edge 4 pt off the text box's lands on it.
+        drag(NSPoint(x: 150, y: 200), NSPoint(x: 154, y: 200))
+        precondition(frame(a.id).x == 100 && frame(b.id).x == 300, "the group snaps onto the text box's left edge")
+
+        // A plain click on one of the group, without dragging, picks it alone.
+        click(NSPoint(x: 350, y: 200))
+        precondition(sheet.picked == [b.id], "a click on one picked item, let go, picks it alone")
+
+        // A drag from empty canvas draws a box; the items it touches are picked as it grows.
+        drag(NSPoint(x: 60, y: 120), NSPoint(x: 320, y: 300)) {
+            precondition(sheet.band == Easel.Rect(x: 60, y: 120, width: 260, height: 180), "the drag draws the box it spans")
+            precondition(sheet.picked == [a.id, b.id], "the box picks every item it touches: \(sheet.picked)")
+        }
+        precondition(sheet.band == nil && sheet.picked == [a.id, b.id], "letting go keeps the picks and drops the box")
+        precondition(frame(a.id) == a.frame, "drawing the box moves nothing")
+        // ⌘ held: the box's items flip in the picks from before.
+        drag(NSPoint(x: 60, y: 420), NSPoint(x: 160, y: 500), .command)
+        precondition(sheet.picked == [a.id, b.id, t.id], "a ⌘-drag box adds what it touches")
+        precondition(sheet.colorPicker.isHidden, "a text box among the picks hides the colour picker")
+        click(NSPoint(x: 700, y: 600))
+        precondition(sheet.picked.isEmpty, "a click on empty canvas picks nothing")
+        precondition(window.makeFirstResponder(sheet) && NSApp.sendAction(#selector(NSResponder.selectAll(_:)), to: sheet, from: nil),
+                     "Select All reaches the canvas")
+        precondition(sheet.picked == [a.id, b.id, t.id], "⌘A picks every item")
+
+        // The object menu acts on the whole group.
+        click(NSPoint(x: 700, y: 600))
+        click(NSPoint(x: 150, y: 200)); click(NSPoint(x: 350, y: 200), .command)
+        let menu = sheet.menu(for: event(.rightMouseDown, NSPoint(x: 150, y: 200)))!
+        precondition(sheet.picked == [a.id, b.id], "a right click on a picked item keeps the group")
+        precondition(menu.items.map(\.title) == ["Bring to Front", "Send to Back", "Delete", "", "Cut", "Copy", "Paste", "", "Duplicate"],
+                     "the group's menu: \(menu.items.map(\.title))")
+        let front = menu.items.first { $0.title == "Bring to Front" }!
+        _ = front.target?.perform(front.action, with: front)
+        precondition(sheet.document.items.map(\.id) == [t.id, a.id, b.id], "Bring to Front lifts the group, in its order")
+
+        // Duplicate, copy and paste, and Delete work on every picked item.
+        sheet.duplicateSelected()
+        precondition(sheet.document.items.count == 5 && sheet.picked.count == 2 && !sheet.picked.contains(a.id), "Duplicate copies each picked item and picks the copies")
+        precondition(frame(sheet.picked[0]) == a.frame.offset(by: .init(20, 20)), "each copy sits 20 pt down and right of its original")
+        let delete = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 2, windowNumber: window.windowNumber,
+                                      context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 51)!
+        sheet.keyDown(with: delete)
+        precondition(sheet.document.items.map(\.id) == [t.id, a.id, b.id] && sheet.picked.isEmpty, "Delete removes every picked item")
+        click(NSPoint(x: 150, y: 200)); click(NSPoint(x: 150, y: 460), .command)
+        precondition(sheet.picked == [a.id, t.id], "a text box can join the picks")
+        sheet.copy(nil)
+        sheet.paste(nil)
+        let pasted = sheet.picked
+        precondition(sheet.document.items.count == 5 && pasted.count == 2 && !pasted.contains(a.id), "paste adds every copied item and picks them")
+        let pastedText = sheet.document.items.first { pasted.contains($0.id) && $0.kind == t.kind }!
+        precondition(sheet.subviews.contains { ($0 as? NSTextField)?.identifier?.rawValue == pastedText.id.uuidString && $0 !== field },
+                     "the pasted text box gets its own field")
+        sheet.cut(nil)
+        precondition(sheet.document.items.count == 3 && sheet.picked.isEmpty, "Cut removes every picked item")
+        print("Easel canvas: several items picked, moved, layered, copied and deleted together (#580)")
     }
 
     /// Every kind of item drawn as Arc draws it (pixels checked), the picker's colours, the canvas menu,

@@ -4,13 +4,20 @@ import AppKit
 
 public protocol CraBrowserDelegate: AnyObject {
     func browserDidClose(_ browser: CraBrowser)
+    func browser(_ browser: CraBrowser, didUpdateDownload download: CraDownloadInfo)
     func browser(_ browser: CraBrowser, requestsPermissionForOrigin origin: String, kinds: UInt, completion: @escaping (Bool) -> Void)
     func browser(_ browser: CraBrowser, didChangeURL url: String)
     func browser(_ browser: CraBrowser, didChangeTitle title: String)
     func browser(_ browser: CraBrowser, didChangeLoading loading: Bool, canGoBack: Bool, canGoForward: Bool)
+    /// CraCEF.h's optional browserStartsHidden: (#552).
+    func browserStartsHidden(_ browser: CraBrowser) -> Bool
 }
 
-public final class CraDownloadInfo {}
+extension CraBrowserDelegate {
+    public func browser(_ browser: CraBrowser, didUpdateDownload download: CraDownloadInfo) {}
+    public func browserStartsHidden(_ browser: CraBrowser) -> Bool { false }
+}
+public final class CraDownloadInfo { public init() {} }
 
 /// CraCEF.h's media session states (#411).
 @objc public enum CraMediaSessionState: Int { case inactive, active, ducking, suspended }
@@ -24,6 +31,8 @@ public enum CraCEFRuntime {
 }
 
 @objc public enum CraLinkWindow: Int { case new, incognito, little }
+@objc public enum CraFindAction: Int { case show, next, previous }
+@objc public enum CraExclusiveAccessNotice: Int { case none, fullscreen, fullscreenPointerLock, pointerLock, keyboardLock, browserFullscreen, extensionFullscreen }
 
 /// `open`: the app subclasses it (WebKitBrowser, faked in AppServices.swift).
 @MainActor
@@ -60,7 +69,12 @@ open class CraBrowser {
         self.delegate = delegate
         isIncognito = incognito
         self.profilePath = profilePath
+        // As the engine's bridge: a page (not a popup host, which waits for its popup) asks as it is made.
+        if url != nil { startedHidden = delegate?.browserStartsHidden(self) ?? false }
     }
+
+    /// Whether the page was made hidden, or a spare it took was hidden before it loaded (browserStartsHidden, #552).
+    public private(set) var startedHidden = false
 
     /// The saved back and forward list the page was made with (Cra.restoreHistory's params).
     public private(set) var restoredHistory: [String: Any]?
@@ -79,12 +93,16 @@ open class CraBrowser {
     }
     public func takeSpare(withURL url: String, history: [String: Any]?) {
         isSpare = false
+        startedHidden = delegate?.browserStartsHidden(self) ?? false
         takenURL = url
         currentURL = url
         restoredHistory = history
     }
 
     public func close() { closeRequested = true; onClose?() }
+    /// How many times Cra asked the page to leave its element full screen (a video's), as Esc does.
+    public var exitFullscreenRequests = 0
+    public func exitFullscreen() { exitFullscreenRequests += 1 }
     public func finishClose() { isClosed = true; delegate?.browserDidClose(self) }
     /// "show" / "close" / "apply <action>", in the order Cra asked.
     public var devToolsRequests: [String] = []
@@ -94,9 +112,14 @@ open class CraBrowser {
     public func applyDevToolsAction() { devToolsRequests.append("apply \(devToolsAction ?? "")"); devToolsAction = nil }
     public func closeDevTools() { hasDevTools = false; devToolsRequests.append("close") }
     public func setAudioMuted(_ muted: Bool) {}
+    /// What BrowserManager gave the engine for a Boost's colours (#602).
+    public private(set) var boostTint: String?
+    public func setBoostTint(_ tint: String?) { boostTint = tint }
     public private(set) var backgroundProbes = 0
     public func probeBackgroundColor() { backgroundProbes += 1 }
     public func setFocused(_ focused: Bool) {}
+    public func findText(_ text: String, forward: Bool, matchCase: Bool, findNext: Bool, generation: UUID, quote: Bool) {}
+    public func stopFinding(_ clearSelection: Bool) {}
     public private(set) var pictureInPictureRequests = 0
     public private(set) var automaticPictureInPictureRequests = 0
     public func requestPictureInPicture(automatic: Bool) {
@@ -122,6 +145,15 @@ open class CraBrowser {
     public func evaluate(inIsolatedWorld world: String, params: String, completion: @escaping (String?, String?) -> Void) {
         lastIsolatedParams = params
         replies.append(("\(world):Runtime.evaluate", completion))
+    }
+    public var guardedEvaluations: [() -> Bool] = []
+    public func evaluate(inIsolatedWorld world: String, params: String, ifCurrent: @escaping () -> Bool,
+                         completion: @escaping (String?, String?) -> Void) {
+        guardedEvaluations.append { [weak self] in
+            guard let self, ifCurrent() else { completion(nil, "retired evaluation"); return false }
+            self.evaluate(inIsolatedWorld: world, params: params, completion: completion)
+            return true
+        }
     }
     public func reply(to method: String, with result: String?) {
         guard let index = replies.firstIndex(where: { $0.method == method }) else { fatalError("No pending \(method)") }

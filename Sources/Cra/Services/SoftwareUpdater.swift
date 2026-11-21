@@ -76,6 +76,20 @@ final class SoftwareUpdater: NSObject {
         didSet { updater?.automaticallyDownloadsUpdates = automaticallyUpdates }
     }
     private(set) var isAvailable = false
+    /// New or Stable (GitHub #476), each Mac's own, kept beside Sparkle's settings. A change takes effect at the next
+    /// check, which Sparkle moves up to a moment from now.
+    var channel = UpdateChannel(stored: UserDefaults.standard.string(forKey: Keys.channel)) {
+        didSet {
+            guard channel != oldValue else { return }
+            UserDefaults.standard.set(channel.rawValue, forKey: Keys.channel)
+            CraLog.note("update channel \(channel.rawValue), feed \(feedURL ?? "none")")
+            updater?.resetUpdateCycleAfterShortDelay()
+            lookUpStable()
+        }
+    }
+    /// The Stable release while it is older than this build. Sparkle never installs an older version, so a Mac that
+    /// switched to Stable stays where it is until Stable passes it, and Settings offers Stable's disk image instead.
+    private(set) var olderStable: AppcastRelease?
     /// Settings ▸ Advanced, next to Check for Updates: when Sparkle last looked.
     var lastCheckSummary: String {
         guard isAvailable else { return "Development builds don’t update." }
@@ -105,10 +119,32 @@ final class SoftwareUpdater: NSObject {
     private enum Keys {
         static let pendingBuild = "updateSummaryPendingBuild"
         static let autoRelaunch = "automaticUpdateWillRelaunchApp"
+        static let channel = "updateChannel"
     }
 
     /// Arc's feed override: a feed URL for testing (e.g. a local appcast).
     private var feedOverride: String? { ProcessInfo.processInfo.environment["CRA_UPDATE_FEED"] }
+    /// The feed this Mac's channel reads: the build's own (or the test's), or Stable's beside it.
+    private var feedURL: String? {
+        (feedOverride ?? Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String).map(channel.feedURL(from:))
+    }
+
+    /// Reads the Stable feed for Settings while this Mac is on Stable.
+    func lookUpStable() {
+        guard channel == .stable, let feed = feedURL, let url = URL(string: feed) else {
+            olderStable = nil
+            return
+        }
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        Task { [weak self] in
+            guard let (data, response) = try? await URLSession.shared.data(from: url),
+                  (response as? HTTPURLResponse)?.statusCode == 200 else { return }
+            let stable = AppcastRelease.parse(data).first
+            guard let self, self.channel == .stable else { return }
+            self.olderStable = stable.flatMap { $0.isOlder(than: build) ? $0 : nil }
+            CraLog.note("stable release \(stable?.version ?? "none"), older than this build: \(self.olderStable == nil ? "no" : "yes")")
+        }
+    }
     /// Shortens every wait of the automatic restart to this many seconds, for testing.
     private var quickRestart: TimeInterval? { ProcessInfo.processInfo.environment["CRA_UPDATE_IDLE_SECONDS"].flatMap(TimeInterval.init) }
 
@@ -163,13 +199,34 @@ final class SoftwareUpdater: NSObject {
         updater?.checkForUpdates()
     }
 
+    /// Install and Relaunch asks before cancelling a running download (#272); the `downloadGuards`
+    /// readout reads it too (#491).
+    var relaunchAsksAboutDownloads: Bool { DownloadHistory.shared.hasRunningDownloads }
+
     /// Restart into the downloaded update (the banner, Install and Relaunch).
     func installAndRelaunch() {
         // The restart would cancel a running download: ask first, as quitting does (#272). The
         // automatic restart never gets here while one runs (autoUpdateBlocker).
         var restarts = installNow != nil || phase == .readyToInstall
         if case .found(_, downloaded: true) = phase { restarts = true }
-        if restarts, DownloadHistory.shared.hasRunningDownloads, app?.confirmQuitCancellingDownloads() == false { return }
+        guard restarts, relaunchAsksAboutDownloads else { return restartIntoUpdate() }
+        // Asked once the click that got here is over. Inside the updater window's SwiftUI button action, the
+        // question's own SwiftUI buttons took no click until that action returned, which it never did while the
+        // question waited: neither answer did anything (X, 17 Nov 2026).
+        guard !askingAboutDownloads else { return }
+        askingAboutDownloads = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let restart = app?.confirmQuitCancellingDownloads() == true
+            askingAboutDownloads = false
+            if restart { restartIntoUpdate() }
+        }
+    }
+
+    /// "Downloads in progress" is up for Install and Relaunch.
+    @ObservationIgnored private var askingAboutDownloads = false
+
+    private func restartIntoUpdate() {
         if let reply = choiceReply {
             choiceReply = nil
             switch phase {
@@ -248,6 +305,47 @@ final class SoftwareUpdater: NSObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// `cra://debug?updaterRelaunch=<button>`: the updater window at Ready to Install, its Install and Relaunch
+    /// clicked the way a person's click arrives (an event through the window, so through SwiftUI's button), and once
+    /// "Downloads in progress" asks, `button` clicked the same way. Logs the window the question hangs from and
+    /// whether the answer got through (X, 17 Nov 2026: over the updater window neither button answered).
+    func debugRelaunchClick(answer: String) {
+        let label = "updater relaunch \(answer)"
+        phase = .readyToInstall
+        showWindow()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let w = self?.window?.window, DialogClick.post("Install and Relaunch", in: w) else {
+                CraLog.note("\(label): no Install and Relaunch button"); return
+            }
+            // Timers in the common modes run inside the question's modal loop too.
+            let started = Date()
+            let poll = Timer(timeInterval: 0.25, repeats: true) { timer in
+                MainActor.assumeIsolated {
+                    guard let dialog = AppDialog.presented, dialog.title == "Downloads in progress", let panel = dialog.window else {
+                        if Date().timeIntervalSince(started) > 5 { timer.invalidate(); CraLog.note("\(label): no question") }
+                        return
+                    }
+                    timer.invalidate()
+                    let parent = panel.sheetParent
+                    let over = parent === w ? "the updater window" : parent == nil ? "no window" : "a browser window"
+                    let fits = (parent?.frame.width ?? 0) >= panel.frame.width ? "fits" : "hangs off it"
+                    // A button SwiftUI never laid out has no frame to click: the question can't be answered either.
+                    let clicked = DialogClick.post(answer, in: panel)
+                    let check = Timer(timeInterval: 1.5, repeats: false) { _ in
+                        MainActor.assumeIsolated {
+                            let answered = !dialog.isShowing
+                            CraLog.note("\(label): asked over \(over) (\(fits)), \(answered ? "answered" : clicked ? "not answered" : "not answered, its buttons never laid out")")
+                            // Not answered: closed the way Esc closes it, so the run goes on.
+                            if !answered, let cancel = dialog.actions.cancelIndex { dialog.select(cancel) }
+                        }
+                    }
+                    RunLoop.main.add(check, forMode: .common)
+                }
+            }
+            RunLoop.main.add(poll, forMode: .common)
+        }
+    }
+
     func windowDidClose() {
         switch phase {
         case .checking, .upToDate, .found, .failed, .downloading: dismissWindowAction(closeWindow: false)
@@ -297,7 +395,7 @@ final class SoftwareUpdater: NSObject {
 // MARK: - SPUUpdaterDelegate
 
 extension SoftwareUpdater: SPUUpdaterDelegate {
-    func feedURLString(for updater: SPUUpdater) -> String? { feedOverride }
+    func feedURLString(for updater: SPUUpdater) -> String? { feedURL }
 
     /// The update is downloaded and extracted. Keeping the block lets the banner and the
     /// automatic restart install it now; otherwise it installs when Cra quits.

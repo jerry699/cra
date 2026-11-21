@@ -14,6 +14,8 @@ final class SidebarView: NSView {
 
     /// The URL field's sliders button (screen rect), nil while the toolbar has it.
     var siteControlsButtonFrameOnScreen: NSRect? { topBar.siteControlsButtonFrameOnScreen }
+    /// The URL field Arc's address panel hangs from (#663).
+    var addressFrameOnScreen: NSRect? { topBar.addressFrameOnScreen }
     /// The URL field's "Translation Available" (screen rect), nil while it isn't shown (#310).
     var translateFrameOnScreen: NSRect? { topBar.translateFrameOnScreen }
     /// The URL field's "Pop-ups Blocked" (#357), on the translate line's place.
@@ -29,13 +31,40 @@ final class SidebarView: NSView {
     /// The URL field edited in place puts the address back (#344).
     func endAddressEditing() { topBar.endAddressEditing() }
     func debugURLFieldType(_ text: String, commit: Bool) -> Bool { topBar.debugURLFieldType(text, commit: commit) }
+    /// Scenario hooks (#648): the header's address row, and a press on its ← → ↻.
+    var debugAddressRow: String { topBar.debugAddressRow }
+    func debugPressAddressRow(_ key: String) -> Bool { topBar.debugPressAddressRow(key) }
     private let pager: SpacePagerView
     private let trayHost: DownloadsTrayView
     private let player: NowPlayingTrayView
     private let trayMask = CAGradientLayer()
     private let bannerHost = UpdateBannerView()
     private let dock: SpaceDockView
+    /// Arc's "+" past the last space, over the column (NewSpaceSwipe).
+    private let newSpacePlus = NewSpacePlusView()
+    /// How far left of its page the shown space's column stands, for a scenario's reading.
+    var debugSpaceColumnShift: CGFloat { pager.debugShift }
+    /// The "+" as it rests for what it was last asked to show, for a scenario's reading.
+    var debugNewSpacePlus: String {
+        newSpacePlus.settleNow()
+        return newSpacePlus.debugLine
+    }
     private var libraryHost: LibraryView?
+    /// Scenarios (#649): the Library's first download row hovered, its ••• and menu.
+    var debugLibraryDownloadMore: String { libraryHost?.debugDownloadMore() ?? "no library" }
+    /// Arc's Create a Space page, over the space's column while one is being made.
+    private var creationHost: SpaceCreationView?
+    var debugSpaceCreation: String { creationHost?.debugLine ?? "none" }
+    var debugDockLine: String { dock.debugLine }
+    func debugTypeSpaceName(_ text: String) { creationHost?.debugType(text) }
+    func debugSpaceCreationTip(_ row: String) -> String { creationHost?.debugTip(row) ?? "none" }
+    func closeSpaceCreationPopovers() { creationHost?.closeIconPicker() }
+    func focusSpaceCreationName() { creationHost?.focusName() }
+    /// The creation animation, then `done`; at once when the page isn't up.
+    func playSpaceCreation(icon: SpaceIcon, done: @escaping () -> Void) {
+        guard let host = creationHost else { return done() }
+        host.playCreation(icon: icon, done: done)
+    }
     /// The palette drawn now; the theme-shown scenario hook reads it (#155).
     private(set) var palette: SpacePalette
     private var lastSpaceID: UUID?
@@ -58,11 +87,19 @@ final class SidebarView: NSView {
         pager.wantsLayer = true
         trayMask.startPoint = CGPoint(x: 0.5, y: 0)
         trayMask.endPoint = CGPoint(x: 0.5, y: 1)
-        for v in [topBar, pager, player, trayHost, bannerHost, dock] as [NSView] { tabs.addSubview(v) }
+        for v in [topBar, pager, player, trayHost, bannerHost, dock, newSpacePlus] as [NSView] { tabs.addSubview(v) }
         addSubview(tabs)
+        newSpacePlus.ink = SidebarColors(palette).textPrimary
+        ui.observeNewSpacePull { [weak self] in
+            guard let self else { return }
+            // Arc's disc takes the app's appearance, not the space's (NewSpaceSwipe.look).
+            self.newSpacePlus.isDark = SystemAppearance.shared.isDark
+            self.newSpacePlus.show(overscroll: self.ui.newSpacePull)
+        }
         player.onCountChange = { [weak self] in self?.needsLayout = true }
         ui.observeLibraryReveal { [weak self] in self?.applyLibraryReveal() }
         observe()
+        observeCreation()
         observeRenameCard()
     }
 
@@ -93,13 +130,15 @@ final class SidebarView: NSView {
         v.onHover = { service.hold($0) }
         v.onOpen = { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: r.newPath)]) }
         v.onRevert = {
-            let ok = service.revert(r) { _, back in
-                if var recent = ui.recentDownload, recent.id == r.download {
-                    recent.path = back
-                    ui.recentDownload = recent
+            Task { @MainActor in
+                let ok = await service.revert(r) { old, back in
+                    if var recent = ui.recentDownload, recent.id == r.download, recent.path == old {
+                        recent.path = back
+                        ui.recentDownload = recent
+                    }
                 }
+                if ok { toast("Download name reverted!") }
             }
-            if ok { toast("Download name reverted!") }
         }
         tabs.addSubview(v)
         renameCard = v
@@ -146,11 +185,95 @@ final class SidebarView: NSView {
             bannerHost.themeColor = shown.accent ?? shown.colors.first
             player.setTheme(shown.accent ?? shown.colors.first, dark: palette.isDark)
             libraryHost?.palette = palette
+            creationHost?.palette = palette
+            newSpacePlus.ink = colors.textPrimary
         }
         self.bannerHeight = bannerHeight
         updateTrayMask(open: trayOpen, rows: recentCount)
         showLibrary(library)
         needsLayout = true
+    }
+
+    // MARK: Create a Space
+
+    private func observeCreation() {
+        observeChanges(of: { [ui] in ui.spaceCreation != nil }) { [weak self] on in self?.showCreation(on) }
+    }
+
+    /// Where the page goes: the room between the top row and the dock (Arc's ends 50 pt above the
+    /// sidebar's bottom).
+    private var creationFrame: NSRect {
+        let b = tabs.bounds, top = topBar.preferredHeight
+        return NSRect(x: 0, y: top, width: b.width, height: max(0, b.height - 50 - top))
+    }
+
+    /// How far a swipe back has the page out, 0 to 1 (SpaceCreationSwipe): the page goes out to the
+    /// right under the fingers and the space's column comes back in beside it.
+    private(set) var creationPull: CGFloat = 0
+    /// The page moves inside this: on its way in and out it stays in the sidebar, never over the page.
+    private var creationClip: NSView?
+
+    /// The fingers moved, or lifted without leaving (`animated`: the page goes back in).
+    func setCreationPull(_ pull: CGFloat, animated: Bool = false) {
+        guard let v = creationHost, pull != creationPull else { return }
+        creationPull = pull
+        let f = NSRect(origin: .zero, size: creationFrame.size).offsetBy(dx: pull * tabs.bounds.width, dy: 0)
+        var column = pager.frame
+        column.origin.x = -tabs.bounds.width * (1 - pull)
+        guard animated else {
+            v.frame = f
+            pager.frame = column
+            return
+        }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.2
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            v.animator().frame = f
+            pager.animator().frame = column
+        }
+    }
+
+    /// Arc pushes the page in from the right as the space's column leaves to the left (about 0.2 s),
+    /// and the column back in from the left on the way out (about 0.1 s).
+    private func showCreation(_ on: Bool) {
+        if on, creationHost == nil {
+            let v = SpaceCreationView(store: store, ui: ui, actions: actions, palette: palette)
+            let clip = NSView(frame: creationFrame)
+            clip.clipsToBounds = true
+            tabs.addSubview(clip)
+            clip.addSubview(v)
+            creationClip = clip
+            creationHost = v
+            let f = clip.bounds, was = pager.frame
+            v.frame = f.offsetBy(dx: f.width, dy: 0)
+            v.layoutSubtreeIfNeeded()
+            for other in [player, trayHost, bannerHost] as [NSView] { other.alphaValue = 0 }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                v.animator().frame = f
+                pager.animator().frame = was.offsetBy(dx: -was.width, dy: 0)
+            }
+            v.focusName()
+        } else if !on, let v = creationHost {
+            creationHost = nil
+            let clip = creationClip
+            creationClip = nil
+            // From wherever a swipe left it.
+            creationPull = 0
+            let f = NSRect(origin: .zero, size: creationFrame.size), home = NSRect(x: 0, y: pager.frame.minY, width: pager.frame.width, height: pager.frame.height)
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                v.animator().frame = f.offsetBy(dx: f.width, dy: 0)
+                v.animator().alphaValue = 0
+                pager.animator().frame = home
+                for other in [player, trayHost, bannerHost] as [NSView] { other.animator().alphaValue = 1 }
+            } completionHandler: {
+                clip?.removeFromSuperview()
+            }
+            needsLayout = true
+        }
     }
 
     private var bannerHeight: CGFloat = 0
@@ -219,6 +342,27 @@ final class SidebarView: NSView {
         }
     }
 
+    /// The Library for a swipe that brings it in from a hidden sidebar: the window shows it under
+    /// the floating sidebar until it lands, then `adoptLibrary` takes it in here.
+    func makeDetachedLibrary(_ page: LibraryPage) -> LibraryView {
+        LibraryView(page: page, palette: palette, store: store, ui: ui, actions: actions, favicons: favicons)
+    }
+
+    /// The Library that came in from a hidden sidebar is this column's now, shown as it landed.
+    func adoptLibrary(_ host: LibraryView, page: LibraryPage) {
+        libraryHost?.removeFromSuperview()
+        host.removeFromSuperview()
+        host.page = page
+        host.alphaValue = 1
+        host.frame = bounds
+        addSubview(host)
+        libraryHost = host
+        shownLibrary = page
+        tabs.alphaValue = 0
+        tabs.isHidden = true
+        host.focusSearch()
+    }
+
     private func makeLibraryHost(_ page: LibraryPage) -> LibraryView {
         let h = LibraryView(page: page, palette: palette, store: store, ui: ui, actions: actions, favicons: favicons)
         addSubview(h)
@@ -265,7 +409,11 @@ final class SidebarView: NSView {
         layer?.masksToBounds = true
         let base = ui.libraryRevealBase, library = ui.libraryRevealWidth
         host.frame = NSRect(x: LibrarySwipe.libraryX(reveal: r, base: base, library: library), y: 0, width: library, height: bounds.height)
-        tabs.frame = NSRect(x: LibrarySwipe.spaceX(reveal: r, base: base, library: library), y: 0, width: base, height: bounds.height)
+        // Out to a hidden sidebar (base 0) no tab list follows the Library.
+        tabs.isHidden = base <= 0
+        if base > 0 {
+            tabs.frame = NSRect(x: LibrarySwipe.spaceX(reveal: r, base: base, library: library), y: 0, width: base, height: bounds.height)
+        }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -297,10 +445,18 @@ final class SidebarView: NSView {
         // The player rests where the list ends and takes that room from it; opened, it grows over the list.
         player.frame = NSRect(x: 0, y: th, width: b.width, height: max(0, bannerTop - th))
         let listBottom = bannerTop - NowPlayingMetrics.restHeight(cards: player.shownCount)
-        pager.frame = NSRect(x: 0, y: th, width: b.width, height: max(0, listBottom - th))
+        // While a space is being made its page stands where the column was, and the column is off to the left.
+        pager.frame = NSRect(x: creationHost != nil ? -b.width * (1 - creationPull) : 0, y: th, width: b.width, height: max(0, listBottom - th))
+        creationClip?.frame = creationFrame
+        creationHost?.frame = NSRect(origin: .zero, size: creationFrame.size).offsetBy(dx: creationPull * b.width, dy: 0)
         let rows = DownloadHistory.shared.recent.count
         let trayH = DownloadsTrayMetrics.listHeight(rows: rows) + 4
-        trayHost.frame = NSRect(x: 0, y: pager.frame.maxY - trayH, width: b.width, height: trayH)
+        // Down to the Library button: the way up to the list from there keeps it open (#575).
+        let libraryTop = dock.frame.minY + (dockH - SpaceDockView.librarySide) / 2
+        trayHost.reach = max(0, libraryTop - pager.frame.maxY)
+        trayHost.frame = NSRect(x: 0, y: pager.frame.maxY - trayH, width: b.width, height: trayH + trayHost.reach)
+        // A strip at the column's right edge, as tall as the column.
+        newSpacePlus.frame = NSRect(x: b.width - NewSpaceSwipe.stripWidth, y: 0, width: NewSpaceSwipe.stripWidth, height: b.height)
         updateTrayMask(open: ui.downloadsListOpen, rows: rows)
         if renameCard?.layer?.animationKeys()?.isEmpty ?? true { layoutRenameCard() }
     }
@@ -342,6 +498,12 @@ final class SidebarTopBarView: NSView {
     private var chevron: NSView?
     private let pill = SidebarURLPill()
 
+    /// The URL field (screen rect), which Arc's address panel hangs from (#663); nil while it isn't shown.
+    var addressFrameOnScreen: NSRect? {
+        guard !pill.isHiddenOrHasHiddenAncestor, let window else { return nil }
+        return window.convertToScreen(pill.convert(pill.bounds, to: nil))
+    }
+
     /// Where the URL field's sliders button is or appears on hover (screen rect): its last
     /// accessory, 28 pt ending 5 pt in. nil while the field isn't shown (the toolbar has it).
     var siteControlsButtonFrameOnScreen: NSRect? {
@@ -369,6 +531,19 @@ final class SidebarTopBarView: NSView {
     func debugURLFieldType(_ text: String, commit: Bool) -> Bool { !pill.isHidden && pill.debugType(text, commit: commit) }
     func endAddressEditing() { pill.endEditing(commit: false) }
     var debugURLFieldState: String { pill.isHidden ? "hidden" : pill.editingText.map { "editing \($0)" } ?? "not editing" }
+
+    /// Scenarios (#648): the address row as it stands, "url=<the field's address> back=1 forward=0".
+    var debugAddressRow: String {
+        let back = buttons["back"] ?? buttons["nback"], forward = buttons["forward"] ?? buttons["nforward"]
+        return "url=\(pill.isHidden ? "hidden" : pill.shownURL) back=\(back?.enabled == true ? 1 : 0) forward=\(forward?.enabled == true ? 1 : 0)"
+    }
+
+    /// Scenarios (#648): a press on the row's "back", "forward" or "reload", as a click on it does.
+    func debugPressAddressRow(_ key: String) -> Bool {
+        guard let b = buttons[key] ?? buttons["n" + key], b.enabled else { return false }
+        b.action()
+        return true
+    }
     private var syncQueued = false
 
     var preferredHeight: CGFloat { CraMetrics.titleAreaHeight + (compact ? 2 + pill.height + 8 : 0) }
@@ -437,7 +612,10 @@ final class SidebarTopBarView: NSView {
         let tab = store.selectedTab(window: ui.windowID)
         devNav = !compact && (tab?.tab.map { store.settings.isDeveloperMode(url: $0.url) } ?? false)
         let active = ui.appActive
-        let reloadSymbol = ui.isLoading ? "xmark" : "arrow.clockwise"
+        // A Peek in front takes the address row while the address is in the sidebar, as in Arc (#648).
+        let peek = PeekAddress.sidebarShows(peek: ui.peekPage, showToolbar: store.settings.showToolbar)
+        let canGoBack = peek?.canGoBack ?? ui.canGoBack, canGoForward = peek?.canGoForward ?? ui.canGoForward
+        let reloadSymbol = (peek?.isLoading ?? ui.isLoading) ? "xmark" : "arrow.clockwise"
         fullscreen = ui.windowFullscreen
         // Arc 1.171: the header always carries the sidebar toggle; the toolbar has one only while the
         // sidebar is hidden (PaneToolbarView), so a floating sidebar shows both.
@@ -453,17 +631,17 @@ final class SidebarTopBarView: NSView {
             p.dismiss()
         }
         let toggle = narrowWidth
-            ? button("toggleS", symbol: "sidebar.left", help: help, size: 28, height: 28, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
-            : button("toggle", symbol: "sidebar.left", help: help, size: 32, height: 32, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
+            ? button("toggleS", symbol: store.settings.sidebarSide.toggleSymbol, help: help, size: 28, height: 28, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
+            : button("toggle", symbol: store.settings.sidebarSide.toggleSymbol, help: help, size: 32, height: 32, iconSize: 15.5, active: active) { [weak self] in self?.actions.toggleSidebar() }
         var shown = narrow ? [] : [toggle]
         if narrow {
-            shown.append(button("nback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
-            shown.append(button("nforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 28, height: 28, iconSize: 15, active: active, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("nback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 28, height: 28, iconSize: 15, active: active, enabled: canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("nforward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 28, height: 28, iconSize: 15, active: active, enabled: canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("more", symbol: morePanel == nil ? "ellipsis" : "xmark", help: "More options", size: 28, height: 28, iconSize: 15,
                                 weight: .semibold, active: active) { [weak self] in self?.toggleMorePanel() })
         } else if compact {
-            shown.append(button("back", symbol: "arrow.left", help: "Go Back (⌘[)", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
-            shown.append(button("forward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 32, height: 32, iconSize: 15, active: active, enabled: ui.canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
+            shown.append(button("back", symbol: "arrow.left", help: "Go Back (⌘[)", size: 32, height: 32, iconSize: 15, active: active, enabled: canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
+            shown.append(button("forward", symbol: "arrow.right", help: "Go Forward (⌘])", size: 32, height: 32, iconSize: 15, active: active, enabled: canGoForward, history: .forward) { [weak self] in self?.actions.goForward() })
             shown.append(button("reload", symbol: reloadSymbol, help: "Refresh (⌘R)", size: 32, height: 32, iconSize: 15, active: active, animated: true) { [weak self] in self?.actions.reload() })
         } else if devNav {
             shown.append(button("dback", symbol: "arrow.left", help: "Go Back (⌘[)", size: 34, height: 28, iconSize: 15, active: nil, enabled: ui.canGoBack, history: .back) { [weak self] in self?.actions.goBack() })
@@ -487,7 +665,15 @@ final class SidebarTopBarView: NSView {
         (chevron as? DevMenuChevron)?.tint = colors.textTertiary
         pill.isHidden = !compact
         if !compact { pill.endEditing(commit: false) }
-        if compact {
+        if compact, let peek {
+            // The Peek's page, with Copy Link only: the pins and the Site Control Center are the tab's (PeekAddress).
+            let host = URL(string: peek.url)?.host ?? ""
+            let text = peek.url.isEmpty ? "Search or Enter URL…"
+                : host.isEmpty ? SuggestionEngine.humanURL(peek.url) : host.replacingOccurrences(of: "www.", with: "")
+            pill.show(text: text, url: peek.url, hasTab: !peek.url.isEmpty, colors: colors, active: active, pinned: [], tabID: peek.id,
+                      editInPlace: store.settings.editAddressInPlace, peek: true)
+            pill.onTranslate = {}
+        } else if compact {
             let url = tab?.tab?.url ?? ""
             let host = URL(string: url)?.host ?? ""
             let text = tab == nil ? "Search or Enter URL…" : (host.isEmpty ? SuggestionEngine.humanURL(url) : host.replacingOccurrences(of: "www.", with: ""))
@@ -581,7 +767,7 @@ final class SidebarTopBarView: NSView {
         let hasTab = store.selectedTab(window: ui.windowID) != nil
         let panel = SidebarMorePanel(items: [
             .init(symbol: "arrow.clockwise", title: "Reload", keys: keys("reload"), enabled: hasTab) { [weak self] in self?.actions.reload() },
-            .init(symbol: "sidebar.left", title: "Toggle Sidebar", keys: keys("toggleSidebar"), enabled: true) { [weak self] in self?.actions.toggleSidebar() },
+            .init(symbol: store.settings.sidebarSide.toggleSymbol, title: "Toggle Sidebar", keys: keys("toggleSidebar"), enabled: true) { [weak self] in self?.actions.toggleSidebar() },
         ], ink: store.focusedSpace(window: ui.windowID).theme.shadedDark)
         panel.onClose = { [weak self] in
             self?.morePanel = nil
@@ -595,7 +781,7 @@ final class SidebarTopBarView: NSView {
     // A double click on the empty strip does the title bar's double-click action; a drag moves
     // the window (from the floating sidebar too, without tearing its panel off).
     override var mouseDownCanMoveWindow: Bool { false }
-    private var press = WindowDragGesture()
+    private var press = WindowDragGesture(source: "sidebar top")
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2, convert(event.locationInWindow, from: nil).y < CraMetrics.titleAreaHeight {
             _ = press.finish()
@@ -640,17 +826,23 @@ private final class DevMenuChevron: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        ReloadMenu.make(actions).popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
+    }
+}
+
+/// Arc's menu (Reload ✓ ⌘R, Refresh (Ignore Cache) ⇧⌘R | Clear Cookies and Refresh) in the
+/// registry's words, with Clear Cache beside Clear Cookies and Cra's developer items under
+/// them (#89). Developer Mode's ⌄ after ↻ opens it, and so does a right-click on the toolbar's ↻.
+@MainActor
+enum ReloadMenu {
+    static func make(_ actions: SidebarActions) -> NSMenu {
         let m = NSMenu()
         m.autoenablesItems = false
-        let a = actions
-        // Arc's menu (Reload ✓ ⌘R, Refresh (Ignore Cache) ⇧⌘R | Clear Cookies and Refresh) in the
-        // registry's words, with Clear Cache beside Clear Cookies and Cra's developer items under
-        // them (#89).
         for group in [["reload", "hardReload"], ["clearCookies", "clearCache"], ["viewSource", "devTools"]] {
             if m.numberOfItems > 0 { m.addItem(.separator()) }
-            for id in group { MenuItems.add(m, action: id, on: id == "reload" ? true : nil) { a.performAction(id) } }
+            for id in group { MenuItems.add(m, action: id, on: id == "reload" ? true : nil) { actions.performAction(id) } }
         }
-        m.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
+        return m
     }
 }
 
@@ -667,6 +859,8 @@ final class SidebarURLPill: NSView, NSTextFieldDelegate {
     private var colors = SidebarColors()
     private var hasTab = false
     private var url = ""
+    /// The address the field stands for (its tip), for scenarios.
+    var shownURL: String { url }
     private var tabID: UUID?
     /// Settings ▸ Tabs "Edit the address in the sidebar" (#344): a click edits in place.
     private var editInPlace = false
@@ -680,6 +874,8 @@ final class SidebarURLPill: NSView, NSTextFieldDelegate {
     /// Scenarios (cra://debug?hover=SidebarURLPill): the pill as the pointer leaves it hovered (#293).
     func debugHover() { hovering = true }
     private var model: (pinned: [(String, String, NSImage?)], active: Bool)?
+    /// The field shows a Peek's page (#648): Copy Link is its only accessory.
+    private var showsPeek = false
 
     override init(frame: NSRect) {
         tip = ArcTooltipAnchorView(frame: .zero)
@@ -713,10 +909,12 @@ final class SidebarURLPill: NSView, NSTextFieldDelegate {
 
     func show(text: String, url: String, hasTab: Bool, colors: SidebarColors, active: Bool,
               pinned: [(String, String, NSImage?)], protectedMedia: String? = nil, translate: String? = nil,
-              tabID: UUID? = nil, editInPlace: Bool = false) {
-        // Another tab, or the option turned off, ends the edit; the same tab loading keeps it.
+              tabID: UUID? = nil, editInPlace: Bool = false, peek: Bool = false) {
+        // Another tab, or the option turned off, ends the edit; the same tab loading keeps it. A Peek
+        // passes its own id, so the field going over to it, or back to the tab, ends an edit too (#648).
         if field != nil, tabID != editingTab || !editInPlace { endEditing(commit: false) }
         self.editInPlace = editInPlace
+        showsPeek = peek
         self.url = url
         self.tabID = tabID
         field?.textColor = colors.textPrimary
@@ -756,7 +954,8 @@ final class SidebarURLPill: NSView, NSTextFieldDelegate {
         guard showAccessories, hasTab, field == nil, let m = model, let actions else { needsLayout = true; return }
         pinsInField = PinnedExtensionGrid.fitsInURLField(count: m.pinned.count, fieldWidth: bounds.width)
         let icons = Dictionary(m.pinned.map { ($0.0, $0.2) }, uniquingKeysWith: { a, _ in a })
-        for item in ToolbarComposition.urlFieldAccessories(pinnedExtensions: m.pinned.map(\.0), fieldWidth: bounds.width) {
+        let items = ToolbarComposition.urlFieldAccessories(pinnedExtensions: m.pinned.map(\.0), fieldWidth: bounds.width)
+        for item in showsPeek ? PeekAddress.fieldAccessories(items) : items {
             switch item {
             case .pinnedExtension(let id):
                 let b = ToolbarGlyphButton()
@@ -839,8 +1038,8 @@ final class SidebarURLPill: NSView, NSTextFieldDelegate {
     func click() {
         switch SidebarAddressEdit.click(editInPlace: editInPlace, hasTab: hasTab) {
         case .editInPlace: beginEditing()
-        case .commandBarEditURL: actions?.openCommandBar(.editURL)
-        case .commandBarNewTab: actions?.openCommandBar(.newTab)
+        case .commandBarEditURL: actions?.openAddressPanel(.editURL)
+        case .commandBarNewTab: actions?.openAddressPanel(.newTab)
         }
     }
 
@@ -1001,6 +1200,8 @@ final class TranslateLineButton: NSView {
 /// space. Widths and what each cell draws come from CraCore's SpaceDock.
 final class SpaceDockView: NSView {
     static let cell = CGSize(width: 34, height: 32)
+    /// The Library button at the dock's left end, a square this wide.
+    static let librarySide: CGFloat = 28
     private let store: SidebarStore
     private let ui: SidebarUIState
     private let actions: SidebarActions
@@ -1015,6 +1216,9 @@ final class SpaceDockView: NSView {
     private var hovered: UUID? { didSet { if hovered != oldValue { hoverChanged() } } }
     private var reorder: (id: UUID, from: Int, to: Int, start: NSPoint, moved: Bool)?
     private var syncQueued = false
+    /// The new space's item while Arc's Create a Space page is up; not a space of the store's.
+    private static let pendingID = UUID()
+    private var creating = false
 
     init(store: SidebarStore, ui: SidebarUIState, actions: SidebarActions) {
         self.store = store
@@ -1046,7 +1250,7 @@ final class SpaceDockView: NSView {
         let selected = store.selectedTabID(window: ui.windowID)
         let url = selected.flatMap { store.item($0)?.tab?.url }.flatMap(URL.init(string:))
         let canBoost = ["http", "https"].contains(url?.scheme?.lowercased() ?? "") && url?.host != nil
-        let canSplit = selected.map { store.paneTabIDs(for: $0).count < 4 } ?? false
+        let canSplit = selected.map { store.paneTabIDs(for: $0).count < store.splitPaneLimit } ?? false
         let entries: [(String, String, String, Bool)] = [
             ("newSpace", "New Space", "plus.rectangle.on.rectangle", true),
             ("newFolder", "New Folder", "folder", true),
@@ -1072,6 +1276,7 @@ final class SpaceDockView: NSView {
     private func sync() {
         syncQueued = false
         var spaces: [Space] = []
+        var pending: SpaceCreationDraft?
         withObservationTracking {
             colors = SidebarColors(store.focusedSpace(window: ui.windowID).theme.palette)
             incognito = store.window(ui.windowID).isIncognito
@@ -1080,6 +1285,7 @@ final class SpaceDockView: NSView {
             // Arc's single-space mode drops the lone space icon along with the header; incognito and
             // Blank Windows show no space icons (Arc 1.172 keeps the + in a Blank Window).
             spaces = store.isStandalone(window: ui.windowID) || store.hidesSpaceHeader(f) ? [] : store.orderedSpaces
+            pending = ui.spaceCreation
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self, !self.syncQueued else { return }
@@ -1089,11 +1295,30 @@ final class SpaceDockView: NSView {
         }
         library.colors = colors
         plus.colors = colors
-        plus.isHidden = incognito
-        let ids = spaces.map(\.id)
+        // Arc's dock while a space is being made: no Library or "+" button, and one more item at
+        // the end for the new space, lit in place of the open one.
+        creating = pending != nil
+        library.isHidden = creating
+        plus.isHidden = incognito || creating
+        var ids = spaces.map(\.id)
+        if creating {
+            ids.append(Self.pendingID)
+            focused = Self.pendingID
+            hovered = nil
+        }
         for (id, c) in cells where !ids.contains(id) {
             c.removeFromSuperview()
             cells[id] = nil
+        }
+        if let pending {
+            let c = cells[Self.pendingID] ?? {
+                let c = SpaceCellView(spaceID: Self.pendingID, store: store, ui: ui)
+                cells[Self.pendingID] = c
+                addSubview(c)
+                return c
+            }()
+            // A dot until a theme is chosen, then the picked icon (SpaceCreationDraft.dockMark).
+            c.show(icon: pending.themeChosen ? pending.icon : .none, title: "Create Space")
         }
         for s in spaces {
             let c = cells[s.id] ?? {
@@ -1107,6 +1332,13 @@ final class SpaceDockView: NSView {
         order = ids
         refreshCells()
         needsLayout = true
+    }
+
+    /// What each cell draws and how wide, and whether the Library and "+" buttons show, for a scenario.
+    var debugLine: String {
+        let ws = cellWidths
+        let drawn = order.enumerated().map { i, id in "\(cells[id]?.markLabel ?? "?")@\(String(format: "%g", ws[i]))" }
+        return "\(drawn.joined(separator: " ")) buttons=\(library.isHidden ? 0 : 1)\(plus.isHidden ? 0 : 1)"
     }
 
     /// Scenarios (cra://debug?hover=SpaceCellView,n): that space hovered as if the pointer were on
@@ -1156,7 +1388,8 @@ final class SpaceDockView: NSView {
     /// (or the hovered one, #252) keeps 22 and the others split the rest. The strip stays centred,
     /// so it never runs past the buttons.
     private var cellWidths: [CGFloat] {
-        SpaceDock.widths(count: order.count, open: wide.flatMap { order.firstIndex(of: $0) }, room: room)
+        if creating { return SpaceDock.widthsWhileCreating(count: order.count - 1, room: max(0, bounds.width - 20)) }
+        return SpaceDock.widths(count: order.count, open: wide.flatMap { order.firstIndex(of: $0) }, room: room)
     }
 
     /// Left edges of the cells, in order.
@@ -1172,7 +1405,7 @@ final class SpaceDockView: NSView {
     override func layout() {
         super.layout()
         let h = bounds.height
-        library.frame = NSRect(x: 0, y: (h - 28) / 2, width: 28, height: 28)
+        library.frame = NSRect(x: 0, y: (h - Self.librarySide) / 2, width: Self.librarySide, height: Self.librarySide)
         plus.frame = NSRect(x: bounds.width - plus.size.width, y: (h - plus.size.height) / 2,
                             width: plus.size.width, height: plus.size.height)
         // A narrower sidebar can squeeze the dock into dots.
@@ -1240,6 +1473,13 @@ final class SpaceDockView: NSView {
     override func mouseDown(with event: NSEvent) {
         let p = point(event)
         guard let i = index(at: p) else { return }
+        // While a space is being made nothing is dragged: a click on a space leaves the page for it.
+        if creating {
+            guard order[i] != Self.pendingID else { return }
+            actions.cancelSpaceCreation()
+            store.focusSpace(order[i], window: ui.windowID)
+            return
+        }
         reorder = (order[i], i, i, p, false)
         refreshCells()
     }
@@ -1306,7 +1546,7 @@ final class SpaceDockView: NSView {
     /// Arc 1.172.2: the header's whole space menu, for the space whose icon was clicked (#339).
     /// Change Space Icon… points its popover down at that icon.
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let i = index(at: point(event)), let cell = cells[order[i]] else { return nil }
+        guard !creating, let i = index(at: point(event)), let cell = cells[order[i]] else { return nil }
         let id = order[i], ui = self.ui
         return SpaceMenu.make(spaceID: id, store: store, ui: ui, actions: actions, anchor: cell, from: .dock) {
             ui.renamingSpaceID = id
@@ -1529,14 +1769,14 @@ final class SpaceCellView: NSView, ArcTooltipTarget {
     var hostWindow: NSWindow? { window }
 }
 
-/// Arc's Library button (a box with a confetti puff, drawn by LibraryGlyph) and, over it, the
-/// latest download's "bin" (DownloadsUI.DownloadToLibrary): the file's thumbnail, 32 pt with
-/// 8 pt corners, up and to the right of the glyph. It drops in from 6 pt above, overshoots 12 pt
+/// Arc's Library button (LibraryGlyphView: a box with a star, a dot and a triangle that move while the
+/// pointer is on it, #608) and, over it, the latest download's "bin" (DownloadsUI.DownloadToLibrary):
+/// the file's thumbnail, 32 pt with 8 pt corners, up and to the right of the glyph. It drops in from 6 pt above, overshoots 12 pt
 /// below and settles (Arc 1.170 at 60 fps), and is faint while the window is in the background.
 final class LibraryButtonView: NSView {
     private let ui: SidebarUIState
     private let actions: SidebarActions
-    private let glyph = NSImageView()
+    private let glyph = LibraryGlyphView()
     private let tip: ArcTooltipAnchorView
     private let bin = NSView()
     private let binImage = CALayer()
@@ -1544,8 +1784,8 @@ final class LibraryButtonView: NSView {
     /// The ring on the bin's corner while downloads run (#272).
     private let badge = DownloadProgressBadgeView()
     private var shownDownload: UInt32?
-    private var hovering = false { didSet { if hovering != oldValue { refresh() } } }
-    var colors = SidebarColors() { didSet { if colors != oldValue { glyph.image = LibraryGlyph.image(dark: colors.isDark); badge.colors = colors; refresh() } } }
+    private var hovering = false { didSet { if hovering != oldValue { glyph.setHovered(hovering); refresh() } } }
+    var colors = SidebarColors() { didSet { if colors != oldValue { glyph.dark = colors.isDark; badge.colors = colors; refresh() } } }
     static let binOffset = CGSize(width: 9, height: -12)
     /// The download bin's frame, for Tidy Downloads' card to point at.
     var binFrame: NSRect { bin.frame }
@@ -1561,8 +1801,6 @@ final class LibraryButtonView: NSView {
         glyph.wantsLayer = true
         glyph.layer?.cornerRadius = 7
         glyph.layer?.cornerCurve = .continuous
-        glyph.imageScaling = .scaleNone
-        glyph.image = LibraryGlyph.image(dark: false)
         addSubview(glyph)
         (tip.text, tip.keys) = ArcTooltipLabel.split("View Library (⇧⌘L)")
         tip.placement = .trailing
@@ -1650,10 +1888,35 @@ final class LibraryButtonView: NSView {
         badge.frame = NSRect(x: bin.bounds.maxX - b + 4, y: -4, width: b, height: b)
     }
 
+    /// The bin reveals its file when clicked. Until the download has one, the part hanging over the
+    /// sidebar's next button leaves that button its clicks (#491).
+    private var binHasFile: Bool { !bin.isHidden && ui.recentDownload?.path.isEmpty == false }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         let p = convert(point, from: superview)
-        if !bin.isHidden, bin.frame.contains(p) { return self }
+        if binHasFile, bin.frame.contains(p) { return self }
         return bounds.contains(p) ? self : nil
+    }
+
+    /// cra://debug?libraryHover=1|0: the pointer on the button, or gone; once the glyph has come to rest,
+    /// where it was drawn and in how many frames (#608).
+    func debugHover(_ on: Bool, done: @escaping (String) -> Void) {
+        hovering = on
+        DispatchQueue.main.asyncAfter(deadline: .now() + LibraryGlyph.settleTime + 0.2) { [weak self] in
+            guard let self else { return }
+            done(self.glyph.readout)
+        }
+    }
+
+    /// For `cra://debug?downloadState`: whether the bin is up, and what a press on its right edge
+    /// (outside the Library button) lands on, as the window's hit test finds it (#491).
+    var binReadout: String {
+        guard !bin.isHidden, let window, let root = window.contentView?.superview else { return "none" }
+        // Its right edge, over the next button in the bar.
+        let edge = convert(NSPoint(x: bin.frame.maxX - 2, y: bin.frame.midY), to: nil)
+        let hit = root.hitTest(root.superview?.convert(edge, from: nil) ?? edge)
+        let file = binHasFile ? "file" : "no file"
+        return "shown (\(file)), its edge hits \(hit === self ? "the bin" : hit.map { String(describing: type(of: $0)) } ?? "nothing")"
     }
 
     override func updateTrackingAreas() {
@@ -1666,7 +1929,7 @@ final class LibraryButtonView: NSView {
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if !bin.isHidden, bin.frame.contains(p), let path = ui.recentDownload?.path {
+        if binHasFile, bin.frame.contains(p), let path = ui.recentDownload?.path {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         } else if bounds.contains(p) {
             actions.toggleLibrary()

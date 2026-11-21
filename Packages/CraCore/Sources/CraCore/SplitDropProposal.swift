@@ -19,8 +19,8 @@ public enum SplitDropProposal {
         }
     }
 
-    /// Arc's most panes in one split.
-    public static let maximumPanes = 4
+    /// Arc's most panes in one split (`SplitPaneLimit`; a drop asks for the limit in use).
+    public static let maximumPanes = SplitPaneLimit.arc
 
     /// Next to the sidebar the drag still belongs to it: Arc offers nothing over the page's first
     /// 25 pt there and opens the region by 50 (1.173.1, measured with a real drag; 40 splits it).
@@ -50,8 +50,10 @@ public enum SplitDropProposal {
     /// proposes nothing there and the page keeps the drag.
     /// - `ids`, `frames`: the panes in order and where they are without the drop region.
     /// - `region`: where the region is now, laid out for `current`, the proposal shown now.
-    /// - `sidebarSide`: the sidebar sits against the area's left edge (docked, not floating).
+    /// - `sidebarSide`: the sidebar sits against the area's edge (docked, not floating): its left
+    ///   one, or its right one with `sidebarOn: .right` (#464).
     /// - `link`: a link, not a tab: only a pane's edges take it (`linkEdgeBand`).
+    /// - `paneLimit`: the most panes a split holds (`SplitPaneLimit`: Arc's four, or Cra's eight, #498).
     ///
     /// Arc 1.173.1, measured: on a lone page the edge nearest the pointer decides, its left or
     /// right side by side, its top or bottom stacked. In a split the pane under the pointer has
@@ -61,10 +63,11 @@ public enum SplitDropProposal {
     /// region, once open, keeps the drag while the pointer stays on it, so it doesn't flip back
     /// and forth as the panes make room for it. A split of four takes no more panes.
     public static func propose(at point: CGPoint, ids: [UUID], frames: [UUID: CGRect], orientation: SplitOrientation,
-                               area: CGRect, region: CGRect?, current: Target?, sidebarSide: Bool, link: Bool = false) -> Target? {
+                               area: CGRect, region: CGRect?, current: Target?, sidebarSide: Bool, sidebarOn side: SidebarSide = .left,
+                               link: Bool = false, paneLimit: Int = SplitPaneLimit.arc) -> Target? {
         guard !ids.isEmpty, area.contains(point) else { return nil }
-        if sidebarSide, point.x < area.minX + sidebarSideBand { return nil }
-        let full = ids.count >= maximumPanes
+        if sidebarSide, side.place(point, in: area).x < area.minX + sidebarSideBand { return nil }
+        let full = ids.count >= paneLimit
         if !full, case .insert? = current, let region,
            region.insetBy(dx: -SplitPaneLayout.Constants.gap / 2, dy: -SplitPaneLayout.Constants.gap / 2).contains(point) {
             // A lone page's region reaches its middle line, so a drag that crossed the middle on

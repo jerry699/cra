@@ -20,6 +20,9 @@ final class ShinyToast {
         var symbol: String? = nil
         let run: () -> Void
         var anchored: ((NSView, NSRect) -> Void)? = nil
+        /// On a toast that stays: this button is its answer, so the toast goes with it (without
+        /// its `onClose`, which is the ✕'s). Why? leaves the toast up.
+        var answers = false
 
         /// Arc's Share glyph on "Copied Current URL" (Arc 1.171, browser windows and Little Arc):
         /// the macOS share menu for the address, from the button.
@@ -71,6 +74,12 @@ final class ShinyToast {
     private let button = CALayer()
     private let buttonLabel = CATextLayer()
     private let buttonGlyph = CALayer()
+    /// A second text capsule after the first (the protected video prompt's Once and Always).
+    private let secondButton = CALayer()
+    private let secondLabel = CATextLayer()
+    private var second: Action?
+    /// Between two buttons.
+    static let buttonSpacing: CGFloat = 6
     /// A toast that stays until it is closed: an ✕ at its end, a round wash like the text button's.
     private let closeButton = CALayer()
     private let closeGlyph = CALayer()
@@ -80,6 +89,12 @@ final class ShinyToast {
     static let closeGap: CGFloat = 6
     private var hide: DispatchWorkItem?
     private var action: Action?
+    /// The whole toast is a button (Arc's "New Tab Created" opens its tab, #543): a click anywhere on it
+    /// runs this. Arc 1.173.1 (20 Nov 2026, live): the pointing hand over it and no change to its fill; after
+    /// the click the tab is in front and the toast stays, going on its time.
+    private var onTap: (() -> Void)?
+    /// The toast up now opens something when clicked: a toast with nothing to open replaces it.
+    var isTappable: Bool { isShown && onTap != nil }
     /// The text colour: the button is a wash of it.
     private var buttonTint = NSColor.black
 
@@ -123,6 +138,13 @@ final class ShinyToast {
         buttonGlyph.contentsGravity = .center
         button.addSublayer(buttonGlyph)
         pill.addSublayer(button)
+        secondButton.cornerRadius = Self.buttonHeight / 2
+        secondButton.cornerCurve = .continuous
+        secondLabel.font = Self.buttonFont
+        secondLabel.fontSize = Self.buttonFont.pointSize
+        secondLabel.alignmentMode = .center
+        secondButton.addSublayer(secondLabel)
+        pill.addSublayer(secondButton)
         closeButton.cornerRadius = Self.closeSize / 2
         closeGlyph.contentsGravity = .center
         closeButton.addSublayer(closeGlyph)
@@ -134,6 +156,14 @@ final class ShinyToast {
     }
 
     var isShown: Bool { panel.parent != nil }
+
+    /// A click on the middle of the pill through the event queue, as the pointer's (cra://debug?clickToast=1,
+    /// scenario background-tab-toast). False when no toast is up to take it.
+    func testClick() -> Bool {
+        guard isShown, !panel.ignoresMouseEvents else { return false }
+        TestGesture.click(at: NSPoint(x: Self.margin + pill.bounds.width / 2, y: Self.margin + pill.bounds.height / 2), in: panel)
+        return true
+    }
 
     /// A toast that stays (onClose) keeps to the page's top right as the window resizes, sidebar
     /// toggles included; one that goes on its time isn't moved.
@@ -150,15 +180,19 @@ final class ShinyToast {
 
     /// `onClose`: the toast stays until its ✕ is pressed (or its action runs), and this is told
     /// then; something Cra has to be sure the user saw. Without it, the toast goes on its time.
-    func show(_ text: String, keyCap: (keys: String, after: String)? = nil, action: Action? = nil, page: NSRect, in window: NSWindow,
-              theme: SpaceTheme, onClose: (() -> Void)? = nil) {
-        show(text, keyCap: keyCap, action: action, page: page, in: window, colors: Self.colors(theme), onClose: onClose)
+    /// `second`: another text button after `action`'s (neither with a glyph).
+    func show(_ text: String, keyCap: (keys: String, after: String)? = nil, action: Action? = nil, second: Action? = nil, page: NSRect,
+              in window: NSWindow, theme: SpaceTheme, onClose: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
+        show(text, keyCap: keyCap, action: action, second: second, page: page, in: window, colors: Self.colors(theme), onClose: onClose, onTap: onTap)
     }
 
-    /// `keyCap`: `text`, then the keys in a cap, then `after` (no button with it).
-    func show(_ text: String, keyCap: (keys: String, after: String)? = nil, action: Action? = nil, page: NSRect, in window: NSWindow,
-              colors: Colors, onClose: (() -> Void)? = nil) {
+    /// `keyCap`: `text`, then the keys in a cap, then `after` (no button with it). `onTap`: the whole
+    /// toast is a button that runs it.
+    func show(_ text: String, keyCap: (keys: String, after: String)? = nil, action: Action? = nil, second: Action? = nil, page: NSRect,
+              in window: NSWindow, colors: Colors, onClose: (() -> Void)? = nil, onTap: (() -> Void)? = nil) {
         self.action = action
+        self.second = action?.symbol == nil ? action.flatMap { _ in second } : nil
+        self.onTap = onTap
         persistent = onClose != nil
         self.onClose = onClose
         let closeRoom = persistent ? Self.closeGap + Self.closeSize : 0
@@ -167,13 +201,19 @@ final class ShinyToast {
         let capWidth = keyCap.map { measure($0.keys, Self.capFont) + 2 * Self.capPadding }
         let afterWidth = keyCap.map { measure($0.after, Self.font) } ?? 0
         let lead = measure(text, Self.font)
-        let textWidth = capWidth.map { lead + Self.capGap + $0 + Self.capGap + afterWidth } ?? lead
+        // A cap that starts the toast (Arc's "[⎋] again to exit fullscreen") sits as far in from the pill's left edge as
+        // from its top and bottom, with no gap before it.
+        // capLead: from the text's start (`padding` in) to the cap.
+        let capLead = lead > 0 ? lead + Self.capGap : (Self.height - Self.capHeight) / 2 - Self.padding
+        let textWidth = capWidth.map { capLead + $0 + Self.capGap + afterWidth } ?? lead
         let buttonWidth = glyph != nil ? Self.glyphButton.width
             : action.map { ceil(($0.title as NSString).size(withAttributes: [.font: Self.buttonFont]).width) + 2 * Self.buttonPadding }
+        let secondWidth = self.second.map { ceil(($0.title as NSString).size(withAttributes: [.font: Self.buttonFont]).width) + 2 * Self.buttonPadding }
+        let secondRoom = secondWidth.map { $0 + Self.buttonSpacing } ?? 0
         let height = glyph != nil ? Self.glyphHeight : Self.height
         let width = glyph != nil ? Self.glyphPadding + textWidth + Self.glyphGap + Self.glyphButton.width + Self.glyphPadding
             : textWidth + 2 * Self.padding + (buttonWidth.map { $0 + Self.buttonGap - Self.padding + (Self.height - Self.buttonHeight) / 2 } ?? 0)
-                + closeRoom
+                + secondRoom + closeRoom
         let local = NSRect(x: page.maxX - Self.trailingInset - width, y: page.maxY - Self.topInset - height,
                            width: width, height: height)
         panel.setFrame(window.convertToScreen(local.insetBy(dx: -Self.margin, dy: -Self.margin)), display: false)
@@ -199,7 +239,7 @@ final class ShinyToast {
         if let keyCap, let capWidth {
             label.alignmentMode = .left
             label.frame = CGRect(x: Self.padding, y: (height - lineHeight) / 2, width: lead, height: lineHeight)
-            cap.frame = CGRect(x: Self.padding + lead + Self.capGap, y: (height - Self.capHeight) / 2, width: capWidth, height: Self.capHeight)
+            cap.frame = CGRect(x: Self.padding + capLead, y: (height - Self.capHeight) / 2, width: capWidth, height: Self.capHeight)
             cap.backgroundColor = colors.text.withAlphaComponent(0.1).cgColor
             let capLine = ceil(Self.capFont.ascender - Self.capFont.descender)
             capLabel.frame = CGRect(x: cap.frame.minX, y: (height - capLine) / 2, width: capWidth, height: capLine)
@@ -234,7 +274,7 @@ final class ShinyToast {
             button.cornerRadius = Self.buttonHeight / 2
             button.borderWidth = 0
             let inset = (Self.height - Self.buttonHeight) / 2
-            button.frame = CGRect(x: width - inset - closeRoom - buttonWidth, y: inset, width: buttonWidth, height: Self.buttonHeight)
+            button.frame = CGRect(x: width - inset - closeRoom - secondRoom - buttonWidth, y: inset, width: buttonWidth, height: Self.buttonHeight)
             buttonTint = colors.text
             button.backgroundColor = colors.text.withAlphaComponent(0.1).cgColor
             buttonLabel.foregroundColor = colors.text.cgColor
@@ -242,6 +282,17 @@ final class ShinyToast {
             buttonLabel.string = action.title
             let buttonLine = ceil(Self.buttonFont.ascender - Self.buttonFont.descender)
             buttonLabel.frame = CGRect(x: 0, y: (Self.buttonHeight - buttonLine) / 2, width: buttonWidth, height: buttonLine)
+        }
+        secondButton.isHidden = secondWidth == nil
+        if let secondWidth, let second = self.second {
+            let inset = (Self.height - Self.buttonHeight) / 2
+            secondButton.frame = CGRect(x: width - inset - closeRoom - secondWidth, y: inset, width: secondWidth, height: Self.buttonHeight)
+            secondButton.backgroundColor = colors.text.withAlphaComponent(0.1).cgColor
+            secondLabel.foregroundColor = colors.text.cgColor
+            secondLabel.contentsScale = scale
+            secondLabel.string = second.title
+            let line = ceil(Self.buttonFont.ascender - Self.buttonFont.descender)
+            secondLabel.frame = CGRect(x: 0, y: (Self.buttonHeight - line) / 2, width: secondWidth, height: line)
         }
         closeButton.isHidden = !persistent
         if persistent {
@@ -256,8 +307,9 @@ final class ShinyToast {
             buttonTint = colors.text
         }
         CATransaction.commit()
-        let clickable = action != nil || persistent
+        let clickable = action != nil || persistent || onTap != nil
         panel.ignoresMouseEvents = !clickable
+        view.handRect = onTap == nil ? .zero : NSRect(x: Self.margin, y: Self.margin, width: width, height: height)
         view.hitRect = !clickable ? .zero : NSRect(x: Self.margin, y: Self.margin, width: width, height: height)
         if !isShown {
             // Opening the tab's page holds the main thread for ~0.1 s, so the toast waits for the
@@ -285,11 +337,11 @@ final class ShinyToast {
 
     /// The pointer on a toast with a button holds it up; leaving starts its time again.
     private func hovered(_ inside: Bool) {
-        guard isShown, action != nil || persistent else { return }
+        guard isShown, action != nil || persistent || onTap != nil else { return }
         if persistent {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            if action?.symbol == nil { button.backgroundColor = buttonTint.withAlphaComponent(inside ? 0.16 : 0.1).cgColor }
+            if action?.symbol == nil { washButtons(inside) }
             if !inside { closeButton.backgroundColor = NSColor.clear.cgColor }
             CATransaction.commit()
             return
@@ -301,8 +353,14 @@ final class ShinyToast {
         }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if action?.symbol == nil { button.backgroundColor = buttonTint.withAlphaComponent(inside ? 0.16 : 0.1).cgColor }
+        if action?.symbol == nil { washButtons(inside) }
         CATransaction.commit()
+    }
+
+    private func washButtons(_ inside: Bool) {
+        let wash = buttonTint.withAlphaComponent(inside ? 0.16 : 0.1).cgColor
+        button.backgroundColor = wash
+        secondButton.backgroundColor = wash
     }
 
     /// The ✕'s round fill follows the pointer onto it and off it.
@@ -326,8 +384,19 @@ final class ShinyToast {
             closed?()
             return
         }
-        guard let action else { return }
-        guard button.frame.insetBy(dx: -4, dy: -4).contains(local) else { return }
+        guard var action else {
+            // A toast that is a button: anywhere on the pill, and it stays up (Arc).
+            guard let tap = onTap, pill.bounds.contains(local) else { return }
+            tap()
+            return
+        }
+        // Two buttons share the gap between them: half each.
+        let reach = second == nil ? 4 : Self.buttonSpacing / 2
+        if let second, secondButton.frame.insetBy(dx: -reach, dy: -4).contains(local) {
+            action = second
+        } else {
+            guard button.frame.insetBy(dx: -reach, dy: -4).contains(local) else { return }
+        }
         if let anchored = action.anchored, let root = view.layer {
             // The menu hangs from the button, the toast stays up under it (Arc), then goes on its time.
             hide?.cancel()
@@ -336,9 +405,25 @@ final class ShinyToast {
             return
         }
         // A toast that stays keeps standing through its button (Why?): only the ✕ closes it.
-        if persistent { return action.run() }
+        if persistent, !action.answers { return action.run() }
         dismiss()
         action.run()
+    }
+
+    /// The buttons' titles and whether the ✕ shows, for a scenario: "Once|Always|✕".
+    var debugButtons: String {
+        guard isShown else { return "" }
+        return ([action?.title, second?.title].compactMap { $0 } + (persistent ? ["✕"] : [])).joined(separator: "|")
+    }
+
+    /// A scenario presses the button with that title ("✕" for the close button), as a click would.
+    func debugPress(_ title: String) -> Bool {
+        guard isShown else { return false }
+        let frame = title == "✕" && persistent ? closeButton.frame : title == action?.title ? button.frame
+            : title == second?.title ? secondButton.frame : nil
+        guard let frame else { return false }
+        clicked(at: NSPoint(x: frame.midX + Self.margin, y: frame.midY + Self.margin))
+        return true
     }
 
     private func springIn() {
@@ -381,6 +466,7 @@ final class ShinyToast {
         hide = nil
         persistent = false
         onClose = nil
+        onTap = nil
         guard isShown else { return }
         panel.ignoresMouseEvents = true
         CATransaction.begin()
@@ -435,6 +521,8 @@ final class ShinyToast {
 /// without making Cra active first.
 private final class ToastView: NSView {
     var hitRect: NSRect = .zero { didSet { updateTrackingAreas() } }
+    /// Where the pointing hand shows: a toast that is a button (#543).
+    var handRect: NSRect = .zero
     var onHover: (Bool) -> Void = { _ in }
     var onClick: (NSPoint) -> Void = { _ in }
     /// The pointer over the pill, in this view (the ✕ fills only under it).
@@ -450,12 +538,20 @@ private final class ToastView: NSView {
         super.updateTrackingAreas()
         for t in trackingAreas where t.owner === self { removeTrackingArea(t) }
         guard !hitRect.isEmpty else { return }
-        addTrackingArea(NSTrackingArea(rect: hitRect, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways], owner: self, userInfo: nil))
+        addTrackingArea(NSTrackingArea(rect: hitRect, options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeAlways],
+                                       owner: self, userInfo: nil))
     }
 
-    override func mouseEntered(with event: NSEvent) { onHover(true) }
-    override func mouseExited(with event: NSEvent) { onHover(false) }
-    override func mouseMoved(with event: NSEvent) { onMove(convert(event.locationInWindow, from: nil)) }
+    override func mouseEntered(with event: NSEvent) { onHover(true); updateCursor(event) }
+    override func mouseExited(with event: NSEvent) { onHover(false); if !handRect.isEmpty { NSCursor.arrow.set() } }
+    override func mouseMoved(with event: NSEvent) { onMove(convert(event.locationInWindow, from: nil)); updateCursor(event) }
+    override func cursorUpdate(with event: NSEvent) { updateCursor(event) }
+
+    /// The panel never becomes key, so cursor rects don't apply: the hand is set as the pointer moves.
+    private func updateCursor(_ event: NSEvent) {
+        guard !handRect.isEmpty else { return }
+        (handRect.contains(convert(event.locationInWindow, from: nil)) ? NSCursor.pointingHand : NSCursor.arrow).set()
+    }
     override func mouseDown(with event: NSEvent) {}
     override func mouseUp(with event: NSEvent) { onClick(convert(event.locationInWindow, from: nil)) }
 }

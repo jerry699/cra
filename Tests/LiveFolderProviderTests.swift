@@ -10,8 +10,15 @@ enum LiveFolderProviderTests {
         let github = try LiveFolderPluginPackage(directory: URL(fileURLWithPath: "resources/live-folder-plugins/github"))
         let gitlab = try LiveFolderPluginPackage(directory: URL(fileURLWithPath: "resources/live-folder-plugins/gitlab"))
         try gitHub(github, executable: executable)
+        try gitHubOpenOnly(github, executable: executable)
+        try gitHubOpenOnlyEdges(github, executable: executable)
+        try gitHubMergedSinceLastRefresh(github, executable: executable)
+        try gitHubSSOKey(github, executable: executable)
+        try gitHubSSOBesideOtherPullRequests(github, executable: executable)
         try gitLab(gitlab, executable: executable)
-        print("Bundled providers: GitHub and GitLab cases passed")
+        let azure = try LiveFolderPluginPackage(directory: URL(fileURLWithPath: "resources/live-folder-plugins/azure-devops"))
+        try azureDevOps(azure, executable: executable)
+        print("Bundled providers: GitHub, GitLab and Azure DevOps cases passed")
     }
 
     // MARK: Helpers
@@ -186,6 +193,177 @@ enum LiveFolderProviderTests {
         check(arcDefault["filters"] as? [String] == ["authored", "review", "teamReview"], "Arc's default mask is all three")
     }
 
+    // promise: #523
+    /// The folder holds open pull requests only, whatever GitHub's answer carries besides them: a merged
+    /// or closed one in any of the shapes the reader accepts is left out, so it leaves the folder like a
+    /// pull request that dropped out of the search (GitHub #523: merged pull requests showed in the folder).
+    private static func gitHubOpenOnly(_ github: LiveFolderPluginPackage, executable: URL) throws {
+        func titles(_ body: String) throws -> [String] {
+            try refresh(github, executable: executable, origins: ["https://github.com"], filters: ["authored"]) { request in
+                LiveFolderPluginResponse(status: 200, url: request.url, body: body)
+            }.get().items.map(\.title)
+        }
+        // The signed-in pulls route: state OPEN, MERGED or CLOSED, and mergedAt.
+        let pulls = #"{"payload":{"pullsDashboardSurfaceContentRoute":{"results":["#
+            + #"{"number":1,"title":"Open","repoNameWithOwner":"team/app","state":"OPEN","isDraft":false,"mergedAt":null,"createdAt":"2026-11-06T12:00:00Z"},"#
+            + #"{"number":2,"title":"Draft","repoNameWithOwner":"team/app","state":"OPEN","isDraft":true,"mergedAt":null,"createdAt":"2026-11-05T12:00:00Z"},"#
+            + #"{"number":3,"title":"Merged","repoNameWithOwner":"team/app","state":"MERGED","isDraft":false,"mergedAt":"2026-11-04T11:28:26+01:00","createdAt":"2026-11-04T10:00:00Z"},"#
+            + #"{"number":4,"title":"Closed","repoNameWithOwner":"team/app","state":"CLOSED","isDraft":false,"mergedAt":null,"createdAt":"2026-11-03T12:00:00Z"},"#
+            + #"{"number":5,"title":"Merged, no state","repoNameWithOwner":"team/app","isDraft":false,"mergedAt":"2026-11-02T12:00:00Z","createdAt":"2026-11-02T10:00:00Z"}"#
+            + #"],"pageInfo":{},"error":null}}}"#
+        check(try titles(pulls) == ["Open", "Draft"], "the pulls route keeps open and draft pull requests, not merged or closed ones")
+
+        // The search route: state open, draft or closed, and merged.
+        let search = #"{"payload":{"blackbirdSearchRoute":{"logged_in":true,"results":["#
+            + #"{"number":6,"hl_title":"Searched open","state":"open","merged":false,"repo":{"repository":{"owner_login":"team","name":"app"}},"created":"2026-11-06T12:00:00Z"},"#
+            + #"{"number":7,"hl_title":"Searched draft","state":"draft","merged":false,"repo":{"repository":{"owner_login":"team","name":"app"}},"created":"2026-11-05T12:00:00Z"},"#
+            + #"{"number":8,"hl_title":"Searched merged","state":"closed","merged":true,"repo":{"repository":{"owner_login":"team","name":"app"}},"created":"2026-11-04T12:00:00Z"},"#
+            + #"{"number":9,"hl_title":"Searched closed","state":"closed","merged":false,"repo":{"repository":{"owner_login":"team","name":"app"}},"created":"2026-11-03T12:00:00Z"}"#
+            + #"]}}}"#
+        check(try titles(search) == ["Searched open", "Searched draft"], "the search route keeps open and draft pull requests only")
+
+        // GitHub's embedded React data (GraphQL's PullRequestState) and the classic list's state icons.
+        let embedded = #"<meta name="user-login" content="alice"><script type="application/json" data-target="react-app.embeddedData">{"payload":{"results":["#
+            + #"{"__typename":"PullRequest","number":11,"title":"Embedded open","state":"OPEN","repository":{"nameWithOwner":"team/app"}},"#
+            + #"{"__typename":"PullRequest","number":12,"title":"Embedded merged","state":"MERGED","repository":{"nameWithOwner":"team/app"}},"#
+            + #"{"__typename":"PullRequest","number":13,"title":"Embedded closed","closed":true,"repository":{"nameWithOwner":"team/app"}}"#
+            + #"]}}</script>"#
+        check(try titles(embedded) == ["Embedded open"], "embedded data keeps open pull requests only")
+        func row(_ number: Int, _ icon: String, _ title: String) -> String {
+            #"<div class="js-issue-row"><svg class="octicon \#(icon) color-fg-done"></svg><a href="/team/app/pull/\#(number)" class="markdown-title">\#(title)</a></div>"#
+        }
+        let classic = #"<meta name="user-login" content="alice">"# + row(14, "octicon-git-pull-request", "Row open")
+            + row(15, "octicon-git-pull-request-draft", "Row draft") + row(16, "octicon-git-merge", "Row merged")
+            + row(17, "octicon-git-pull-request-closed", "Row closed")
+        check(try titles(classic) == ["Row open", "Row draft"], "the classic list leaves out merged and closed rows")
+    }
+
+    // promise: #523
+    /// What still counts as open: a pull request in the merge queue (its icon starts like the merged one),
+    /// open ones that spell out closedAt or merged as null or false; and what doesn't: GitHub's REST shape
+    /// (state closed with merged_at), a closedAt alone, a lowercase "merged".
+    private static func gitHubOpenOnlyEdges(_ github: LiveFolderPluginPackage, executable: URL) throws {
+        func titles(_ body: String) throws -> [String] {
+            try refresh(github, executable: executable, origins: ["https://github.com"], filters: ["authored"]) { request in
+                LiveFolderPluginResponse(status: 200, url: request.url, body: body)
+            }.get().items.map(\.title)
+        }
+        func row(_ number: Int, _ icon: String, _ title: String) -> String {
+            #"<div class="js-issue-row"><svg class="octicon \#(icon)"></svg><a href="/team/app/pull/\#(number)" class="markdown-title">\#(title)</a></div>"#
+        }
+        let queue = #"<meta name="user-login" content="alice">"# + row(1, "octicon-git-merge-queue", "Queued")
+            + row(2, "octicon-git-merge", "Merged")
+        check(try titles(queue) == ["Queued"], "a pull request in the merge queue is still open")
+
+        let shapes = #"{"results":["#
+            + #"{"number":3,"title":"Spelled-out open","repoNameWithOwner":"team/app","state":"OPEN","isDraft":false,"merged":false,"closed":false,"mergedAt":null,"closedAt":null,"createdAt":"2026-11-06T12:00:00Z"},"#
+            + #"{"number":4,"title":"REST merged","html_url":"https://github.com/team/app/pull/4","state":"closed","merged_at":"2026-11-05T12:00:00Z","pull_request":{},"created_at":"2026-11-05T10:00:00Z"},"#
+            + #"{"number":5,"title":"REST closed","html_url":"https://github.com/team/app/pull/5","state":"closed","closed_at":"2026-11-04T12:00:00Z","pull_request":{},"created_at":"2026-11-04T10:00:00Z"},"#
+            + #"{"number":6,"title":"REST open","html_url":"https://github.com/team/app/pull/6","state":"open","merged_at":null,"closed_at":null,"pull_request":{},"created_at":"2026-11-03T10:00:00Z"},"#
+            + #"{"number":7,"title":"Closed at only","repoNameWithOwner":"team/app","isDraft":false,"closedAt":"2026-11-02T12:00:00Z","createdAt":"2026-11-02T10:00:00Z"},"#
+            + #"{"number":8,"title":"Lowercase merged","repoNameWithOwner":"team/app","isDraft":false,"state":"merged","createdAt":"2026-11-01T10:00:00Z"}"#
+            + #"]}"#
+        check(try titles(shapes) == ["Spelled-out open", "REST open"], "every shape of merged or closed is left out, open ones stay")
+    }
+
+    // promise: #523
+    /// The reporter's case over time: a pull request in the folder is merged on GitHub, and the next
+    /// refresh no longer lists it while its open neighbour stays.
+    private static func gitHubMergedSinceLastRefresh(_ github: LiveFolderPluginPackage, executable: URL) throws {
+        func pulls(secondState: String, mergedAt: String) -> String {
+            #"{"payload":{"pullsDashboardSurfaceContentRoute":{"results":["#
+                + #"{"number":1,"title":"Stays","repoNameWithOwner":"team/app","state":"OPEN","isDraft":false,"mergedAt":null,"createdAt":"2026-11-06T12:00:00Z"},"#
+                + #"{"number":2,"title":"Gets merged","repoNameWithOwner":"team/app","state":"\#(secondState)","isDraft":false,"mergedAt":\#(mergedAt),"createdAt":"2026-11-05T12:00:00Z"}"#
+                + #"],"pageInfo":{},"error":null}}}"#
+        }
+        func urls(_ body: String) throws -> [String] {
+            try refresh(github, executable: executable, origins: ["https://github.com"], filters: ["authored", "review", "teamReview"]) { request in
+                LiveFolderPluginResponse(status: 200, url: request.url, body: body)
+            }.get().items.map(\.url)
+        }
+        check(try urls(pulls(secondState: "OPEN", mergedAt: "null")) == ["https://github.com/team/app/pull/1", "https://github.com/team/app/pull/2"],
+              "both are in the folder while open")
+        check(try urls(pulls(secondState: "MERGED", mergedAt: #""2026-11-07T09:00:00Z""#)) == ["https://github.com/team/app/pull/1"],
+              "after the merge, every filter's answer leaves it out")
+    }
+
+    // promise: #521
+    /// The GitHub plugin's answers carry what the folder row shows, as Arc words it: an organisation
+    /// behind SAML single sign-on gives the key, "Login with SSO to unlock this folder" and a click to
+    /// that organisation's SSO page; a healthy answer gives no warning at all (or every folder would
+    /// show a key); signed out gives the triangle and "Sign back in to GitHub." (GitHub #521).
+    private static func gitHubSSOKey(_ github: LiveFolderPluginPackage, executable: URL) throws {
+        func folder(_ body: String) throws -> LiveFolderData {
+            let snapshot = try refresh(github, executable: executable, origins: ["https://github.com"], filters: ["authored"]) { request in
+                LiveFolderPluginResponse(status: 200, url: request.url, body: body)
+            }.get()
+            var live = LiveFolderData()
+            var plugin = LiveFolderPluginConfiguration(id: "cra.github", settings: [:], filters: ["authored"], sessionOrigins: ["https://github.com"])
+            plugin.snapshot = snapshot
+            live.plugin = plugin
+            return live
+        }
+        let sso = try folder(#"{"protected_org_logins":["acme"],"results":[]}"#)
+        check(sso.plugin?.snapshot?.warning == "Login with SSO to unlock this folder", "Arc's SSO tip")
+        check(sso.plugin?.snapshot?.actionMessage == "SSO ensures all of your organizations’ PRs appear", "Arc's SSO menu note")
+        check(sso.plugin?.snapshot?.actions == [.init(title: "Sign In to acme with SSO…", url: "https://github.com/orgs/acme/sso")],
+              "the organisation's SSO sign-in")
+        check(sso.alert == .singleSignOn(help: "Login with SSO to unlock this folder", url: "https://github.com/orgs/acme/sso")
+              && sso.alert?.symbol == "key", "an organisation behind SSO puts the key on the folder, and a click goes to its SSO page")
+
+        let healthy = try folder(#"{"payload":{"pullsDashboardSurfaceContentRoute":{"results":[],"pageInfo":{},"error":null}}}"#)
+        check(healthy.plugin?.snapshot?.warning == nil && healthy.alert == nil, "a folder nothing holds back shows no key")
+
+        var signedOut = sso
+        let signIn = json(try invoke(github, "signIn", input: ["settings": [:], "state": [:]], origins: [], executable: executable))
+        signedOut.plugin?.signIn = .init(title: signIn["title"] as? String ?? "", url: signIn["url"] as? String ?? "")
+        signedOut.plugin?.signInWarning = signIn["warning"] as? String
+        signedOut.lastError = .notSignedIn
+        check(signedOut.alert == .signIn(help: "Sign back in to GitHub.", url: "https://github.com/login?return_to=%2Fpulls")
+              && signedOut.alert?.symbol == "exclamationmark.triangle", "signed out shows the triangle, even with an organisation behind SSO")
+    }
+
+    // promise: #521
+    /// The pulls page's JSON lists pull requests but never which organisations wait for SSO; GitHub
+    /// says that in the page itself (pullsDashboardSurfaceLayoutRoute's `sso_organizations`, which Arc
+    /// reads) and in its search's `protected_org_logins`. With pull requests from elsewhere in the folder
+    /// the search never ran, so a lapsed organisation SSO showed no key while its pull requests asked
+    /// for a sign-in when opened (GitHub #521, 0.1.49). Answers shaped like GitHub's on 19 Nov 2026.
+    private static func gitHubSSOBesideOtherPullRequests(_ github: LiveFolderPluginPackage, executable: URL) throws {
+        let pulls = #"{"meta":{"title":"Pull requests"},"payload":{"pullsDashboardSurfaceContentRoute":{"results":["#
+            + #"{"number":7,"title":"Elsewhere","permalink":"https://github.com/me/tool/pull/7","repoNameWithOwner":"me/tool","#
+            + #""author":{"displayLogin":"me"},"state":"OPEN","isDraft":false,"mergedAt":null,"createdAt":"2026-11-18T12:00:00Z"}],"#
+            + #""pageInfo":{"currentPage":1,"totalPages":1,"totalCount":1},"error":null}}}"#
+        func page(_ organisations: String) -> String {
+            #"<html><meta name="user-login" content="me"><script type="application/json" data-target="react-app.embeddedData">"#
+                + #"{"payload":{"pullsDashboardSurfaceLayoutRoute":{"sso":{"sso_organizations":"# + organisations
+                + #","current_sso_orgs_match_dismissed_cookie":false}}},"appPayload":{"sso_organizations":"# + organisations + "}}</script></html>"
+        }
+        let acme = #"[{"id":"1","login":"acme","name":"Acme","avatar_url":"https://avatars.githubusercontent.com/u/1?s=60&v=4"}]"#
+        func read(_ organisations: String) throws -> (LiveFolderPluginSnapshot, [LiveFolderPluginRequest]) {
+            var requests: [LiveFolderPluginRequest] = []
+            let snapshot = try refresh(github, executable: executable, origins: ["https://github.com"], filters: ["authored"],
+                                       groups: ["acme/app", "me/tool"]) { request in
+                requests.append(request)
+                let json = request.headers?["Accept"] == "application/json"
+                return LiveFolderPluginResponse(status: 200, url: request.url, body: json ? pulls : page(organisations))
+            }.get()
+            return (snapshot, requests)
+        }
+
+        let (lapsed, requests) = try read(acme)
+        check(lapsed.items.map(\.title) == ["Elsewhere"], "the pull requests that do load stay in the folder")
+        check(lapsed.warning == "Login with SSO to unlock this folder", "an organisation waiting for SSO puts the key on the folder")
+        check(lapsed.actions == [.init(title: "Sign In to acme with SSO…", url: "https://github.com/orgs/acme/sso")],
+              "and a click goes to its SSO page")
+        check(lapsed.preservedGroups == ["acme/app"], "its pull requests already in the folder are kept")
+        check(requests.count == 2 && requests[1].url == "https://github.com/pulls" && requests[1].headers?["Accept"] != "application/json",
+              "one read of the pulls page itself, after the search")
+
+        let (healthy, _) = try read("[]")
+        check(healthy.warning == nil && healthy.actions.isEmpty, "no organisation waiting, no key")
+    }
+
     // MARK: GitLab
 
     private static func gitLab(_ gitlab: LiveFolderPluginPackage, executable: URL) throws {
@@ -262,5 +440,141 @@ enum LiveFolderProviderTests {
         check(migrated["filters"] as? [String] == ["review", "assigned"], "GitLab filters migrate")
         let signIn = json(try invoke(gitlab, "signIn", input: ["settings": ["server": server], "state": [:]], origins: [], executable: executable))
         check(signIn["url"] as? String == server + "/users/sign_in", "sign in on the instance")
+    }
+
+    // MARK: Azure DevOps
+
+    /// Azure DevOps pull requests through the space's own session (#542): yours and the ones still
+    /// waiting for your vote, across the organization, never an empty folder on a sign-in page.
+    // promise: #542
+    private static func azureDevOps(_ azure: LiveFolderPluginPackage, executable: URL) throws {
+        let org = "https://dev.azure.com/acme"
+        let origins = ["https://dev.azure.com"]
+        let me = "11111111-1111-1111-1111-111111111111", other = "22222222-2222-2222-2222-222222222222"
+        let connection = #"{"authenticatedUser":{"id":"\#(me)","descriptor":"Microsoft.IdentityModel.Claims.ClaimsIdentity;acme\\alex"}}"#
+        func pull(_ id: Int, project: String = "Web Shop", repo: String = "checkout", by author: String = other,
+                  votes: [(String, Int)] = [], status: String = "active", created: String = "2026-11-06T12:00:00.1234567Z") -> [String: Any] {
+            ["pullRequestId": id, "title": "PR \(id)", "status": status, "creationDate": created,
+             "createdBy": ["id": author, "displayName": author == me ? "Alex" : "Sam"],
+             "repository": ["name": repo, "project": ["name": project]],
+             "reviewers": votes.map { ["id": $0.0, "vote": $0.1] }]
+        }
+        func body(_ rows: [[String: Any]]) -> String {
+            String(data: try! JSONSerialization.data(withJSONObject: ["count": rows.count, "value": rows]), encoding: .utf8)!
+        }
+        func refresh(server: String = org, filters: [String] = ["authored", "review"],
+                     respond: @escaping Respond) throws -> Result<LiveFolderPluginSnapshot, Failure> {
+            try Self.refresh(azure, executable: executable, origins: origins, filters: filters, settings: ["server": server], respond: respond)
+        }
+        func query(_ request: LiveFolderPluginRequest) -> [String: String] {
+            Dictionary(uniqueKeysWithValues: (URLComponents(string: request.url)!.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        }
+
+        let presentation = try JSONDecoder().decode(LiveFolderPluginPresentation.self,
+            from: invoke(azure, "describe", input: [:], origins: [], executable: executable))
+        try presentation.validate()
+        check(presentation.setup?.key == azure.manifest.sessionSetting && presentation.groups?.title == "Repositories", "address setup and repository groups")
+        check(presentation.filters.filter(\.enabledByDefault).map(\.id) == ["authored", "review"], "both filters start on")
+
+        // One query per filter with the signed-in user's id; the address of any page in the org is the org.
+        var asked: [String: [String: String]] = [:]
+        let snapshot = try refresh(server: org + "/Web%20Shop/_git/checkout/pullrequest/7") { request in
+            check(request.headers?["X-TFS-FedAuthRedirect"] == "Suppress", "signed out answers 401 instead of a sign-in page")
+            if request.url == org + "/_apis/connectionData" { return LiveFolderPluginResponse(status: 200, url: request.url, body: connection) }
+            check(request.url.hasPrefix(org + "/_apis/git/pullrequests?"), "pull requests come from the organization's API")
+            let q = query(request)
+            check(q["searchCriteria.status"] == "active" && q["$top"] == "100" && q["$skip"] == "0", "active ones, a page at a time")
+            if q["searchCriteria.creatorId"] == me {
+                asked["authored"] = q
+                return LiveFolderPluginResponse(status: 200, url: request.url, body: body([pull(3, by: me, created: "2026-11-05T09:00:00Z")]))
+            }
+            asked["review"] = q
+            check(q["searchCriteria.reviewerId"] == me, "review requests ask for the signed-in user")
+            return LiveFolderPluginResponse(status: 200, url: request.url, body: body([
+                pull(7, votes: [(me, 0)]),
+                pull(8, repo: "Web Shop", votes: [(me, 10)]),
+                pull(9, votes: [(me, -5)]),
+                pull(3, by: me, created: "2026-11-05T09:00:00Z"),
+            ]))
+        }.get()
+        check(Set(asked.keys) == ["authored", "review"], "one query per filter")
+        check(snapshot.items.map(\.url) == [org + "/Web%20Shop/_git/checkout/pullrequest/7", org + "/Web%20Shop/_git/checkout/pullrequest/3"],
+              "reviewed ones leave, your own are listed once, newest first: \(snapshot.items.map(\.url))")
+        check(snapshot.items.first?.group == "Web Shop/checkout" && snapshot.items.first?.subtitle == "Sam" && snapshot.items.first?.createdAt != nil,
+              "repository group, author and date")
+        check(snapshot.items.first?.title == "PR 7", "the pull request's title")
+
+        // With Review Requests alone, a pull request you opened yourself stays out even when you're on it.
+        let reviewOnly = try refresh(filters: ["review"]) { request in
+            LiveFolderPluginResponse(status: 200, url: request.url, body: request.url.hasSuffix("/connectionData") ? connection
+                : body([pull(3, by: me, votes: [(me, 0)]), pull(4), pull(5, votes: [(other, 10), (me, 0)])]))
+        }.get()
+        check(reviewOnly.items.map(\.url) == [org + "/Web%20Shop/_git/checkout/pullrequest/4", org + "/Web%20Shop/_git/checkout/pullrequest/5"],
+              "review requests leave out your own: \(reviewOnly.items.map(\.url))")
+
+        // A project's default repository has the project's name: the group is that name once.
+        let named = try refresh(filters: ["authored"]) { request in
+            LiveFolderPluginResponse(status: 200, url: request.url,
+                body: request.url.hasSuffix("/connectionData") ? connection : body([pull(1, project: "Shop", repo: "Shop", by: me)]))
+        }.get()
+        check(named.items.first?.group == "Shop", "a project's own repository groups under the project")
+
+        // A visualstudio.com organization and a Server collection keep their own address.
+        for (server, expected) in [("https://acme.visualstudio.com/Shop/_git", "https://acme.visualstudio.com"),
+                                   ("https://tfs.example.com/tfs/DefaultCollection", "https://tfs.example.com/tfs/DefaultCollection")] {
+            var first = ""
+            let host = URL(string: expected)!
+            _ = try Self.refresh(azure, executable: executable, origins: ["https://\(host.host!)"], filters: ["authored"],
+                                 settings: ["server": server]) { request in
+                if first.isEmpty { first = request.url }
+                return LiveFolderPluginResponse(status: 200, url: request.url, body: request.url.hasSuffix("/connectionData") ? connection : body([]))
+            }.get()
+            check(first == expected + "/_apis/connectionData", "\(server) is read at \(expected)")
+        }
+
+        // A full page asks for the next one.
+        var skips: [String] = []
+        let paged = try refresh(filters: ["authored"]) { request in
+            if request.url.hasSuffix("/connectionData") { return LiveFolderPluginResponse(status: 200, url: request.url, body: connection) }
+            let skip = query(request)["$skip"]!
+            skips.append(skip)
+            return LiveFolderPluginResponse(status: 200, url: request.url,
+                body: body(skip == "0" ? (1...100).map { pull($0, by: me) } : [pull(101, by: me)]))
+        }.get()
+        check(skips == ["0", "100"] && paged.items.count == 101, "paging continues after a full page")
+
+        // Failures never become an empty folder.
+        for (status, expected) in [(0, "network"), (401, "notSignedIn"), (403, "unexpectedPage"), (429, "rateLimited"), (500, "unexpectedPage")] {
+            check(code(try refresh { LiveFolderPluginResponse(status: status, url: $0.url, body: "") }) == expected, "status \(status)")
+        }
+        check(code(try refresh { _ in LiveFolderPluginResponse(status: 200, url: "https://dev.azure.com/_signin?realm=dev.azure.com", body: connection) })
+              == "notSignedIn", "sent to the sign-in page")
+        check(code(try refresh { LiveFolderPluginResponse(status: 203, url: $0.url, body: "<html>Sign in</html>") }) == "notSignedIn",
+              "an expired session's sign-in page")
+        check(code(try refresh { LiveFolderPluginResponse(status: 200, url: $0.url,
+            body: #"{"authenticatedUser":{"id":"00000000-0000-0000-0000-000000000000","descriptor":"System:PublicAccess;Anonymous"}}"#) })
+              == "notSignedIn", "an anonymous connection")
+        for wrong in [#"{"message":"TF400813"}"#, #"{"value":[{"pullRequestId":1}]}"#, body([pull(1, status: "completed")]),
+                      body([pull(1, repo: "")])] {
+            check(code(try refresh { request in
+                LiveFolderPluginResponse(status: 200, url: request.url, body: request.url.hasSuffix("/connectionData") ? connection : wrong)
+            }) == "unexpectedPage", "unreadable pull requests: \(wrong)")
+        }
+        check((try? refresh { request in
+            LiveFolderPluginResponse(status: 200, url: request.url, body: request.url.hasSuffix("/connectionData") ? connection : body([]))
+        }.get().items.isEmpty) == true, "no pull requests is an empty folder")
+        check((try? refresh(filters: []) { _ in fatalError("No filter asked anything") }.get().items.isEmpty) == true, "no filter, no requests")
+
+        // Sign-in and the pages that refresh the folder.
+        let signIn = json(try invoke(azure, "signIn", input: ["settings": ["server": org + "/Shop"], "state": [:]], origins: [], executable: executable))
+        check(signIn["url"] as? String == org && signIn["failureURL"] as? String == org + "/_pulls", "sign in at the organization")
+        check(signIn["instanceLabel"] as? String == "Azure DevOps (dev.azure.com/acme)", "the instance label")
+        for (url, refreshes) in [(org + "/Shop/_git/checkout/pullrequest/7", true), ("https://dev.azure.com/ACME/Shop/_pulls", true),
+                                 ("https://dev.azure.com/acme-other/x", false),
+                                 ("https://example.com/", false)] {
+            let changed = json(try invoke(azure, "pageChanged", input: ["url": url, "previousURL": "", "settings": ["server": org], "state": [:]],
+                                          origins: [], executable: executable))
+            check((changed["refreshAfter"] as? [Int] ?? []).isEmpty != refreshes && (changed["checkSignIn"] as? Bool) == refreshes, "page \(url)")
+        }
     }
 }

@@ -10,8 +10,8 @@
 #                               also copies the app to <dir>/Cra.app
 #   CRA_ARCH=x86_64 scripts/build.sh
 #                               builds for the other CPU (arm64 or x86_64) into
-#                               build/<arch>/Cra.app, with that CPU's CEF in
-#                               vendor/cef-<arch> and SwiftPM's files in build/swiftpm-<arch>
+#                               build/<arch>/Cra.app, with that CPU's engine in
+#                               vendor/engine-<arch> and SwiftPM's files in build/swiftpm-<arch>
 # Cra runs on Chrome's own framework with Cra's layer (docs/chromium-engine.md), the engine
 # scripts/fetch-engine.sh downloads into vendor/engine (vendor/engine-<arch> for the other CPU).
 #   CRA_ENGINE_OUT=~/chromium.noindex/src/out/Cra_arm64 scripts/build.sh
@@ -29,8 +29,8 @@ CONFIG="${1:-release}"
 VERSION="${CRA_VERSION:-0.0.0-dev}"
 BUILD_NUMBER="${CRA_BUILD:-$(date +%Y%m%d%H%M)}"
 
-# The host CPU keeps the usual paths; the other one gets its own CEF, SwiftPM folder and
-# app, so building it never replaces vendor/cef (worktrees share it) or build/Cra.app.
+# The host CPU keeps the usual paths; the other one gets its own engine, SwiftPM folder and
+# app, so building it never replaces vendor/engine (worktrees share it) or build/Cra.app.
 # scripts/release.sh finds the app with the same rule.
 ARCH="${CRA_ARCH:-$(uname -m)}"
 case "$ARCH" in
@@ -119,6 +119,12 @@ cp -R resources/live-folder-plugins "$APP/Contents/Resources/live-folder-plugins
 if [ "$ENGINE" = chromium ]; then
   FW_NAME="Cra Framework"
   ditto "$CRA_ENGINE_FRAMEWORKS/$FW_NAME.framework" "$APP/Contents/Frameworks/$FW_NAME.framework"
+  # Chrome's helpers name Chromium's icon in an asset catalog, which macOS prefers to their app.icns (Cra's, from
+  # engine/chromium/apply.sh): without the catalog they show Cra's icon in notifications and their prompt.
+  for helper in "$APP/Contents/Frameworks/$FW_NAME.framework/Versions/"*/Helpers/*.app; do
+    rm -f "$helper/Contents/Resources/Assets.car"
+    /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$helper/Contents/Info.plist" 2>/dev/null || true
+  done
 else
   FW_NAME="Chromium Embedded Framework"
   cp -R "$ROOT/$CEF_DIR/Release/$FW_NAME.framework" "$APP/Contents/Frameworks/"
@@ -173,6 +179,18 @@ FW_LINK="$(otool -L "$HELPER_EXE" | grep -o '@executable_path/.*Chromium Embedde
   { echo "Cra Helper doesn't link the framework at launch (${FW_LINK:-no load command})" >&2; exit 1; }
 fi
 
+# Every app in the bundle shows Cra's icon. macOS takes a bundle's icon from its asset catalog (CFBundleIconName)
+# before its .icns, and Chrome's alerts helpers carry Chromium's: the "Cra" notification prompt and every page's
+# notification showed Chromium's icon (0.1.44, a user's screenshot).
+for plist in $(find "$APP" -path '*.app/Contents/Info.plist' | tr ' ' '\001'); do
+  plist="$(tr '\001' ' ' <<<"$plist")"
+  if /usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$plist" >/dev/null 2>&1 ||
+     [ -e "$(dirname "$plist")/Resources/Assets.car" ]; then
+    echo "An app in the bundle takes its icon from an asset catalog, not Cra's .icns: ${plist#"$APP"/}" >&2
+    exit 1
+  fi
+done
+
 # Code signing, innermost first. Ad-hoc by default; set CRA_SIGN_IDENTITY to a
 # "Developer ID Application: …" identity for a distributable build with the
 # hardened runtime, timestamps and the CEF entitlements. scripts/release.sh
@@ -192,7 +210,9 @@ sign() {  # sign <path> [entitlements]
   fi
 }
 FW="$APP/Contents/Frameworks/$FW_NAME.framework"
-find "$FW/Libraries" -name '*.dylib' -print0 2>/dev/null | while IFS= read -r -d '' lib; do sign "$lib"; done
+# The slash: Chrome's framework is versioned, Libraries is a symlink to Versions/<version>/Libraries, and find
+# doesn't descend a symlinked start point (CEF's flat framework had a real folder).
+find "$FW/Libraries/" -name '*.dylib' -print0 2>/dev/null | while IFS= read -r -d '' lib; do sign "$lib"; done
 if [ "$ENGINE" = chromium ]; then
   # Chrome's helpers and tools inside the framework, before the framework itself.
   for h in "$FW"/Versions/Current/Helpers/*; do
@@ -267,6 +287,20 @@ fi
 sign "$APP" "$APP_ENTITLEMENTS"
 if [ "$IDENTITY" != "-" ]; then
   codesign --verify --deep --strict --verbose=2 "$APP"
+  # What notarization checks in every Mach-O: the identity's team and a secure timestamp. --deep passes a
+  # binary that still carries its build's own signature (the engine's Libraries, 0.1.44's first Release run:
+  # "not signed with a valid Developer ID certificate").
+  TEAM="$(codesign -dv "$APP" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+  unsigned=0
+  while IFS= read -r -d '' bin; do
+    file -b "$bin" | grep -q '^Mach-O' || continue
+    info="$(codesign -dv --verbose=2 "$bin" 2>&1)"
+    if ! grep -q "^TeamIdentifier=$TEAM$" <<<"$info" || ! grep -q '^Timestamp=' <<<"$info"; then
+      echo "Not signed for notarization (team $TEAM and a secure timestamp): ${bin#"$APP"/}" >&2
+      unsigned=1
+    fi
+  done < <(find "$APP" -type f -print0)
+  [ "$unsigned" = 0 ] || exit 1
 fi
 
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister

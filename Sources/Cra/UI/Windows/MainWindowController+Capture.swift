@@ -38,7 +38,51 @@ extension MainWindowController {
         }
     }
 
-    private func takeCapture(_ b: CraBrowser, liftImageAt image: CGRect?, in peek: LittleWindowController?, request: UUID) {
+    /// Testing without the pointer (cra://debug?capturePick=x,y, `deeper=1` as if ⌥ were held): what
+    /// a click at that point of the page (points from its top left) would capture. Logs
+    /// "capture pick: <tag> x,y wxh" in page points, or "capture pick: nothing".
+    func debugCapturePick(at point: NSPoint, deeper: Bool) {
+        guard let source = captureSource(in: nil) else { CraLog.note("capture pick: no page"); return }
+        let scale = source.window.backingScaleFactor
+        let script = ContentCapture.pickerScript(x: point.x * scale, y: point.y * scale)
+        let params = (try? JSONSerialization.data(withJSONObject: ["expression": script, "returnByValue": true]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+        source.browser.evaluate(inIsolatedWorld: PageScript.world, params: params) { result, _ in
+            DispatchQueue.main.async {
+                let chosen = result.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+                    .flatMap { ($0["result"] as? [String: Any])?["value"] as? [String: Any] }
+                    .flatMap(ContentCapture.pickerStack(from:))
+                    .flatMap { ContentCapture.choose(in: $0, deeper: deeper) }
+                guard let chosen, let r = ContentCapture.elementRect(chosen, scale: scale, pageBounds: CGRect(origin: .zero, size: source.rect.size)) else {
+                    CraLog.note("capture pick: nothing"); return
+                }
+                CraLog.note("capture pick: \(chosen.tag) \(Int(r.minX.rounded())),\(Int(r.minY.rounded())) \(Int(r.width.rounded()))x\(Int(r.height.rounded()))")
+            }
+        }
+    }
+
+    /// Testing without the pointer (cra://debug?captureMenu=<typed>&run=<row>): part of the page
+    /// captured as Capture Image… does, so the menu shows beside it; `typed` goes in its field,
+    /// cra.log lists the rows left, and the row titled `run` is then chosen.
+    func debugCaptureMenu(typed: String, run: String?) {
+        // A menu already showing takes the text and the choice.
+        if let overlay = captureOverlay, overlay.isOpen {
+            CraLog.note("capture menu: \(overlay.debugMenu(typed: typed, run: run))")
+            return
+        }
+        guard captureRequest == nil, let source = captureSource(in: nil) else { CraLog.note("capture menu: no page"); return }
+        let request = UUID()
+        captureRequest = (request, source.window)
+        let rect = CGRect(x: 40, y: 40, width: max(60, min(320, source.rect.width - 80)), height: max(60, min(200, source.rect.height - 80)))
+        takeCapture(source.browser, liftImageAt: rect, in: nil, request: request, staysWithoutKeys: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let overlay = self?.captureOverlay, overlay.isOpen else { CraLog.note("capture menu: none"); return }
+            CraLog.note("capture menu: \(overlay.debugMenu(typed: typed, run: run))")
+        }
+    }
+
+    private func takeCapture(_ b: CraBrowser, liftImageAt image: CGRect?, in peek: LittleWindowController?, request: UUID,
+                             staysWithoutKeys: Bool = false) {
         let lift = image
         b.sendDevToolsMethod("Page.captureScreenshot", params: #"{"format":"png","captureBeyondViewport":false}"#) { [weak self, weak b] shot, error in
             MainActor.assumeIsolated {
@@ -51,6 +95,7 @@ extension MainWindowController {
                     return
                 }
                 let overlay = CaptureOverlay(over: source.window, pageRect: source.rect, shot: image, browser: b)
+                overlay.staysWithoutKeys = staysWithoutKeys
                 overlay.onFinish = { [weak self, weak overlay, weak b] action, png in
                     let from = b.flatMap { b in overlay?.takenRect.map { (browser: b, rect: $0, page: overlay?.pageSize ?? .zero) } }
                     self?.captureFinished(action, png, in: peek, from: from)

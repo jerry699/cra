@@ -36,7 +36,35 @@ CRA 浏览器中的 AI 功能，需要使用苹果智能。但在国内的环境
 
 最后，讲讲为什么叫司南吧。战国《鬼谷子》与东汉《论衡》记载，司南以天然磁石磨成勺，置于光滑地盘之上，勺柄恒指南方。它是中华文明对"导航"的最早回答。浏览器在信息世界里做的，正是同一件事——帮人找到方向。这个名字让产品从"工具"变成"传承"。这也是我的希望。
 
+<<<<<<< HEAD
 ## ✨ 特性
+=======
+| Arc feature | Cra |
+|---|:---:|
+| Spaces | ✅ |
+| Pinned tabs | ✅ |
+| Today tabs and auto-archive | ✅ |
+| Favorites | ✅ |
+| Folders | ✅ |
+| Command bar | ✅ |
+| Little Arc | ✅ |
+| Split View | ✅ |
+| Picture in Picture | ✅ |
+| Developer Mode | ✅ |
+| Library | ✅ |
+| Air Traffic Control | ✅ |
+| Live folders | ✅ |
+| Profiles | ✅ |
+| Private windows | ✅ |
+| Arc's keyboard shortcuts | ✅ |
+| Import from Arc | ✅ |
+| Easels | ✅ |
+| Boosts | ✅ |
+| Peek | ✅ |
+| Netflix, Disney+, Spotify and other DRM streaming | ✅ In Safari's engine with Apple's FairPlay; Disney+ and Prime Video [confirmed playing signed in](docs/protected-media.md#confirmed-playing), and any other site that asks for DRM can switch over |
+| Notes | Left out: Arc itself no longer makes new Notes |
+| Arc Max | Ask on Page, Instant Links, Tidy Tabs, Tidy Tab Titles, Tidy Downloads and 5-Second Previews, on the Mac's Apple Intelligence; only Instant Links' search queries leave the Mac, to the search engine |
+>>>>>>> origin/main
 
 **浏览本源**（上游 Cra 的全部能力 + Intel 支持）
 - 侧栏驱动的浏览体验：空间、固定标签页、收藏、文件夹、自动归档
@@ -58,10 +86,23 @@ CRA 浏览器中的 AI 功能，需要使用苹果智能。但在国内的环境
 - 支付异常一键修复：登录数据冲突导致的支付失败，一键清除冲突数据
 - 内置广告拦截默认规则对国内站点友好，第三方扩展（uBlock 等）冲突场景有提示
 
+<<<<<<< HEAD
 **安全**
 - 定期第三方安全审计，关键发现已修复并公开记录
 - cra:// 调试协议在正式版中封闭
 - 诊断导出默认脱敏（站点级、非完整地址）
+=======
+- **Arc:** spaces, pinned tabs, folders, favorites and the archive, plus passwords and
+  sign-ins.
+- **Yab and Ardia:** spaces, pinned tabs, folders and favorites, plus sign-ins and
+  extensions, and Ardia's passwords. A space with sign-ins of its own lands on a Cra profile.
+- **Dia, Chrome, Brave, Edge, Opera, Vivaldi, Chromium, Helium:** tabs, bookmarks, history,
+  passwords, sign-ins and extensions.
+- **Zen and Firefox:** open tabs, bookmarks and history, and Zen's spaces, Essentials and
+  pinned tabs.
+- **Safari:** whatever Safari exports itself (File ▸ Export Browsing Data): bookmarks,
+  history and passwords.
+>>>>>>> origin/main
 
 ## 🎯 设计哲学
 
@@ -111,9 +152,22 @@ CRA 浏览器中的 AI 功能，需要使用苹果智能。但在国内的环境
 
 A local-AI browser for Chinese users — an open-source fork of the [Cra browser](https://github.com/VictorKildahl/cra).
 
+<<<<<<< HEAD
 **The story:** I wanted an Arc replacement, but everything suitable is Apple-Silicon-only, and my old Intel Mac couldn't run any of them. Building from source meant a 100 GB checkout and hours of compiling — not realistic on my machine. Then AI led me to Cra, itself ARM-only at the time. I developed parts of the port with AI's help and asked the author for support with the Intel X64 build; he answered quickly and provided the patches I needed. Sinan grew from there: instead of stopping at "I got my browser back," I kept developing Cra for China-specific scenarios, daily use, and AI features — with the author's data-safety philosophy as my compass.
 
 **The philosophy:** browsers were long treated as traffic entrances, and today's AI browsers bolt on agents and chat panels to capture it. But browsing is the point. Research shows the AI feature people actually use most in a browser is translation. So Sinan's baseline: **AI quietly helps; it never steals the show.** Everything AI runs **locally** on small models — nothing leaves your Mac — and the AI parts are **optional**: without a model, Sinan is simply a clean, fast browser.
+=======
+    scripts/build.sh          # fetches the engine on first run, builds build/Cra.app
+    scripts/run.sh            # build if needed, then open
+    scripts/dev.sh            # dev loop: debug CraDev.app, rebuilds + relaunches on save
+
+Needs Xcode 16+. The engine is Chrome's own framework with Cra's layer built into it
+([docs/chromium-engine.md](docs/chromium-engine.md)); the build downloads a published copy, and
+`scripts/build-chromium.sh` builds it from Chrome's source. The iPhone app builds with
+`scripts/ios.sh build` (Xcode 26 with the iOS platform, no Chromium). [CONTRIBUTING.md](CONTRIBUTING.md)
+covers sending a change, and [docs/development.md](docs/development.md) covers the code
+layout, scripting hooks and test instances.
+>>>>>>> origin/main
 
 **Features** (all local, models downloadable in-app):
 - Sidebar-first browsing: spaces, pinned tabs, favorites, folders, auto-archive — everything Cra does, now on Intel too

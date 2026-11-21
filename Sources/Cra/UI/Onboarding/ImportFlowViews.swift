@@ -100,6 +100,10 @@ struct ImportFlowView: View {
         }
         .frame(width: ImportWindowController.size.width, height: ImportWindowController.size.height)
         .ignoresSafeArea()
+        // Back from System Settings with Full Disk Access on: read the picked browser again.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.recheckFullDiskAccess()
+        }
     }
 }
 
@@ -189,7 +193,7 @@ private struct SourceStep: View {
             // Three rows of cards fit; more browsers scroll under a soft edge.
             ScrollView {
                 LazyVGrid(columns: cols, alignment: .leading, spacing: ImportMetrics.gap) {
-                    ForEach(model.sources) { s in
+                    ForEach(model.listedSources) { s in
                         BrowserCard(source: s, model: model, c: c)
                     }
                 }
@@ -199,20 +203,40 @@ private struct SourceStep: View {
             .frame(width: ImportMetrics.columnWidth, height: ImportMetrics.listHeight + 8, alignment: .topLeading)
             .mask(ScrollFade())
             .offset(y: ImportMetrics.listTop - 8)
-            if let err = model.loadError {
+            if model.needsFullDiskAccess, let name = model.source?.rawValue {
+                Text("macOS keeps \(name)'s data from other apps. Turn on Cra in Full Disk Access, then come back here. If Cra is already on, quit and reopen Cra.")
+                    .font(.system(size: 12)).foregroundStyle(c.body)
+                    .frame(width: ImportMetrics.columnWidth, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(width: ImportMetrics.columnWidth, height: 44, alignment: .bottomLeading)
+                    .offset(y: ImportMetrics.buttonTop - 52)
+            } else if let err = model.loadError {
                 Text(err).font(.system(size: 12)).foregroundStyle(.red.opacity(0.8))
                     .offset(y: ImportMetrics.buttonTop - 28)
             }
+            // A browser macOS keeps from Cra turns Continue into the way to Full Disk Access.
+            let title = model.needsFullDiskAccess ? "Open Full Disk Access" : "Continue"
+            let enabled = model.needsFullDiskAccess || model.canContinueFromSource
+            let action = { model.needsFullDiskAccess ? model.openFullDiskAccessSettings() : model.continueFromSource() }
             if model.firstRun {
                 // Dia's onboarding offers "skip the importing process" beside Continue.
                 HStack(spacing: 6) {
+<<<<<<< HEAD
                     SecondaryButton(title: L10n.tr("Skip"), c: c) { model.skipImport() }.frame(width: 146)
                     PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: model.canContinueFromSource, width: 290) { model.continueFromSource() }
+=======
+                    SecondaryButton(title: "Skip", c: c) { model.skipImport() }.frame(width: 146)
+                    PrimaryButton(title: title, c: c, enabled: enabled, width: 290, action: action)
+>>>>>>> origin/main
                 }
                 .frame(width: ImportMetrics.columnWidth + 2)
                 .offset(x: -1, y: ImportMetrics.buttonTop)
             } else {
+<<<<<<< HEAD
                 PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: model.canContinueFromSource) { model.continueFromSource() }
+=======
+                PrimaryButton(title: title, c: c, enabled: enabled, action: action)
+>>>>>>> origin/main
                     .offset(x: -1, y: ImportMetrics.buttonTop)
             }
         }
@@ -235,8 +259,18 @@ private struct SpacesStep: View {
                         SelectableRow(c: c, checked: model.selectedSpaces.contains(i),
                                       onHover: { if $0 { model.previewSpace = i } },
                                       toggle: { model.toggleSpace(i) }) {
+<<<<<<< HEAD
                             Text(sp.emoji).font(.system(size: 18)).frame(width: 24)
                             RowTitle(title: sp.title, caption: L10n.tr(sp.itemCount == 1 ? "%d tab" : "%d tabs", sp.itemCount), c: c)
+=======
+                            // An Icon-tab glyph (Arc, Ardia, Yab) shows as its symbol, else the emoji.
+                            Group {
+                                if let symbol = sp.symbol { Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(c.body) }
+                                else { Text(sp.emoji).font(.system(size: 18)) }
+                            }
+                            .frame(width: 24)
+                            RowTitle(title: sp.title, caption: "\(sp.itemCount) tab\(sp.itemCount == 1 ? "" : "s")", c: c)
+>>>>>>> origin/main
                         }
                     }
                     if let plan, !plan.favorites.isEmpty || !plan.archive.isEmpty || model.includeSettings {
@@ -390,19 +424,33 @@ private struct BrowserCard: View {
     let c: ImportColors
     @State private var hover = false
 
+    /// Checked as the card draws, so it clears once Full Disk Access is on.
+    private var blocked: Bool { model.source == source ? model.needsFullDiskAccess : source.needsFullDiskAccess }
+
     var body: some View {
         let selected = model.source == source
+        // Listed but not on this Mac (or nothing to bring over): shown dimmed, not pickable.
+        let available = model.sources.contains(source)
         let shape = RoundedRectangle(cornerRadius: 22, style: .continuous)
         ZStack(alignment: .topLeading) {
-            shape.fill(hover ? c.cardHover : .clear)
+            shape.fill(hover && available ? c.cardHover : .clear)
             shape.strokeBorder(selected ? c.cardBorderSelected : c.cardBorder, lineWidth: 0.5)
             Image(nsImage: source.icon)
                 .resizable().interpolation(.high)
                 .frame(width: 52, height: 52)
+                .saturation(available ? 1 : 0.2)
+                .opacity(available ? 1 : 0.45)
                 .offset(x: 19, y: 14)
             VStack(alignment: .leading, spacing: 2) {
                 Text(source.rawValue).font(.system(size: 16, weight: .medium)).foregroundStyle(c.title)
-                if selected, let plan = model.plan, !plan.spaces.isEmpty {
+                    .opacity(available ? 1 : 0.45)
+                if !available {
+                    Text(source.isInstalled ? "Nothing to import" : "Not on this Mac")
+                        .font(.system(size: 11)).foregroundStyle(c.caption).lineLimit(1)
+                } else if blocked {
+                    Text("Needs Full Disk Access").font(.system(size: 11)).foregroundStyle(c.body)
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                } else if selected, let plan = model.plan, !plan.spaces.isEmpty {
                     Button { model.continueFromSource() } label: {
                         Text(L10n.tr("%d of %d spaces", model.selectedSpaces.count, plan.spaces.count))
                             .font(.system(size: 11)).foregroundStyle(c.body).underline(hover)
@@ -411,17 +459,19 @@ private struct BrowserCard: View {
                     .transition(.opacity)
                 }
             }
-            .frame(width: 80, height: ImportMetrics.card.height, alignment: .leading)
+            .frame(width: available ? 80 : 120, height: ImportMetrics.card.height, alignment: .leading)
             .offset(x: 82)
-            RadioDot(on: selected, c: c)
-                .offset(x: 161.5, y: 28)
+            if available {
+                RadioDot(on: selected, c: c)
+                    .offset(x: 161.5, y: 28)
+            }
         }
         .frame(width: ImportMetrics.card.width, height: ImportMetrics.card.height)
         .contentShape(shape)
         .onHover { hover = $0 }
         .onTapGesture { withAnimation(.easeOut(duration: 0.18)) { model.select(source) } }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(source.rawValue)
+        .accessibilityLabel(available ? source.rawValue : "\(source.rawValue), \(source.isInstalled ? "nothing to import" : "not on this Mac")")
         .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { withAnimation(.easeOut(duration: 0.18)) { model.select(source) } }
     }

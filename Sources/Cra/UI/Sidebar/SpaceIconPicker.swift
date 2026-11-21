@@ -10,6 +10,8 @@ struct SpaceIconPicker: View {
     let currentSymbol: String?
     /// The user's own picture (Space.iconImage), if that is the space's icon (not in Arc).
     var currentImage: Data? = nil
+    /// The Image tab (a space's own picture, not in Arc). A split's picker has Arc's two tabs (#600).
+    var showsImage: Bool = true
     let onPick: (String) -> Void
     let onPickSymbol: (String) -> Void
     var onPickImage: (Data) -> Void = { _ in }
@@ -26,13 +28,19 @@ struct SpaceIconPicker: View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
                 Picker("", selection: $tab) {
+<<<<<<< HEAD
                     Text(L10n.tr("Emoji")).tag(0)
                     Text(L10n.tr("Icon")).tag(1)
                     Text(L10n.tr("Image")).tag(2)
+=======
+                    Text("Emoji").tag(0)
+                    Text("Icon").tag(1)
+                    if showsImage { Text("Image").tag(2) }
+>>>>>>> origin/main
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 160)
+                .frame(width: showsImage ? 160 : 108)
                 Button(action: onRemove) {
                     Image(systemName: "trash").font(.system(size: 14, weight: .regular))
                 }
@@ -124,34 +132,41 @@ struct SpaceIconPicker: View {
     }
 }
 
-/// The Icon tab: Arc's 56 glyphs in its order (7 rows of 8, no search), as SF Symbols.
+/// The Icon tab: Arc's 56 glyphs first, then Cra's extras, as SF Symbols (scrolls past the first
+/// seven rows). No search, matching Arc's Icon tab.
 struct SpaceSymbolGrid: View {
     let current: String?
     let onPick: (String) -> Void
     @State private var hovered: String?
 
-    /// Arc's order, shared with the Arc importer (`ArcSpaceIcon.picker`).
+    /// Arc's order, then Cra's extras (`SpaceIcon.pickerSymbols`).
     static let symbols = SpaceIcon.pickerSymbols
 
     var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.fixed(31), spacing: 0), count: 8), spacing: 0) {
-            ForEach(Self.symbols, id: \.self) { name in
-                Image(systemName: name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 31, height: 31)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(Color.primary.opacity(name == current ? 0.16 : hovered == name ? 0.1 : 0))
-                            .frame(width: 29, height: 29)
-                    )
-                    .contentShape(Rectangle())
-                    .onHover { hovered = $0 ? name : (hovered == name ? nil : hovered) }
-                    .onTapGesture { onPick(name) }
+        ScrollView {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(31), spacing: 0), count: 8), spacing: 0) {
+                ForEach(Self.symbols, id: \.self) { name in
+                    Image(systemName: name)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(width: 31, height: 31)
+                        .background(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(Color.primary.opacity(name == current ? 0.16 : hovered == name ? 0.1 : 0))
+                                .frame(width: 29, height: 29)
+                        )
+                        .contentShape(Rectangle())
+                        .onHover { hovered = $0 ? name : (hovered == name ? nil : hovered) }
+                        .onTapGesture { onPick(name) }
+                }
             }
+            .padding(.horizontal, 11)
+            .padding(.top, 11)
+            .padding(.bottom, 8)
         }
-        .padding(.horizontal, 11)
-        .padding(.top, 11)
+        // The popover fits Arc's seven rows exactly, so nothing shows that Cra's extras are below:
+        // the scroller flashes once as the tab opens (Victor, 20 Nov 2026, PR #638).
+        .scrollIndicatorsFlash(onAppear: true)
         .frame(maxHeight: .infinity, alignment: .top)
     }
 }

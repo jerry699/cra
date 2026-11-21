@@ -102,6 +102,9 @@ final class LibraryView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Scenarios (#649): see LibraryListView.debugDownloadMore.
+    func debugDownloadMore() -> String { list.debugDownloadMore() }
+
     private func pageChanged() {
         rail.show(page: page)
         if page == .spaces {
@@ -341,6 +344,16 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
     private let filterLabel = NSTextField.sidebarLabel(size: 14, weight: .medium)
     private let scroll = SidebarListScrollView()
     private let table = LibraryTable()
+
+    /// Scenarios (#649): the first download row hovered: whether its ••• shows, and the menu it opens.
+    func debugDownloadMore() -> String {
+        guard let i = rows.firstIndex(where: { if case .download = $0 { return true } else { return false } }) else { return "no download" }
+        table.scrollRowToVisible(i)
+        guard let cell = table.view(atColumn: 0, row: i, makeIfNecessary: true) as? LibraryItemCell else { return "no cell" }
+        let shown = cell.debugHoverMore()
+        let items = cell.downloadMenu()?.items.map { $0.isSeparatorItem ? "|" : $0.title } ?? []
+        return "more=\(shown ? 1 : 0) menu=\(items.joined(separator: ", "))"
+    }
     private let empty = LibraryEmptyView()
     private var mediaCard: NSHostingView<MediaOptInCard>?
 
@@ -386,6 +399,9 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
         table.headerView = nil
         table.backgroundColor = .clear
         table.intercellSpacing = .zero
+        // An easel's tile grows past its row under the pointer (EaselTileHover); the list's own
+        // edge still clips what scrolls out.
+        table.clipsToBounds = false
         table.selectionHighlightStyle = .none
         table.style = .plain
         table.usesAutomaticRowHeights = false
@@ -424,6 +440,9 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
             _ = DownloadHistory.shared.thumbnails.count
             _ = MediaScanner.shared.files
             _ = BoostStore.shared.boosts
+            // An easel made, renamed or deleted, or a capture sent to one (it was only the archive
+            // changing, when a tab closed, that brought a new easel onto the page).
+            _ = EaselFiles.Changes.shared.count
             _ = store.settings.mediaLibraryEnabled
             _ = store.settings.mediaFolders
         } onChange: { [weak self] in
@@ -580,7 +599,19 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
             host.frame = NSRect(x: 0, y: 0, width: w, height: h)
             top = h + 4
         }
-        scroll.frame = NSRect(x: 0, y: top + gap, width: w, height: max(0, bounds.height - top - gap))
+        // An easel's tile grows under the pointer (EaselTileHover). The list starts that much higher
+        // with its first row where it was, so the top row's tiles aren't cut off by the list's edge.
+        var room: CGFloat = 0
+        if case .easels? = rows.first { room = EaselTileHover.overhang(side: MediaGridMetrics.tile(width: w)) }
+        scroll.frame = NSRect(x: 0, y: top + gap - room, width: w, height: max(0, bounds.height - top - gap + room))
+        if scroll.contentInsets.top != room {
+            let atTop = scroll.contentView.bounds.minY <= -scroll.contentInsets.top + 0.5
+            scroll.contentInsets.top = room
+            if atTop {
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: -room))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+        }
         table.tableColumns.first?.width = w
         if w != gridWidth {
             gridWidth = w
@@ -727,6 +758,10 @@ private final class LibraryListView: NSView, NSTextFieldDelegate, NSTableViewDat
     // MARK: Table
 
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        rowView.clipsToBounds = false
+    }
 
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         if case .header = rows[row] { return 40 }
@@ -912,6 +947,10 @@ private final class LibraryItemCell: NSView, NSDraggingSource {
     private var remove: (() -> Void)?
     private let binButton = NSImageView()
     private let restoreButton = NSImageView()
+    /// A download's ••• on hover (Arc 1.17x, #649): Arc's row menu from a click, as a right-click gives it.
+    private let moreButton = NSView()
+    private let moreGlyph = NSImageView()
+    private var listed: DownloadHistory.Listed?
     private var downAt: NSPoint?
     private var hovering = false { didSet { if hovering != oldValue { refreshHover(); needsLayout = true } } }
 
@@ -946,6 +985,33 @@ private final class LibraryItemCell: NSView, NSDraggingSource {
             b.setAccessibilityLabel(label)
             card.addSubview(b)
         }
+        moreButton.wantsLayer = true
+        moreButton.layer?.cornerRadius = 8
+        moreButton.layer?.cornerCurve = .continuous
+        moreButton.isHidden = true
+        moreButton.setAccessibilityElement(true)
+        moreButton.setAccessibilityRole(.button)
+        moreButton.setAccessibilityLabel("More")
+        moreGlyph.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 14, weight: .semibold))
+        moreGlyph.imageScaling = .scaleNone
+        moreButton.addSubview(moreGlyph)
+        card.addSubview(moreButton)
+    }
+
+    /// The download's menu, as the ••• and a right-click show it (DownloadRowMenu, Arc's Download Context Menu).
+    func downloadMenu() -> NSMenu? {
+        guard let listed else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        DownloadRowMenu.fill(menu, for: listed)
+        return menu
+    }
+
+    /// Scenarios (#649): the row as the pointer leaves it hovered, and whether its ••• shows.
+    func debugHoverMore() -> Bool {
+        hovering = true
+        layoutSubtreeIfNeeded()
+        return !moreButton.isHidden
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -955,6 +1021,7 @@ private final class LibraryItemCell: NSView, NSDraggingSource {
     func showArchived(_ e: ArchivedItem, icon image: NSImage?, colors: SidebarColors, restore: @escaping () -> Void, remove: @escaping () -> Void) {
         self.colors = colors
         download = nil
+        listed = nil
         isDownloadRow = false
         self.restore = restore
         self.remove = remove
@@ -977,6 +1044,7 @@ private final class LibraryItemCell: NSView, NSDraggingSource {
     func showDownload(_ listed: DownloadHistory.Listed, colors: SidebarColors) {
         self.colors = colors
         isDownloadRow = true
+        self.listed = listed
         restore = nil
         remove = nil
         let ink: NSColor = colors.isDark ? .white : .black
@@ -1038,8 +1106,16 @@ private final class LibraryItemCell: NSView, NSDraggingSource {
         restoreButton.contentTintColor = ink.withAlphaComponent(0.6)
         restoreButton.frame = NSRect(x: card.bounds.width - 14 - 24, y: (h - 24) / 2, width: 24, height: 24)
         binButton.frame = restoreButton.frame.offsetBy(dx: -34, dy: 0)
+        // Arc's download row on hover (#649's capture): a 32 × 30 pt ••• square 11 pt from the right.
+        let showsMore = hovering && isDownloadRow && listed != nil
+        moreButton.isHidden = !showsMore
+        moreButton.frame = NSRect(x: card.bounds.width - 11 - 32, y: (h - 30) / 2, width: 32, height: 30)
+        moreButton.layer?.backgroundColor = colors.hoverFill.cgColor
+        moreGlyph.contentTintColor = ink.withAlphaComponent(0.75)
+        moreGlyph.frame = moreButton.bounds
         // HStack(spacing: 10) ends in a Spacer, so the text stops 10 + 8 pt short of the edge.
-        let tx = x + t + 10, tw = max(0, (showsButtons ? binButton.frame.minX - 8 : card.bounds.width - 18) - tx)
+        let end = showsButtons ? binButton.frame.minX - 8 : showsMore ? moreButton.frame.minX - 8 : card.bounds.width - 18
+        let tx = x + t + 10, tw = max(0, end - tx)
         // VStack(spacing: 1) of 17 + 15, centred.
         let top = (h - 33) / 2
         title.frame = NSRect(x: tx - SidebarText.inset, y: top, width: tw + 2 * SidebarText.inset, height: 17)
@@ -1074,6 +1150,11 @@ private final class LibraryItemCell: NSView, NSDraggingSource {
         guard downAt != nil, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         let p = card.convert(event.locationInWindow, from: nil)
         if !binButton.isHidden, binButton.frame.insetBy(dx: -4, dy: -4).contains(p) { remove?(); return }
+        // The ••• opens the row's menu where the click is, as Arc's does (#649).
+        if !moreButton.isHidden, moreButton.frame.contains(p) {
+            if let menu = downloadMenu() { NSMenu.popUpContextMenu(menu, with: event, for: self) }
+            return
+        }
         if let download { NSWorkspace.shared.open(URL(fileURLWithPath: download.path)) } else if !isDownloadRow { restore?() }
     }
 

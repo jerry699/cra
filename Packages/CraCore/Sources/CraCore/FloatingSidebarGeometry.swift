@@ -50,9 +50,11 @@ public enum FloatingSidebarGeometry {
         !sidebarShown || pageFullscreen
     }
 
-    /// The strip at the window's left edge.
-    public static func shouldReveal(at point: CGPoint, in bounds: CGRect, edgeToEdge: Bool = false) -> Bool {
-        point.y >= bounds.minY && point.y <= bounds.maxY
+    /// The strip at the window's edge on the sidebar's side (the left one in Arc).
+    /// On the right everything below sees the point in a mirror (SidebarSide, #464).
+    public static func shouldReveal(at point: CGPoint, in bounds: CGRect, edgeToEdge: Bool = false, side: SidebarSide = .left) -> Bool {
+        let point = side.place(point, in: bounds)
+        return point.y >= bounds.minY && point.y <= bounds.maxY
             && point.x >= bounds.minX - revealOutside && point.x <= bounds.minX + (edgeToEdge ? revealInsideEdgeToEdge : revealInside)
     }
 
@@ -61,24 +63,41 @@ public enum FloatingSidebarGeometry {
     /// at 270, and a sidebar that is out leaves at 252–257, so the zone is ~8 pt narrower than the
     /// sidebar. Arc's zone sits ~24 pt lower than its window (from ~32 pt under the top to
     /// ~17 pt under the bottom); Cra's is the window's own height.
-    public static func isOffLeftEdge(_ point: CGPoint, in bounds: CGRect, sidebarWidth: CGFloat) -> Bool {
-        point.y >= bounds.minY && point.y <= bounds.maxY
+    public static func isOffLeftEdge(_ point: CGPoint, in bounds: CGRect, sidebarWidth: CGFloat, side: SidebarSide = .left) -> Bool {
+        let point = side.place(point, in: bounds)
+        return point.y >= bounds.minY && point.y <= bounds.maxY
             && point.x < bounds.minX - revealOutside && point.x >= bounds.minX - (sidebarWidth - offEdgeShortfall)
     }
 
     public static func shouldHide(at point: CGPoint, in bounds: CGRect, sidebarWidth: CGFloat,
-                                  pressedMouseButtons: Int, edgeToEdge: Bool = false) -> Bool {
+                                  pressedMouseButtons: Int, edgeToEdge: Bool = false, side: SidebarSide = .left) -> Bool {
         // Window movement can put the pointer outside the panel briefly. Preserve
         // the active drag/context gesture; the next released-pointer check dismisses.
-        guard pressedMouseButtons == 0, !shouldReveal(at: point, in: bounds, edgeToEdge: edgeToEdge) else { return false }
+        guard pressedMouseButtons == 0, !shouldReveal(at: point, in: bounds, edgeToEdge: edgeToEdge, side: side) else { return false }
         // A sidebar that is out stays out while the pointer is beside the window, as in Arc (#350).
-        guard !isOffLeftEdge(point, in: bounds, sidebarWidth: sidebarWidth) else { return false }
+        guard !isOffLeftEdge(point, in: bounds, sidebarWidth: sidebarWidth, side: side) else { return false }
+        let point = side.place(point, in: bounds)
         return !bounds.contains(point) || point.x > bounds.minX + sidebarWidth + margin + leaveSlack
     }
 }
 
 /// The wait before a hidden sidebar comes out: the pointer has to stay in the reveal strip for
 /// `FloatingSidebarGeometry.revealDwell`; leaving it starts the wait over (GitHub #293).
+/// The sidebar went away under a pointer that didn't move: a two-finger swipe out of the Library, or
+/// ⇧⌘L / Esc out of a Library that a hidden sidebar opened (GitHub #635). The pointer can be resting in the
+/// edge strip then, and the strip's wait brought the floating sidebar straight back out, a flash of the
+/// sidebar over the page. Arc's strip needs the pointer to move inside it (1.171, 2 Nov 2026: "a pointer
+/// jump into the strip does not reveal; a few points of movement inside it does"), so the strip waits for
+/// the pointer to move from where it was.
+public enum FloatingSidebarStillPointer {
+    /// Less than a point either way is the same place (the window server rounds what it reports).
+    public static let slop: CGFloat = 1
+
+    public static func moved(from start: CGPoint, to p: CGPoint) -> Bool {
+        abs(p.x - start.x) >= slop || abs(p.y - start.y) >= slop
+    }
+}
+
 public struct FloatingSidebarRevealDwell {
     public private(set) var since: TimeInterval?
 
@@ -123,10 +142,11 @@ public struct FloatingSidebarOffEdge {
     public init() {}
 
     /// One pointer sample, in the shell's coordinates.
-    public mutating func sample(_ point: CGPoint, in bounds: CGRect, sidebarWidth: CGFloat, at now: TimeInterval) -> Step {
-        let off = FloatingSidebarGeometry.isOffLeftEdge(point, in: bounds, sidebarWidth: sidebarWidth)
+    public mutating func sample(_ point: CGPoint, in bounds: CGRect, sidebarWidth: CGFloat, side: SidebarSide = .left,
+                                at now: TimeInterval) -> Step {
+        let off = FloatingSidebarGeometry.isOffLeftEdge(point, in: bounds, sidebarWidth: sidebarWidth, side: side)
         let armed = since != nil || fromWindow
-        fromWindow = bounds.contains(point) || FloatingSidebarGeometry.shouldReveal(at: point, in: bounds)
+        fromWindow = bounds.contains(point) || FloatingSidebarGeometry.shouldReveal(at: point, in: bounds, side: side)
         guard off, armed else { since = nil; return .away }
         if since == nil || point != last { moved = now }
         let start = since ?? now
