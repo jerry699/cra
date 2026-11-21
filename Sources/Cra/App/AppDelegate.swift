@@ -621,14 +621,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CraLog.note("quit asks: downloads in progress")
         let alert = AppDialog(title: "Downloads in progress",
                               message: "There are downloads in progress. Closing the application will cancel them.",
-                              actions: [DialogAction("Close Cra"), DialogAction("Keep browsing", role: .cancel)],
+                              actions: [DialogAction("Close 司南"), DialogAction("Keep browsing", role: .cancel)],
                               icon: .application)
         return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func confirmQuit() -> Bool {
         CraLog.note("quit asks: Quit Cra?")
-        let alert = AppDialog(title: "Quit Cra?",
+        let alert = AppDialog(title: "Quit 司南?",
                               actions: [DialogAction("Quit"), .cancel, DialogAction("Quit, and don’t ask again", role: .secondary)],
                               icon: .application, buttonSpacing: 45.5)
         switch alert.runModal() {
@@ -3617,7 +3617,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         case "revealData": NSWorkspace.shared.activateFileViewerSelecting([AppPaths.supportDir])
         case "copyAppInfo":
             copy(appInfo())
-            main.showToast("Copied Cra Info!")  // Arc's `basicInfoCopied` toast, "Copied Arc Info!"
+            main.showToast("Copied 司南 Info!")  // Arc's `basicInfoCopied` toast, "Copied Arc Info!"
         case "print": main.currentBrowser?.print()
         case "capturePage": main.capturePage()
         case "find": main.showFindBar()
@@ -3739,7 +3739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         copy(CraVersion.line(short: info?["CFBundleShortVersionString"] as? String ?? "dev",
                              build: info?["CFBundleVersion"] as? String ?? "",
                              engine: EngineVersion.label(chromium: CraCEFRuntime.chromiumVersion(), cef: CraCEFRuntime.cefVersion())))
-        settingsController?.showToast("Cra version copied to clipboard", colors: ShinyToast.colors(main.focusedSpace.theme))
+        settingsController?.showToast("司南 version copied to clipboard", colors: ShinyToast.colors(main.focusedSpace.theme))
     }
 
     private func copy(_ s: String) {

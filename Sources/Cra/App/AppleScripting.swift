@@ -244,7 +244,7 @@ final class AppleScriptTabWrapper: NSObject {
     @objc func executeJavascript(_ command: NSScriptCommand) -> Any? {
         guard store?.settings.allowAppleEventsJavaScript == true else {
             command.scriptErrorNumber = -1723  // errAEAccessorNotFound's neighbour: "access not allowed"
-            command.scriptErrorString = "Executing JavaScript through AppleScript is turned off. To turn it on, choose View ▸ Developer ▸ Allow JavaScript from Apple Events in Cra."
+            command.scriptErrorString = "Executing JavaScript through AppleScript is turned off. To turn it on, choose View ▸ Developer ▸ Allow JavaScript from Apple Events in 司南."
             return nil
         }
         guard let js = command.evaluatedArguments?["javascript"] as? String, let browser else {
@@ -299,7 +299,7 @@ final class CraPauseMediaCommand: NSScriptCommand {
                 scope.profile = .some(p.id)
             } else {
                 scriptErrorNumber = -1728  // errAENoSuchObject
-                scriptErrorString = "Cra has no profile named \"\(name)\"."
+                scriptErrorString = "司南 has no profile named \"\(name)\"."
                 return
             }
         }

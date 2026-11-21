@@ -69,49 +69,49 @@ struct UpdaterWindowView: View {
     }
 
     private var title: String {
-        if case .found(let r, _) = updater.phase { return "Cra \(r.version)" }
-        return "Cra"
+        if case .found(let r, _) = updater.phase { return "司南 \(r.version)" }
+        return "司南"
     }
 
     private var subtitle: String {
-        if case .found = updater.phase { return "You have \(current)" }
+        if case .found = updater.phase { return L10n.tr("You have %@", current) }
         return current
     }
 
     @ViewBuilder private var content: some View {
         switch updater.phase {
         case .idle, .checking:
-            status("Checking for updates…")
-            UpdaterButton(title: "Cancel") { updater.dismissWindowAction() }
+            status(L10n.tr("Checking for updates…"))
+            UpdaterButton(title: L10n.tr("Cancel")) { updater.dismissWindowAction() }
         case .upToDate:
-            status("Your browser is up to date")
-            UpdaterButton(title: "Close") { updater.dismissWindowAction() }
+            status(L10n.tr("Your browser is up to date"))
+            UpdaterButton(title: L10n.tr("Close")) { updater.dismissWindowAction() }
         case .found(let r, let downloaded):
             if let html = r.notesHTML, !html.isEmpty {
                 ReleaseNotesView(html: html)
                     .padding(.top, 18)
             } else {
-                status("A new version is available")
+                status(L10n.tr("A new version is available"))
             }
-            UpdaterButton(title: downloaded ? "Install and Relaunch" : "Download") { updater.installAndRelaunch() }
-            LaterButton(title: "Later") { updater.dismissWindowAction() }
+            UpdaterButton(title: downloaded ? L10n.tr("Install and Relaunch") : L10n.tr("Download")) { updater.installAndRelaunch() }
+            LaterButton(title: L10n.tr("Later")) { updater.dismissWindowAction() }
         case .downloading(let received, let expected):
             progress(expected > 0 ? Double(received) / Double(expected) : nil,
-                     expected > 0 ? "\(Self.bytes(received)) of \(Self.bytes(expected))" : "Downloading…")
-            UpdaterButton(title: "Cancel") { updater.dismissWindowAction() }
+                     expected > 0 ? "\(Self.bytes(received)) of \(Self.bytes(expected))" : L10n.tr("Downloading…"))
+            UpdaterButton(title: L10n.tr("Cancel")) { updater.dismissWindowAction() }
         case .extracting:
-            progress(nil, "Preparing update…")
-            UpdaterButton(title: "Install and Relaunch") {}.disabled(true)
+            progress(nil, L10n.tr("Preparing update…"))
+            UpdaterButton(title: L10n.tr("Install and Relaunch")) {}.disabled(true)
         case .readyToInstall:
-            status("Ready to Install")
-            UpdaterButton(title: "Install and Relaunch") { updater.installAndRelaunch() }
+            status(L10n.tr("Ready to Install"))
+            UpdaterButton(title: L10n.tr("Install and Relaunch")) { updater.installAndRelaunch() }
         case .installing:
-            progress(nil, "Installing update…")
-            UpdaterButton(title: "Install and Relaunch") {}.disabled(true)
+            progress(nil, L10n.tr("Installing update…"))
+            UpdaterButton(title: L10n.tr("Install and Relaunch")) {}.disabled(true)
         case .failed(let message):
             status(message)
-            UpdaterButton(title: "Download Manually") { updater.openDownloadPage() }
-            LaterButton(title: "Close") { updater.dismissWindowAction() }
+            UpdaterButton(title: L10n.tr("Download Manually")) { updater.openDownloadPage() }
+            LaterButton(title: L10n.tr("Close")) { updater.dismissWindowAction() }
         }
     }
 

@@ -23,9 +23,9 @@ enum PerfFindingLocalization {
         case "previous-abnormal":
             let ver = r.session.previous?.craVersion ?? ""
             return ("The last session ended without quitting",
-                    String(format: "Cra %@ crashed, was forced to quit or the Mac lost power. Its last minute is in the export.", ver))
+                    String(format: "司南 %@ crashed, was forced to quit or the Mac lost power. Its last minute is in the export.", ver))
         case "freezes":
-            return (String(format: "Cra froze %d time%@ for a second or more", m.longFreezes, m.longFreezes == 1 ? "" : "s"),
+            return (String(format: "司南 froze %d time%@ for a second or more", m.longFreezes, m.longFreezes == 1 ? "" : "s"),
                     String(format: "The longest lasted %@%@.", dur(m.longestFreezeMs),
                            m.hangs > 0 ? String(format: "; %d went past 2 s", m.hangs) : ""))
         case "stalls":
@@ -37,12 +37,12 @@ enum PerfFindingLocalization {
                          m.longestPassMode.map { " (\($0))" } ?? "")
                 : ""
             return (String(format: "%d long pass%@ in menus, drags, alerts or start-up", m.outsideFreezes, m.outsideFreezes == 1 ? "" : "es"),
-                    String(format: "Not counted as freezes: Cra was in a loop of its own on purpose.%@", longest))
+                    String(format: "Not counted as freezes: 司南 was in a loop of its own on purpose.%@", longest))
         case "profiler-overhead":
             return (String(format: "Recording costs %.3f %% of a core", r.selfCost.cpuPct),
                     String(format: "Over its %d %% budget. The numbers still hold; selfCost in perf.json says which part costs it.", PerfInsights.selfCostBudgetPct))
         case "idle-cpu":
-            return ("Cra kept working while the Mac was idle",
+            return ("司南 kept working while the Mac was idle",
                     String(format: "%d %% of a core on average over %d min without keyboard or mouse input. A playing video counts too.",
                            Int(r.idle.cpuPct.rounded()), r.idle.samples * 5 / 60))
         case "renderer-crashes":
@@ -67,7 +67,7 @@ enum PerfFindingLocalization {
         case "footprint":
             let footprint = r.processes.reduce(Int64(0)) { $0 + $1.footprintBytes }
             let slept = r.tabs.latest?.slept ?? 0
-            return (String(format: "Cra uses %@ of memory", PerfInsights.bytes(footprint)),
+            return (String(format: "司南 uses %@ of memory", PerfInsights.bytes(footprint)),
                     slept > 0 ? String(format: "Tab sleeping has %d tab%@ asleep.", slept, slept == 1 ? "" : "s")
                               : "Pages you haven't looked at in a while (4 hours unless you change it) close, and reload when you open them. Settings ▸ Tabs ▸ Tab Cleanup can close them sooner, or when the Mac is short of memory.")
         default:

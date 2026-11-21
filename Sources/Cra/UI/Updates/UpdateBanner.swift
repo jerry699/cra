@@ -452,10 +452,10 @@ final class UpdatedCard: BannerCard {
     private let rows: [BannerRow]
 
     init() {
-        rows = [BannerRow(symbol: "heart", text: "What’s new") { SoftwareUpdater.shared.openReleaseNotes() },
-                BannerRow(symbol: "gift", text: "Sponsor Cra") { SoftwareUpdater.shared.openSponsors() }]
+        rows = [BannerRow(symbol: "heart", text: L10n.tr("What’s new")) { SoftwareUpdater.shared.openReleaseNotes() },
+                BannerRow(symbol: "gift", text: L10n.tr("Sponsor 司南")) { SoftwareUpdater.shared.openSponsors() }]
         super.init(frame: .zero)
-        title.stringValue = "Cra updated!"
+        title.stringValue = L10n.tr("司南 updated!")
         // Arc's ✕ here is larger and lighter than the ready card's hover one.
         close.image = SidebarSymbols.image("xmark", size: 12, weight: .regular)
         addSubview(title)

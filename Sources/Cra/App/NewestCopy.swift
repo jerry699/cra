@@ -70,8 +70,8 @@ enum NewestCopy {
     /// above the centre and stays visible while Cra is not active (the launch may not
     /// have activated it yet), and it closes by itself (.OK) once the old copy is gone.
     @MainActor private static func stillOpenAlert(_ theirs: String, pid: pid_t) -> NSApplication.ModalResponse {
-        let alert = AppDialog(title: "Cra \(theirs) is still open",
-                              message: "Quit it to open Cra \(version). If it asked whether to quit, choose Quit.",
+        let alert = AppDialog(title: "司南 \(theirs) is still open",
+                              message: "Quit it to open 司南 \(version). If it asked whether to quit, choose Quit.",
                               actions: [DialogAction("Try Again"), DialogAction("Force Quit", role: .destructive), .cancel])
         let window = alert.prepareWindow()
         window.hidesOnDeactivate = false
