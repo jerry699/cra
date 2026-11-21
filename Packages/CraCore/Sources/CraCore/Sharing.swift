@@ -249,8 +249,9 @@ public enum CrashReports {
         return (Array(new), max(now, seenUntil))
     }
 
-    /// Cra itself, not one of its helpers: the report of Cra quitting.
-    public static func isAppQuit(_ name: String) -> Bool { name.hasPrefix("Cra-") }
+    /// Cra itself, not one of its helpers: the report of Cra quitting. The fork's builds
+    /// run as 司南, whose reports carry that name (both prefixes count).
+    public static func isAppQuit(_ name: String) -> Bool { name.hasPrefix("Cra-") || name.hasPrefix("司南-") }
 
     private static let headerKeys: Set<String> = [
         "app_name", "app_version", "build_version", "slice_uuid", "bundleID", "bug_type", "os_version", "name", "platform",

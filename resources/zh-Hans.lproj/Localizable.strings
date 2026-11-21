@@ -1319,3 +1319,12 @@
 "Share usage stats" = "分享使用统计";
 "What’s sent" = "发送的内容";
 "Thanks! Usage stats are on" = "谢谢！使用统计已开启";
+"司南 quit unexpectedly" = "司南意外退出了";
+"Part of 司南 stopped unexpectedly" = "司南的部分组件意外停止了";
+"Send the crash report to help fix it?" = "发送崩溃报告帮助修复吗？";
+"Send the %d crash reports to help fix it?" = "发送 %d 份崩溃报告帮助修复吗？";
+"It shows what 司南 was doing when it crashed. It never holds the sites you visit, and nothing that identifies you or this Mac." = "报告只记录司南崩溃时在做什么。不包含你访问的网站，也没有任何能识别你或这台 Mac 的信息。";
+"Send" = "发送";
+"Show Report" = "显示报告";
+"Don’t Send" = "不发送";
+"Always send crash reports" = "总是发送崩溃报告";

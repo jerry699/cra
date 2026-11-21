@@ -176,10 +176,16 @@ final class SharingService {
     private func ask(_ reports: [(name: String, data: Data)]) {
         asking = true
         let quit = reports.contains { CrashReports.isAppQuit($0.name) }
+        // The count question is composed here (the %d key goes through L10n's format), the
+        // rest are keys AppDialog translates at render; 司南 replaces Cra in every key (the
+        // user's crash-prompt screenshot still said Cra).
+        let question = reports.count == 1
+            ? L10n.tr("Send the crash report to help fix it?")
+            : L10n.tr("Send the %d crash reports to help fix it?", reports.count)
         let dialog = AppDialog(
-            title: quit ? "Cra quit unexpectedly" : "Part of Cra stopped unexpectedly",
-            message: (reports.count == 1 ? "Send the crash report to help fix it?" : "Send the \(reports.count) crash reports to help fix it?")
-                + " It shows what Cra was doing when it crashed. It never holds the sites you visit, and nothing that identifies you or this Mac.",
+            title: quit ? "司南 quit unexpectedly" : "Part of 司南 stopped unexpectedly",
+            message: question + " "
+                + L10n.tr("It shows what 司南 was doing when it crashed. It never holds the sites you visit, and nothing that identifies you or this Mac."),
             actions: [DialogAction("Send"), DialogAction("Show Report", role: .secondary), DialogAction("Don’t Send", role: .cancel)],
             suppressionTitle: "Always send crash reports", icon: .application)
         let finish: (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -204,8 +210,8 @@ final class SharingService {
     }
 
     /// The exact text that would be sent, opened in TextEdit.
-    func show(_ reports: [Data], name: String = "Cra Crash Report") {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("Cra Sharing", isDirectory: true)
+    func show(_ reports: [Data], name: String = "司南 Crash Report") {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("司南 Sharing", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appendingPathComponent(name + ".txt")
         let text = reports.map { String(decoding: $0, as: UTF8.self) }.joined(separator: "\n\n")

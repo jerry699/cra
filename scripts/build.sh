@@ -49,7 +49,10 @@ else
   export CRA_CEF_DIR="$ROOT/$CEF_DIR"  # read by Package.swift
 fi
 ENGINE="${CRA_ENGINE:-chromium}"
-EXE=Cra
+# 司南 rebrand: the crash reporter, Activity Monitor and the process list show the
+# executable's name — "Cra quit unexpectedly" was the old name in the crash dialog
+# (the user's screenshot); the bundle's display name was already 司南.
+EXE=司南
 if [ "$ENGINE" = chromium ]; then
   ENGINE_CPU=$([ "$ARCH" = x86_64 ] && echo x64 || echo arm64)
   if [ -n "${CRA_ENGINE_OUT:-}" ]; then
@@ -99,8 +102,10 @@ sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD_NUMBER/" resources/Info.
 [ "${CRA_RELEASE:-}" = 1 ] || /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$APP/Contents/Info.plist"
 # Google API key for Safe Browsing (docs/release.md); CraCEF hands it to Chromium.
 [ -n "${CRA_GOOGLE_API_KEY:-}" ] && /usr/libexec/PlistBuddy -c "Add :CraGoogleAPIKey string $CRA_GOOGLE_API_KEY" "$APP/Contents/Info.plist"
+# The executable's name must match Info.plist or macOS shows the stale one everywhere.
+/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $EXE" "$APP/Contents/Info.plist"
 if [ "$EXE" = CraEngine ]; then
-  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier dk.kildahl.cra.engine" -c "Set :CFBundleExecutable $EXE" "$APP/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier dk.kildahl.cra.engine" "$APP/Contents/Info.plist"
 fi
 echo -n "APPL????" > "$APP/Contents/PkgInfo"
 [ -f resources/AppIcon.icns ] && cp resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
@@ -124,6 +129,11 @@ if [ "$ENGINE" = chromium ]; then
   for helper in "$APP/Contents/Frameworks/$FW_NAME.framework/Versions/"*/Helpers/*.app; do
     rm -f "$helper/Contents/Resources/Assets.car"
     /usr/libexec/PlistBuddy -c "Delete :CFBundleIconName" "$helper/Contents/Info.plist" 2>/dev/null || true
+    # 司南 rebrand: the helpers' own display names reach the user in the notification
+    # permission prompt ("Cra Helper (Aperitif Alerts)", the user's screenshot). Folder and
+    # executable names stay — Chromium's child-process launcher addresses them by path.
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName 司南浏览器" -c "Set :CFBundleDisplayName 司南浏览器" "$helper/Contents/Info.plist"
+    [ -f "$helper/Contents/Resources/app.icns" ] && cp resources/AppIcon.icns "$helper/Contents/Resources/app.icns"
   done
 else
   FW_NAME="Chromium Embedded Framework"
