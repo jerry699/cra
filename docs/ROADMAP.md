@@ -7,12 +7,13 @@
 
 上游 [VictorKildahl/cra](https://github.com/VictorKildahl/cra) 仍在活跃开发。我们的同步原则：
 
-1. **节奏**：每 2–3 周同步一次（v0.3.00 基线 = 上游 2026-11-17 快照）。拖过 6 周冲突面会翻倍（11-17 的 346-commit 合并花了两个会话）。
-2. **机制**：上游新提交进 `origin/main` → rebase 到本地 `daily` 分支 → `daily` 构建验证（CRA_ENGINE=cef）→ 合并进 `main`（= local-model-merged）→ 跑回归。
-3. **回归必跑**：`scripts/recall-eval.py`（检索 hit@1 基线 15/31，hit@4 20/31，RRF k=60）+ `swift test`（CraCore）+ 双架构构建。
-4. **冲突面控制**：中国化代码已按「新功能新文件 + 上游文件只留一行钩子」原则解耦（ChinaFeatures/MenuHandlers/PaymentRecovery/PerfFindingLocalization 等）。新功能评审必问：**自己的文件吗？上游文件里加了几行？**
-5. **每周日自动化**（已有）：拉上游 → rebase daily → 构建验证 → 简报。若构建失败：中止并报告，绝不自动发布。
-6. **上游重叠警戒**：上游的 MCP/Agent 层与我们「不做 Agent」哲学相逆——保持默认关闭；上游若做本地模型，评估吸收而不是分叉。
+1. **节奏**（2026-11-21 用户指令）：**每 1–2 周更新一次**——每周日自动化巡检（源码 + 引擎），有更新就发版；源码大合并的目标节奏 2–3 周（11-17 的 346-commit 合并花了两个会话，513-commit 的架构迁移是特例）。
+2. **机制**（2026-11-21 迁移后更新）：上游新提交进 `origin/main` → **merge** 进主线 `sync-wip-20261120`（不再 rebase daily——迁移后主线以「上游为基座 + 司南特性移植」模式维护，参考 6b6efe54）→ 构建验证 → 跑回归。
+3. **引擎**：上游已从「修补版 CEF」迁移到**完整 Chromium 构建**（`scripts/fetch-engine.sh` → Cra Framework.framework；CEF 路径保留为回退 `CRA_ENGINE=cef`）。引擎版本看上游 Engine pre-release（`gh release list`），x64 资产名 `cra_framework_x64.tar.xz`。基线：2026-11-21 起 = Engine 159.0.8154.13（CEF 156 为回退）。下载慢时走代理 127.0.0.1:7890（8 段并行 Range 更快）。
+4. **回归必跑**：`scripts/recall-eval.py`（检索 hit@1 基线 16/31，hit@4 20/31，RRF k=60）+ `swift build` 零错误 + Intel 构建。
+5. **冲突面控制**：迁移后模式 = 上游文件整用上游的，司南特性作为移植层（TidyPreferences 独立文件、服务 DI 闭包里接 Max 管线、store 移植块）。新功能评审必问：**自己的文件吗？上游文件里加了几行？**
+6. **每周日自动化**（已更新 2026-11-21）：拉上游 → merge 主线 → 引擎版本检查 → 构建验证 → 有更新才发版 → 简报。构建失败：中止并报告，绝不自动发布。
+7. **上游重叠警戒**：上游的 MCP/Agent 层与我们「不做 Agent」哲学相逆——保持默认关闭；上游若做本地模型，评估吸收而不是分叉。
 
 ## 1. 近期（0.3.x — 发布后第一个月）
 
