@@ -129,14 +129,16 @@ enum MaxLocal {
     /// Tidy Tabs in two stages: topic names first, then a closed-book assignment of each tab.
     /// Nil at either stage when the model's answer isn't the JSON the grammar promises, and nil
     /// straight away once the task is cancelled (the divider's Cancel) between or within stages.
+    /// The request owns the fitted tabs and the prompt (preferences included); the proposals'
+    /// tab ids index into `request.tabs`.
     @MainActor
-    static func tidyTabs(tabs: [TidyTabs.Tab], existingGroups: [String],
-                         preferences: [(title: String, group: String)] = [],
+    static func tidyTabs(request: TidyTabs.Request,
                          onStage: (@MainActor (TidyStage) -> Void)? = nil) async -> [TidyTabs.Proposal]? {
         guard canTidyTabs, !Task.isCancelled else { return nil }
         if let onStage { await onStage(.namingGroups) }
         CraLog.note("Max Local: Tidy Tabs grouped (single pass)")
-        let prompt = TidyTabs.prompt(tabs: tabs, existingGroups: existingGroups, preferences: preferences)
+        let prompt = request.prompt
+        let tabs = request.tabs
         // CRA_TIDY_DEBUG=1: a fingerprint only, so two runs can be told apart without titles in the log.
         if ProcessInfo.processInfo.environment["CRA_TIDY_DEBUG"] != nil {
             var hash: UInt64 = 0xcbf29ce484222325

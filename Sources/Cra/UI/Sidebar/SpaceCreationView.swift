@@ -780,7 +780,7 @@ final class SpaceCreationPicture: NSView {
             card.shadowOpacity = 0.2
             card.shadowRadius = 2
             card.shadowOffset = CGSize(width: 0, height: -1)
-            card.position = CGPoint(x: 32 + offsets[i], y: 20.5 + (i == 1 ? 1.5 : 0))
+            card.position = CGPoint(x: CGFloat(32) + offsets[i], y: 20.5 + (i == 1 ? 1.5 : 0))
             card.setAffineTransform(CGAffineTransform(rotationAngle: -angles[i]))
             card.zPosition = i == 1 ? 1 : 0
             let text = CATextLayer()
