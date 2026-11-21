@@ -181,7 +181,7 @@ public enum TidyTabs {
         return fitted.tabs.isEmpty ? nil : fitted
     }
 
-    private static func prompt(tabs: [Tab], preferences: [(title: String, group: String)] = []) -> String {
+    private static func prompt(tabs: [Tab], preferences: [TitleGroup] = []) -> String {
         var lines = ["Here are my tabs, in the format 'id: title':"]
         lines += tabs.enumerated().map { "\($0.offset): \($0.element.title)" }
         if !preferences.isEmpty {
