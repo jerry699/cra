@@ -55,3 +55,7 @@
 ### 同步预警（2026-11-21 记录）
 
 上游 3 天新增 **486 commits**（iPhone 冲刺：搜索联动 Mac Today/Pinned、Peek 侧栏地址栏、分屏改进、Command bar profile 隔离 #609）。基线 7ff42c77（11-17）→ origin/main c77e50d5。涉及我们修改过的热点文件（SuggestionEngine/Command bar/SidebarStore）。**明日同步窗口执行**：rebase daily → CRA_ENGINE=cef 构建验证 → recall-eval 回归 → 合并 main → 双架构打包测试。若冲突超预期则中止报告。
+
+### 同步执行记录（2026-11-21）
+
+513-commit 合并尝试揭示架构分叉：上游重构 Tidy 服务层（Request 结构体/@Observable），我们的 AI 栈（P3/P5/RRF/本地模型/远程供应商/训练数据格式）绑定旧 API。合并尝试保存在 merge-upstream-513 分支；local-model-merged 回退到 b7731a13（最后可编译）。**下次会话：正式迁移——以上游新架构为基座，把我们的特性移植上去（估 1 个会话），然后发布 0.3.01/0.4.0**。远端 main 当前为不可编译状态，需先强推 b7731a13。
