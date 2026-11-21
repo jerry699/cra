@@ -187,7 +187,7 @@ public enum TidyTabs {
         if !preferences.isEmpty {
             lines.append("")
             lines.append("Where the person moved similar pages before (follow the same pattern when a tab clearly matches):")
-            lines += preferences.prefix(20).map { '"\(clip($0.title, 80))" → "\($0.group)"' }
+            lines += preferences.prefix(20).map { "\"\(clip($0.title, 80))\" → \"\($0.group)\"" }
         }
         return lines.joined(separator: "\n")
     }
