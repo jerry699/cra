@@ -1738,12 +1738,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // slid out at the edge: that one is the sidebar, whose rows stay in reach of a Peek (#242, #295).
         // The command bar ⌘T opened from a Peek stays above the Peek (#379).
         let bar: [NSWindow] = commandBar.isOpen && commandPanel.parent === window ? [commandPanel] : []
-        let wanted = panels.compactMap { $0 } + peeks.flatMap(\.peekWindows) + (floatingSidebar?.attachedPanels ?? [])
-            + AgentCursor.panels(over: window) + AgentPill.panels(over: window) + ChromiumDialogs.dialogs(over: window) + PermissionPopover.panels(over: window) + bar
+        // Assembled step by step: the whole chain in one expression out-ran the release
+        // optimizer's type checker on the Intel build (it compiled fine unoptimized).
+        var wanted: [NSWindow] = panels.compactMap { $0 }
+        wanted += peeks.flatMap(\.peekWindows)
+        wanted += floatingSidebar?.attachedPanels ?? []
+        wanted += AgentCursor.panels(over: window)
+        wanted += AgentPill.panels(over: window)
+        wanted += ChromiumDialogs.dialogs(over: window)
+        wanted += PermissionPopover.panels(over: window)
+        wanted += bar
         // Already the last children, in order, and showing: re-adding each one rebuilt the
         // window's ordering group, a window server round trip, on every tab switch.
         let children = window.childWindows ?? []
-        if children.suffix(wanted.count).elementsEqual(wanted, by: ===), wanted.allSatisfy(\.isVisible) { return }
+        let same = children.suffix(wanted.count).elementsEqual(wanted) { a, b in a === b }
+        if same, wanted.allSatisfy({ $0.isVisible }) { return }
         for panel in wanted {
             window.removeChildWindow(panel)
             window.addChildWindow(panel, ordered: .above)

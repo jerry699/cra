@@ -179,6 +179,31 @@ final class TidyTabsService {
     enum MaxStatus: Equatable {
         case available, off, preparing, needsAppleSilicon, needsAppleSiliconCopy, notOfferedToApps,
              needsNewerMacOS, unavailable, remote, local
+
+        var explanation: String {
+            switch self {
+            case .available: return "Max features run on Apple Intelligence on this Mac, so the model sends nothing anywhere."
+            case .off: return "Max features run on Apple Intelligence, which is off on this Mac."
+            case .preparing: return "Apple Intelligence is still downloading. Max features turn on once it’s ready."
+            case .needsAppleSilicon: return "Max features run on Apple Intelligence, which needs a Mac with Apple silicon."
+            case .needsAppleSiliconCopy: return "Max features run on Apple Intelligence, which the Intel copy of Cra can’t use. Install Cra for Apple silicon from crabrowser.app."
+            case .notOfferedToApps: return "Max features run on the Apple Intelligence model that apps use, which Apple doesn’t offer on this Mac yet. In some regions, Apple Intelligence doesn’t include it."
+            case .needsNewerMacOS: return "Max features run on Apple Intelligence, which needs macOS 26 or later."
+            case .unavailable: return "Apple Intelligence isn’t available right now."
+            case .remote: return "Max features run on your own provider (\(MaxRemote.provider.label)). Tab titles and site names are sent to it."
+            case .local: return MaxLocal.canTidyTabs
+                ? "Tidy Tab Titles and Tidy Tabs run on the local model on this Mac. Nothing is sent anywhere."
+                : "Tidy Tab Titles runs on the local model on this Mac. Nothing is sent anywhere."
+            }
+        }
+
+        /// Whether System Settings can fix it.
+        var canOpenSettings: Bool {
+            switch self {
+            case .off, .preparing, .unavailable: return true
+            default: return false
+            }
+        }
     }
 
     var maxStatus: MaxStatus {
@@ -194,31 +219,6 @@ final class TidyTabsService {
         case .notOfferedToApps: return .notOfferedToApps
         case .needsNewerMacOS: return .needsNewerMacOS
         case .unavailable: return .unavailable
-        }
-    }
-
-    var maxExplanation: String {
-        switch maxStatus {
-        case .available: return "Max features run on Apple Intelligence on this Mac, so the model sends nothing anywhere."
-        case .off: return "Max features run on Apple Intelligence, which is off on this Mac."
-        case .preparing: return "Apple Intelligence is still downloading. Max features turn on once it’s ready."
-        case .needsAppleSilicon: return "Max features run on Apple Intelligence, which needs a Mac with Apple silicon."
-        case .needsAppleSiliconCopy: return "Max features run on Apple Intelligence, which the Intel copy of Cra can’t use. Install Cra for Apple silicon from crabrowser.app."
-        case .notOfferedToApps: return "Max features run on the Apple Intelligence model that apps use, which Apple doesn’t offer on this Mac yet. In some regions, Apple Intelligence doesn’t include it."
-        case .needsNewerMacOS: return "Max features run on Apple Intelligence, which needs macOS 26 or later."
-        case .unavailable: return "Apple Intelligence isn’t available right now."
-        case .remote: return "Max features run on your own provider (\(MaxRemote.provider.label)). Tab titles and site names are sent to it."
-        case .local: return MaxLocal.canTidyTabs
-            ? "Tidy Tab Titles and Tidy Tabs run on the local model on this Mac. Nothing is sent anywhere."
-            : "Tidy Tab Titles runs on the local model on this Mac. Nothing is sent anywhere."
-        }
-    }
-
-    /// Whether System Settings can fix it.
-    var maxCanOpenSettings: Bool {
-        switch maxStatus {
-        case .off, .preparing, .unavailable: return true
-        default: return false
         }
     }
 

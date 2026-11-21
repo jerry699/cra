@@ -83,12 +83,13 @@ struct MaxPane: View {
 
     var body: some View {
         @Bindable var store = store
-        let available = service.status == .available || service.status == .remote
+        let ms = service.maxStatus
+        let available = ms == .available || ms == .remote
         // The local model always runs Tidy Tab Titles; its Tabs need the 2B.
-        let titlesAvailable = available || service.status == .local
-        let tabsAvailable = available || (service.status == .local && MaxLocal.canTidyTabs)
+        let titlesAvailable = available || ms == .local
+        let tabsAvailable = available || (ms == .local && MaxLocal.canTidyTabs)
         // Downloads run locally on the 1.7B (the 0.8B can't): same gate as Tabs.
-        let downloadsAvailable = available || (service.status == .local && MaxLocal.canTidyTabs)
+        let downloadsAvailable = available || (ms == .local && MaxLocal.canTidyTabs)
         let sourceLabel = ModelDownloader.preferredSource.label
         SettingsCardPane {
             // ─────────────────────────────────────────────────────────────
@@ -258,7 +259,7 @@ struct MaxPane: View {
                     Text(L10n.tr("Keep your many files more organized with smartly renamed downloads — and make them a little easier to find later."))
                 }
             }
-            MaxFooter(status: service.status) { service.openSystemSettings() }
+            MaxFooter(status: service.maxStatus) { service.openSystemSettings() }
                 .padding(.top, 14)
         }
         .alert(pending?.title ?? "", isPresented: Binding(get: { pending != nil },
@@ -389,7 +390,7 @@ private struct MaxPictureFrame<Content: View>: View {
 /// Under the card, where Arc says Max sends data to its AI partners: what runs where, or why it
 /// can't and the way to System Settings ▸ Apple Intelligence & Siri.
 private struct MaxFooter: View {
-    let status: TidyTabsService.Status
+    let status: TidyTabsService.MaxStatus
     let openSettings: () -> Void
 
     var body: some View {

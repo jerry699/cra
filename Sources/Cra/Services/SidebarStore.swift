@@ -2522,8 +2522,6 @@ final class SidebarStore {
     /// single ⌘Z once wiped the WHOLE preference file and the model forgot every grouping
     /// it had learned (the fork's fix, the "昨天还能分类，今天不行" report).
     @ObservationIgnored private var lastTidy: (spaceID: UUID, todayBefore: [UUID], moved: [UUID], lessons: [String])?
-    /// A tab's page left incognito (the fork, P3-R2 dwell correctness): the dwell accumulator stops counting there.
-    @ObservationIgnored var pageLeftIncognito: (UUID) -> Void = { _ in }
 
     /// Today's top-level tabs, outside any group: what Tidy sorts.
     func looseTodayTabs(_ sid: UUID) -> [SidebarItem] {
