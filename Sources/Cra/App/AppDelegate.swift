@@ -3857,14 +3857,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return m
     }
 
-<<<<<<< HEAD
-    private func std(_ title: String, _ sel: Selector, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
-        let m = NSMenuItem(title: L10n.tr(title), action: sel, keyEquivalent: key)
-=======
     private func std(_ title: String, _ sel: Selector, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command,
                      beforePage: Bool = false) -> NSMenuItem {
-        let m = NSMenuItem(title: title, action: sel, keyEquivalent: key)
->>>>>>> origin/main
+        let m = NSMenuItem(title: L10n.tr(title), action: sel, keyEquivalent: key)
         m.keyEquivalentModifierMask = mods
         if beforePage { nativePageShortcuts.append(m) }
         return m
