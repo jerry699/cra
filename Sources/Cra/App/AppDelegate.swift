@@ -415,8 +415,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         observeChanges(of: { [store] in store.settings.openLinksInForeground }) { switches in
             let item = LinkMenu.item(switchesToTab: switches, newTabTitle: newTab)
             CraCEFRuntime.setLinkMenuTitle(item.title, opensInBackground: item.opensInBackground)
-            CraCEFRuntime.setTranslateSelectionTitle(L10n.tr("Translate Selection"))
-            CraCEFRuntime.setDistillMediaTitle(L10n.tr("Distill Media"))
+            // The fork's two menu titles exist only on the CEF path's runtime; the author's
+            // Chromium engine framework (CRA_ENGINE=chromium) doesn't carry them, and sending
+            // an unimplemented selector crashes (the Engine 159 launch crash).
+            if CraCEFRuntime.responds(to: Selector(("setTranslateSelectionTitle:"))) {
+                CraCEFRuntime.setTranslateSelectionTitle(L10n.tr("Translate Selection"))
+            }
+            if CraCEFRuntime.responds(to: Selector(("setDistillMediaTitle:"))) {
+                CraCEFRuntime.setDistillMediaTitle(L10n.tr("Distill Media"))
+            }
         }
         CraCEFRuntime.setImageSearchTitle { lens in
             guard let lensTemplate = CraCEFRuntime.chromiumString(.searchLensForImage),

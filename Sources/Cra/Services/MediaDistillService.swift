@@ -269,7 +269,13 @@ enum MediaDistillService {
     }
 
     /// CefURLRequest with the page's stored cookies — the fallback for CDNs that want them.
+    /// Only the CEF path's runtime carries it; on the author's Chromium engine framework the
+    /// direct fetch above is the only route (an unimplemented selector would crash).
     private static func cefFetch(_ url: String, headers: [String: String]) async -> Data? {
+        guard CraCEFRuntime.responds(to: Selector(("fetchBinaryURL:headers:profilePath:completion:"))) else {
+            CraLog.note("Distill: cef fetch unavailable on this engine")
+            return nil
+        }
         let data: Data? = await withCheckedContinuation { cont in
             CraCEFRuntime.fetchBinaryURL(url, headers: headers, profilePath: nil) { status, finalURL, body in
                 CraLog.note("Distill: cef fetch status \(status), \(body.count) bytes, final \(finalURL.prefix(120))")
