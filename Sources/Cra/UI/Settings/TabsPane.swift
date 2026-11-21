@@ -6,6 +6,7 @@ import SwiftUI
 /// bar picks between onboarding's two layout pictures. Links have a pane of their own, as in Arc.
 struct TabsPane: View {
     @Environment(SidebarStore.self) private var store
+    @State private var showsKeepActiveSites = false
 
     var body: some View {
         @Bindable var store = store
@@ -24,7 +25,7 @@ struct TabsPane: View {
             }
             SettingsFootnote(L10n.tr("%@ in any window, or the View menu’s Show Toolbar, switches it too.", KeyBindingRegistry.shared.action("toggleToolbar")?.primary?.display ?? "⇧⌘D"))
             SettingsFeatureCard {
-                // GitHub #344, not in Arc: Arc's sidebar address opens the command bar on a click.
+                // GitHub #344, not in Arc: Arc's sidebar address opens its address panel on a click (#663).
                 SettingsToggleRow(L10n.tr("Edit the address in the sidebar"),
                                   detail: L10n.tr("Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. %@ still opens the command bar.", KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L"),
                                   isOn: $store.settings.editAddressInPlace,
@@ -52,6 +53,12 @@ struct TabsPane: View {
                 SettingsSwitchRow(L10n.tr("Space header with one space"),
                                   detail: L10n.tr("Show the space’s name at the top and its icon at the bottom of the sidebar, even while you have only one space."),
                                   isOn: $store.settings.showSpaceHeaderOnSingleSpace) { SettingsArt.spaceHeader }
+                SettingsCardDivider()
+                // GitHub #464, not in Arc: the window's layout in a mirror (SidebarSide).
+                SettingsSwitchRow("Sidebar on the right",
+                                  detail: "The sidebar, with the window’s close, minimize and zoom buttons, sits on the right of the window. Hidden, it slides in from the right edge.",
+                                  isOn: Binding(get: { store.settings.sidebarSide == .right },
+                                                set: { store.settings.sidebarSide = $0 ? .right : .left })) { SettingsArt.sidebarOnRight }
             }
 
             SettingsHeader(L10n.tr("Pages")).padding(.top, 20)
@@ -73,6 +80,11 @@ struct TabsPane: View {
                 SettingsToggleRow(L10n.tr("Share Favorites across Spaces"),
                                   detail: L10n.tr("Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy."),
                                   isOn: Binding(get: { store.settings.sharedFavorites }, set: { store.setFavoritesShared($0) }))
+                SettingsCardDivider()
+                // GitHub #601, not in Arc: Arc's ⇧⌘T switches to the space of the tab closed last.
+                SettingsToggleRow("Reopen tabs from this Space only",
+                                  detail: "Restore Last Closed Tab (⇧⌘T) brings back the tab you closed last in the Space you’re in, instead of switching to another Space.",
+                                  isOn: $store.settings.reopenClosedTabCurrentSpaceOnly)
             }
 
             SettingsHeader(L10n.tr("Memory")).padding(.top, 20)
@@ -89,19 +101,40 @@ struct TabsPane: View {
                 SettingsToggleRow(L10n.tr("Free memory when the Mac runs short"),
                                   detail: L10n.tr("While macOS is short of memory, the tabs hidden longest are forced out of it, a few at a time."),
                                   isOn: $store.settings.tabSleepOnMemoryPressure)
+                SettingsCardDivider()
+                // #458: Arc's (and Chrome's) list at arc://settings/performance.
+                SettingsPlainRow("Always keep these sites active", detail: keepActiveDetail) {
+                    Button("Sites…") { showsKeepActiveSites = true }
+                }
             }
             SettingsFootnote(tabSleepNote)
+        }
+        .sheet(isPresented: $showsKeepActiveSites) {
+            KeepActiveSitesView().environment(store)
+        }
+    }
+
+    private var keepActiveDetail: String {
+        let lead = "Tabs on these sites stay in memory and keep running, however long they’re hidden."
+        switch store.settings.keepActiveSites.count {
+        case 0: return lead
+        case 1: return lead + " 1 site listed."
+        case let n: return lead + " \(n) sites listed."
         }
     }
 
     /// Says which tabs stay in memory, before the user finds out.
     private var tabSleepNote: String {
         let s = store.settings
-        let note = L10n.tr("Tabs playing sound, recording or holding text you typed stay in memory.")
-        guard s.tabSleepTimerEnabled, TabSleepPolicy.timer(s.tabSleepAfter).keepsRecentTabs else { return note }
-        return note + (s.tabSleepOnMemoryPressure
-                       ? " " + L10n.tr("So do the 10 tabs you used last, unless the Mac is short of memory.")
-                       : " " + L10n.tr("So do the 10 tabs you used last."))
+        var note = L10n.tr("Tabs playing sound, recording or holding text you typed stay in memory.")
+        if s.tabSleepTimerEnabled, TabSleepPolicy.timer(s.tabSleepAfter).keepsRecentTabs {
+            note += s.tabSleepOnMemoryPressure ? " " + L10n.tr("So do the 10 tabs you used last, unless the Mac is short of memory.") : " " + L10n.tr("So do the 10 tabs you used last.")
+        }
+        // #458: Chrome's urgent discarding takes kept sites after every other tab; say so where it applies.
+        if !s.keepActiveSites.isEmpty, s.tabSleepOnMemoryPressure {
+            note += " " + L10n.tr("Sites you keep active are the last to go when the Mac is short of memory.")
+        }
+        return note
     }
 }
 

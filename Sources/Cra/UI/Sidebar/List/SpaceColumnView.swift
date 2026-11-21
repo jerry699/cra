@@ -40,6 +40,15 @@ final class SpaceColumnView: NSView {
 
     override var isFlipped: Bool { true }
 
+    // A press between the favorites, the header and the list (or in the favorites' gaps, which pass
+    // it on) moves the window once it moves 3 pt, as the list's empty space does (#547).
+    override var mouseDownCanMoveWindow: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    private var press = WindowDragGesture(source: "sidebar column")
+    override func mouseDown(with event: NSEvent) { press.begin(event) }
+    override func mouseDragged(with event: NSEvent) { press.drag(event) }
+    override func mouseUp(with event: NSEvent) { _ = press.finish() }
+
     private func relayout(animated: Bool) {
         guard animated, window != nil else { needsLayout = true; return }
         NSAnimationContext.runAnimationGroup { ctx in
@@ -372,10 +381,12 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
     private func moveToMenu() -> NSMenu {
         let m = NSMenu()
         for space in store.orderedSpaces {
-            let item = BlockMenuItem(title: space.emoji.isEmpty ? space.title : "\(space.emoji)  \(space.title)") { [store, actions, spaceID] in
+            let title = SpaceMenuTitle.plain(space.emoji.isEmpty ? space.title : "\(space.emoji)  \(space.title)")
+            let item = BlockMenuItem(title: title.title) { [store, actions, spaceID] in
                 guard store.isBlank(space: spaceID) else { return }
                 actions.moveBlankWindow(space.id)
             }
+            SpaceMenuTitle.apply(title, to: item)
             item.image = SpaceIconImage.glyph(for: space, points: 13)
             m.addItem(item)
         }
@@ -406,6 +417,9 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
         refresh()
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
             f.currentEditor()?.selectAll(nil)
         }
@@ -427,8 +441,14 @@ final class SpaceHeaderView: NSView, NSTextFieldDelegate {
         let name = f.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         endRename()
         guard !name.isEmpty, name != space.title else { return }
-        space.title = name
+        space.rename(to: name)
         store.updateSpace(space)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, shouldChangeCharactersIn range: NSRange,
+                 replacementString string: String?) -> Bool {
+        let next = (textView.string as NSString).replacingCharacters(in: range, with: string ?? "")
+        return next.count <= Space.maximumTitleLength
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
@@ -490,9 +510,12 @@ enum SpaceMenu {
         case .liveFolders:
             SidebarMenus.addLiveFolderPlugins(to: MenuItems.submenu(m, "Live Folders"), space: id, store: store, window: anchor.window)
         case .export:
-            let export = MenuItems.submenu(m, "Export “\(space.title)” into Folder")
+            let title = SpaceMenuTitle.named(space.title, prefix: "Export “", suffix: "” into Folder")
+            let export = MenuItems.submenu(m, title)
             for s in store.orderedSpaces {
-                MenuItems.add(export, s.title, enabled: s.id != id) { store.exportSpace(id, intoFolderIn: s.id) }
+                MenuItems.add(export, SpaceMenuTitle.plain(s.title), enabled: s.id != id) {
+                    store.exportSpace(id, intoFolderIn: s.id)
+                }
             }
         case .manageSpaces:
             MenuItems.add(m, action: "manageSpaces") { actions.manageSpaces() }
@@ -542,6 +565,14 @@ enum MenuItems {
         return item
     }
 
+    @discardableResult
+    static func add(_ menu: NSMenu, _ title: SpaceMenuTitle.Value, enabled: Bool = true, on: Bool? = nil,
+                    image: NSImage? = nil, _ run: @escaping () -> Void) -> NSMenuItem {
+        let item = add(menu, title.title, enabled: enabled, on: on, image: image, run)
+        SpaceMenuTitle.apply(title, to: item)
+        return item
+    }
+
     /// A row for a KeyBindings command: its name, unless the menu words it its own way (Arc's
     /// "Pin Tab" for pinTab), and its shortcut on the right, as in the menu bar (#89).
     @discardableResult
@@ -557,6 +588,16 @@ enum MenuItems {
         let sub = NSMenu()
         sub.autoenablesItems = false
         let item = NSMenuItem(title: L10n.tr(title), action: nil, keyEquivalent: "")
+        item.submenu = sub
+        menu.addItem(item)
+        return sub
+    }
+
+    static func submenu(_ menu: NSMenu, _ title: SpaceMenuTitle.Value) -> NSMenu {
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        let item = NSMenuItem(title: title.title, action: nil, keyEquivalent: "")
+        SpaceMenuTitle.apply(title, to: item)
         item.submenu = sub
         menu.addItem(item)
         return sub
@@ -1349,6 +1390,8 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         // Its Previews card comes as for the pointer (#376).
         if let url = previewURL, let store = grid?.store { FavoritePreviewCard.shared.hover(self, target: previewTarget(url, store: store)) }
     }
+    /// Scenarios (cra://debug?pointerOn=…&tile=1): whether the tile has the pointer (#527).
+    var debugHovering: Bool { hovering }
     /// Scenarios (cra://debug?favoriteBadges=): the Peek badge's frame in the tile, nil without one (#381).
     var peekBadgeReadout: String? {
         guard let b = peekBadge else { return nil }
@@ -1576,14 +1619,24 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         ArcTooltipController.shared.mouseMoved(in: self)
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    override func mouseEntered(with event: NSEvent) { pointerAt(event) }
+    override func mouseMoved(with event: NSEvent) { pointerAt(event) }
+
+    /// The tracking area covers the visible rect, which for another space's tile on the strip lies
+    /// beside the sidebar, under the page: a pointer there is not on the tile (#527).
+    private func pointerAt(_ event: NSEvent) {
+        guard shows(event) else {
+            if hovering { mouseExited(with: event) }
+            return
+        }
+        let entering = !hovering
         hovering = true
         trackPointer(event)
-        if let url = previewURL, let store = grid?.store {
+        if entering, let url = previewURL, let store = grid?.store {
             FavoritePreviewCard.shared.hover(self, target: previewTarget(url, store: store))
         }
     }
-    override func mouseMoved(with event: NSEvent) { trackPointer(event) }
+
     override func mouseExited(with event: NSEvent) {
         hovering = false
         hoveredCell = nil
@@ -1736,8 +1789,9 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         let store = grid.store, ui = grid.ui, actions = grid.actions, favicons = grid.favicons
         let id = itemID
         if item.isSplit, let m = model {
-            return SidebarMenus.split(id, panes: m.cells.map { ($0.id, $0.title) }, open: m.selected, store: store, ui: ui, actions: actions) {
-                MenuItems.add($0, action: "favoriteTab", title: Self.removeTitle(id, store)) { store.removeFromFavorites(id) }
+            return SidebarMenus.split(id, panes: m.cells.map { ($0.id, $0.title) }, open: m.selected, store: store, ui: ui, actions: actions,
+                                      window: window) {
+                MenuItems.add($0, action: "favoriteTab", title: Self.removeTitle(id, store)) { store.withPinningWindow(ui.windowID) { store.removeFromFavorites(id) } }
                 Self.moveToProfile($0, id, store)
                 $0.addItem(.separator())
             }
@@ -1749,28 +1803,21 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
             Self.liveCalendarMenu(m, url: url, profilePath: store.profilePath(item: id), store: store)
             m.addItem(.separator())
         }
-        MenuItems.add(m, action: "favoriteTab", title: Self.removeTitle(id, store)) { store.removeFromFavorites(id) }
-        MenuItems.add(m, action: "renameTab", title: "Rename…") { ui.renamingID = id }
-        // Arc's favorite menu has Mute after Rename… (Unmute on a muted tab), as a tab's menu does (#387).
-        if let t = item.tab {
-            MenuItems.add(m, action: "muteTab", title: t.muted ? "Unmute" : "Mute") {
-                store.setMuted(id, !t.muted)
-                actions.performAction("muteTab:\(id)")
-            }
-        }
-        if let t = item.tab, t.liveItemURL == nil {
-            SidebarMenus.pinnedURLItems(m, id, navigatedAway: t.url != t.savedURL, store: store, actions: actions)
-        }
+        // Arc 1.173.1's favorite menu, read live 19 Nov 2026 (#600): Copy Link, Share ▸ | Change Icon…,
+        // Rename…, Mute, Customize Page… (open), Edit Pinned Page ▸ | Add/Open in Split View, Duplicate,
+        // Move to ▸ | Close Tab (open), Remove Favorite. Cra keeps Use Site Icon and Tile Color ▸, which
+        // have no other way in, by Change Icon….
+        guard let t = item.tab else { return m }
+        let open = store.isSelected(id, window: ui.windowID)
         MenuItems.add(m, action: "copyURL", title: "Copy Link") {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(item.tab?.url ?? "", forType: .string)
+            NSPasteboard.general.setString(CleanURL.withoutTrackers(t.url), forType: .string)
         }
-        if let t = item.tab, t.url != t.savedURL {
-            MenuItems.add(m, action: "resetTab", title: "Back to Pinned Page") { actions.resetPinnedTab(id) }
-        }
+        let web = URL(string: CleanURL.withoutTrackers(t.url)).flatMap { $0.scheme?.hasPrefix("http") == true ? $0 : nil }
+        if let web { SharePicker.addMenu(to: m, url: web) }
         m.addItem(.separator())
         MenuItems.add(m, "Change Icon…") { [weak self] in self?.pickIcon() }
-        if let key = item.tab?.customIconKey {
+        if let key = t.customIconKey {
             MenuItems.add(m, "Use Site Icon") {
                 store.setCustomIcon(nil, for: id)
                 favicons.removeCustomIcon(key)
@@ -1792,10 +1839,34 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
             guard let grid else { return }
             store.setTileColor(tileColor, for: grid.spaceFavoriteIDs())
         }
+        MenuItems.add(m, action: "renameTab", title: "Rename…") { ui.renamingID = id }
+        SidebarMenus.muteItem(m, id, t, ui: ui, store: store, actions: actions)
+        if open, web?.host != nil { MenuItems.add(m, "Customize Page…") { actions.performAction("newBoost") } }
+        if t.liveItemURL == nil {
+            SidebarMenus.pinnedURLItems(m, id, navigatedAway: t.url != t.savedURL, store: store, actions: actions)
+        }
+        m.addItem(.separator())
+        if open {
+            MenuItems.add(m, action: "addSplitView", title: "Add Split View") { actions.performAction("addSplitView") }
+        } else if store.selectedTabID(window: ui.windowID) != nil {
+            MenuItems.add(m, "Open in Split View") { actions.performAction("openInSplit:\(id.uuidString)") }
+        }
+        // The copy is a Today tab of the page, in the background, as in Arc.
+        MenuItems.add(m, action: "duplicateTab", title: "Duplicate") { store.duplicateTab(id, window: ui.windowID) }
         Self.moveToProfile(m, id, store)
         m.addItem(.separator())
-        MenuItems.add(m, action: "closeTab", title: "Close") { actions.closeTab(id) }
-        MenuItems.add(m, "Archive") { store.archiveTab(id, reason: .manual) }
+        if open || ui.loadedTabIDs.contains(id) {
+            MenuItems.add(m, action: "closeTab", title: "Close Tab") { actions.closeTab(id) }
+        }
+        // Arc deletes the favorite. A shared one goes as before; a space's own goes to the archive,
+        // where Library can bring it back.
+        MenuItems.add(m, "Remove Favorite") {
+            if store.profileList(ofItem: id) != nil {
+                store.withPinningWindow(ui.windowID) { store.removeFromFavorites(id) }
+            } else {
+                store.archiveTab(id, reason: .manual)
+            }
+        }
         return m
     }
 
@@ -1843,18 +1914,10 @@ final class FavoriteTileView: NSView, ArcTooltipTarget, NSDraggingSource {
         }
     }
 
+    /// Change Icon… (#640): Arc's Emoji | Icon picker under the tile.
     private func pickIcon() {
-        guard let grid, let item = grid.store.item(itemID) else { return }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Use Icon"
-        panel.message = "Choose an image for \(item.displayTitle)."
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let key = grid.favicons.importCustomIcon(from: url) else { NSSound.beep(); return }
-        let old = item.tab?.customIconKey
-        grid.store.setCustomIcon(key, for: itemID)
-        if let old { grid.favicons.removeCustomIcon(old) }
+        guard let grid else { return }
+        TabIconPicker.show(for: itemID, store: grid.store, favicons: grid.favicons, anchor: self, rect: bounds)
     }
 
     // ArcTooltipTarget: the title by the pointer.

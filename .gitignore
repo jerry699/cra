@@ -13,3 +13,4 @@ build/
 vendor/
 datasets/
 .corpus-cache/
+__pycache__/

@@ -39,7 +39,7 @@ final class PaneCardView: NSView {
     }
     private(set) var toolbarRevealed = false
     /// Whether the bar floats right now: asked to, and there is a page to float over.
-    var toolbarIsFloating: Bool { floatsToolbar && showToolbar && hasPage && !transparent }
+    var toolbarIsFloating: Bool { floatsToolbar && showToolbar && hasPage }
     /// What the bar takes from the top of the card: its height, or nothing while it floats or is hidden.
     var barInset: CGFloat { showToolbar && !toolbarIsFloating ? toolbarHeight : 0 }
     /// A line under the floating bar, which has the page behind it instead of an edge of its own.
@@ -89,12 +89,12 @@ final class PaneCardView: NSView {
     /// The toolbar's colour (ToolbarColor: the page's, else the tab's last, else white). A white backing
     /// under a dark bar shows through the bar's anti-aliased left edge as a 1px light line.
     var toolbarColor: String? { didSet { refreshBackground() } }
-    /// The no-tab stand-in: toolbar on the gradient, no card at all.
-    var transparent = false { didSet { refreshBackground(); syncShadow() } }
     /// While a pane is being dragged open/closed its page keeps its last size.
     var frozenWebBounds: NSRect? { didSet { if frozenWebBounds == nil { frozenPageInWindow = nil } } }
     /// The page's final frame in the window while the sidebar slides. Cleared with `frozenWebBounds`.
     var frozenPageInWindow: NSRect?
+    /// Where the page goes inside its area while the engine's DevTools frontend fills it (EmbeddedDevTools).
+    var devToolsPlaceholder: DevToolsPlaceholder? { didSet { if oldValue != devToolsPlaceholder { needsLayout = true } } }
     var pageBounds: NSRect {
         if let f = frozenPageInWindow, window != nil { return webArea.convert(f, from: nil) }
         return frozenWebBounds ?? webArea.bounds
@@ -119,8 +119,11 @@ final class PaneCardView: NSView {
         }
     }
     private let ring = FocusRingView()
+    /// `cra://debug?tabSharing`: the card shows the yellow ring of a page a call shares.
+    var showsSharedRing: Bool { focusRing == .systemYellow }
     /// Arc's shadow under a page card (GitHub #178): a sibling behind the card in its superview,
-    /// on the card's frame and alpha. Off for the empty and no-tab cards and square cards.
+    /// on the card's frame and alpha. The window's card with no tab casts it too, as Arc's does (CraCore
+    /// CardVeil). Off for an empty pane's card and square cards.
     private let shadowView = CardShadowView()
     var castsShadow = false { didSet { syncShadow() } }
 
@@ -140,8 +143,14 @@ final class PaneCardView: NSView {
     override var alphaValue: CGFloat { didSet { shadowView.alphaValue = alphaValue } }
     override var isHidden: Bool { didSet { syncShadow() } }
 
+    /// What the card draws behind its page, or in place of one: the white veil and its shadow.
+    var backgroundReadout: String {
+        let veil = layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? 0
+        return String(format: "veil=%.2f shadow=%d", veil, shadowView.isHidden ? 0 : 1)
+    }
+
     private func syncShadow() {
-        let on = castsShadow && hasPage && !transparent && cornerRadius > 0 && !isHidden && superview != nil
+        let on = castsShadow && (hasPage || tabID == ShellView.noTabID) && cornerRadius > 0 && !isHidden && superview != nil
         shadowView.isHidden = !on
         guard on else { return }
         shadowView.cornerRadius = cornerRadius
@@ -208,17 +217,17 @@ final class PaneCardView: NSView {
     }
 
     private func refreshBackground() {
-        // Measured on Arc 1.170 (Victor theme, 2x): the empty pane is the
-        // gradient plus about +9/+11/+12 per channel, i.e. a white veil at ~0.2.
-        layer?.backgroundColor = transparent || hasPage ? NSColor.clear.cgColor : NSColor(white: 1, alpha: isDark ? 0.08 : 0.2).cgColor
+        let noTab = tabID == ShellView.noTabID
+        let veil = CGFloat(CardVeil.white(noTab: noTab, dark: isDark))
+        layer?.backgroundColor = hasPage ? NSColor.clear.cgColor : NSColor(white: 1, alpha: veil).cgColor
         let bar = developerBar ?? toolbarColor.map { NSColor(Color(hex: $0)) } ?? .white
         // A page of Cra's own over the backdrop (an Easel) takes its veil under the toolbar too, as Arc's does.
         let veiled = pageColor == "clear" ? NSColor(white: 0, alpha: 0.5) : bar
-        toolbarBackground.layer?.backgroundColor = (hasPage && !transparent ? veiled : NSColor.clear).cgColor
+        toolbarBackground.layer?.backgroundColor = (hasPage ? veiled : NSColor.clear).cgColor
         // "clear": a page of Cra's own that lets the window's backdrop through (an Easel, as in Arc).
         let page = pageColor == "clear" ? NSColor.clear : pageColor.map { NSColor(Color(hex: $0)) } ?? CraBrowser.pageCanvasColor
-        pageBackground.layer?.backgroundColor = (hasPage && !transparent ? page : NSColor.clear).cgColor
-        hairline.isHidden = hasPage || transparent || !showToolbar
+        pageBackground.layer?.backgroundColor = (hasPage ? page : NSColor.clear).cgColor
+        hairline.isHidden = hasPage || noTab || !showToolbar
         hairline.layer?.backgroundColor = NSColor(white: isDark ? 1 : 0, alpha: 0.08).cgColor
         floatingEdge.layer?.backgroundColor = NSColor(white: 0, alpha: 0.14).cgColor
     }
@@ -238,10 +247,12 @@ final class PaneCardView: NSView {
             toolbarBackground.animator().frame = frames.bar
             floatingEdge.animator().frame = frames.edge
         }, completionHandler: { [weak self] in
-            // A bar that is out of the card is hidden too, so nothing in it takes the keyboard.
             MainActor.assumeIsolated { self?.needsLayout = true }
         })
     }
+
+    /// Whether the bar can be seen: shown, and inside the card (not put away above it).
+    var toolbarInSight: Bool { !toolbarHost.isHidden && bounds.intersects(toolbarHost.frame) }
 
     /// Where the bar and the line under it sit: at the card's top, or just above it while a
     /// floating bar is put away.
@@ -260,15 +271,17 @@ final class PaneCardView: NSView {
         // What the page gives up to the bar; a floating bar lies over the page instead.
         let th: CGFloat = barInset
         let frames = barFrames()
-        let barAway = !showToolbar || (floating && !toolbarRevealed)
-        toolbarHost.isHidden = barAway
+        // A floating bar that is put away is out of sight above the card, which clips it, and takes no
+        // clicks there. It isn't hidden: Tab (with Full Keyboard Access) still reaches its buttons, and
+        // the shell brings it out for the one that gets the focus (ToolbarAutoHideTracker.focus).
+        toolbarHost.isHidden = !showToolbar
         toolbarHost.frame = frames.bar
         toolbarBackground.isHidden = floating && !toolbarRevealed
         toolbarBackground.frame = frames.bar
         floatingEdge.isHidden = !floating || !toolbarRevealed
         floatingEdge.frame = frames.edge
         hairline.frame = NSRect(x: 0, y: b.height - th - 1, width: b.width, height: 1)
-        hairline.isHidden = hasPage || transparent || th == 0
+        hairline.isHidden = hasPage || tabID == ShellView.noTabID || th == 0
         let bh = bottomBarHeight
         webArea.frame = NSRect(x: 0, y: bh, width: b.width, height: max(0, b.height - th - bh))
         bottomBar?.frame = NSRect(x: 0, y: 0, width: b.width, height: bh)
@@ -292,7 +305,7 @@ final class PaneCardView: NSView {
         infoBarStrip.frame = NSRect(x: webArea.frame.minX, y: webArea.frame.maxY - barHeight, width: webArea.frame.width, height: barHeight)
         var page = pageBounds
         page.size.height = max(0, page.height - barHeight)  // the web area isn't flipped: the bars take its top
-        EmbeddedPages.place(webArea.subviews, in: page)
+        EmbeddedDevTools.place(in: webArea, page: page, placeholder: devToolsPlaceholder)
         ring.frame = b
     }
 

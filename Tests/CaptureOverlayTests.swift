@@ -22,6 +22,8 @@ enum CaptureOverlayTests {
         checkFailureRecovery()
         checkMainWindow()
         checkLittleWindow()
+        checkOptionPicksDeeper()
+        checkFieldKeepsEditingKeys()
         print("Capture overlay: \(checks) checks, \(failures) failed")
         exit(failures == 0 ? 0 : 1)
     }
@@ -100,6 +102,39 @@ enum CaptureOverlayTests {
                "the capture says where on the page it was, for an easel's live capture")
         expect(panel.parent == nil && !panel.isVisible && fixture.peekWindow.isVisible,
                "copy ends capture and leaves Peek open")
+    }
+
+    /// The "Send To…" field holding the keyboard keeps ⌘A ⌘V ⌘X ⌘Z for its text: they ended the capture,
+    /// as any other ⌘ key does. ⌘C still copies the picture.
+    @MainActor
+    private static func checkFieldKeepsEditingKeys() {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        var finished: CaptureOverlay.Action??
+        fixture.main.onCaptureFinished = { action, _ in finished = .some(action) }
+        pressCapture(fixture)
+        fixture.answerScreenshots()
+        let panel = fixture.peekPanel()
+        let view = panel.contentView!
+        let start = NSPoint(x: 30, y: 30), end = NSPoint(x: 190, y: 150)
+        for (type, point) in [(NSEvent.EventType.leftMouseDown, start), (.leftMouseDragged, end), (.leftMouseUp, end)] {
+            let event = NSEvent.mouseEvent(with: type, location: view.convert(point, to: nil), modifierFlags: [],
+                                          timestamp: 1, windowNumber: panel.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 0)!
+            switch type {
+            case .leftMouseDown: view.mouseDown(with: event)
+            case .leftMouseDragged: view.mouseDragged(with: event)
+            default: view.mouseUp(with: event)
+            }
+        }
+        spin { panel.firstResponder is NSTextView }
+        expect(panel.firstResponder is NSTextView, "the Send To field holds the keyboard once the menu shows")
+        for (c, code) in [("a", UInt16(0)), ("v", 9), ("x", 7), ("z", 6)] {
+            _ = view.performKeyEquivalent(with: key(c, code: code, modifiers: .command, in: panel))
+            expect(finished == nil && panel.isVisible, "Command-\(c.uppercased()) in the field keeps the capture")
+        }
+        expect(view.performKeyEquivalent(with: key("c", code: 8, modifiers: .command, in: panel)), "Command-C still copies the capture")
+        expect(finished == .some(.copy), "Command-C ends the capture with a copy")
     }
 
     @MainActor
@@ -218,6 +253,52 @@ enum CaptureOverlayTests {
         expect(!fixture.peek.handleCapture(action: "reload"), "other commands remain with their existing handlers")
     }
 
+    /// #451: the pointer on a title line lights Arc's choice, the card around it; holding ⌥ lights
+    /// the line itself without asking the page again, letting go lights the card, and a click with
+    /// ⌥ held takes the line.
+    // promise: #451
+    @MainActor
+    private static func checkOptionPicksDeeper() {
+        let fixture = Fixture()
+        defer { fixture.close() }
+        fixture.main.capturePage()
+        fixture.answerScreenshots()
+        guard let overlay = fixture.main.captureOverlay, let panel = fixture.mainWindow.childWindows?.first(where: { $0 is CapturePanel }),
+              let view = panel.contentView else { fatalError("The main window's capture panel is missing") }
+        let isolated = "\(PageScript.world):Runtime.evaluate"
+        fixture.mainBrowser.reply(to: isolated, with: #"{"result":{"value":2}}"#)  // devicePixelRatio
+        let title = CGRect(x: 40, y: 221, width: 103, height: 19), card = CGRect(x: 40, y: 40, width: 300, height: 300)
+        let at = view.convert(NSPoint(x: 60, y: 230), to: nil)
+        func mouse(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: at, modifierFlags: flags, timestamp: 1, windowNumber: panel.windowNumber,
+                               context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)!
+        }
+        func option(_ held: Bool) -> NSEvent {
+            NSEvent.keyEvent(with: .flagsChanged, location: at, modifierFlags: held ? .option : [], timestamp: 1, windowNumber: panel.windowNumber,
+                             context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 58)!
+        }
+        view.mouseMoved(with: mouse(.mouseMoved, []))
+        // The page's answer: the line, its heading and its card under the pointer, in device pixels.
+        let k = Double(panel.backingScaleFactor)
+        func row(_ tag: String, _ r: CGRect, inline: Bool = false) -> String {
+            #"{"tag":"\#(tag)","inline":\#(inline),"shadow":false,"w":\#(r.width),"h":\#(r.height),"x":\#(r.minX * k),"y":\#(r.minY * k),"width":\#(r.width * k),"height":\#(r.height * k)}"#
+        }
+        let stack = [row("A", title, inline: true), row("H3", CGRect(x: 40, y: 220, width: 300, height: 20)), row("DIV", card)]
+        fixture.mainBrowser.reply(to: isolated, with: #"{"result":{"value":{"view":{"w":900,"h":770},"stack":["# + stack.joined(separator: ",") + "]}}}")
+        // The overlay takes the answer on the main queue.
+        spin { overlay.pickedElement == card }
+        expect(overlay.pickedElement == card, "the pointer on a title lights Arc's choice, its card")
+        view.flagsChanged(with: option(true))
+        expect(overlay.pickedElement == title, "holding Option lights the title line itself")
+        expect(!fixture.mainBrowser.replies.contains(where: { $0.method == isolated }), "Option chooses again without asking the page")
+        view.flagsChanged(with: option(false))
+        expect(overlay.pickedElement == card, "letting go of Option lights the card again")
+        view.flagsChanged(with: option(true))
+        view.mouseDown(with: mouse(.leftMouseDown, .option))
+        view.mouseUp(with: mouse(.leftMouseUp, .option))
+        expect(overlay.takenRect == title, "a click with Option held captures the title line")
+    }
+
     @MainActor
     private static func pressCapture(_ fixture: Fixture) {
         guard let action = KeyBindingRegistry.shared.action(for: captureKey(in: fixture.peekWindow)) else {
@@ -243,6 +324,17 @@ enum CaptureOverlayTests {
             fatalError("The capture's pixels cannot be read")
         }
         expect(color.redComponent > 0.95 && color.blueComponent < 0.05, "capture contains Peek's red page, not the main page's blue pixels")
+    }
+
+    /// Runs the main run loop until `condition` holds, for at most `timeout` seconds. A fixed 0.1 s was too short
+    /// under Nightly's sanitizers (4-10 of these checks failed there, none on a Mac); the expect after it still fails
+    /// when the condition never comes.
+    @MainActor
+    private static func spin(timeout: TimeInterval = 5, until condition: () -> Bool) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

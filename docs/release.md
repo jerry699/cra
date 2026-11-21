@@ -57,17 +57,50 @@ Run the manual checks in [release-checklist.md](release-checklist.md) for every 
 release touched first.
 
 ```sh
-# 1. Add the release to the website's src/content/releases.ts and bump CRA_VERSION defaults if needed.
-# 2. Tag and push. The Release workflow builds, signs, notarizes, packages and publishes.
+# 1. Tag and push first. The Release workflow builds, signs, notarizes, packages and publishes.
 git tag v0.1.0
 git push origin v0.1.0
+# 2. While it runs (Apple's notary queue is the slow part): record the clips and write the
+#    release's entry in the website's src/content/releases.ts.
+# 3. Once the release is live: push the website, set the GitHub notes, close the issues, and check
+#    that check-ins from it reach Phantom's "Cra installs" site (release-checklist.md, "Install count").
 ```
+
+While Apple notarizes, `release.sh` runs the web features (`scripts/scenario.sh web-features`: file pickers,
+print, dialogs, prompts, choosers) on the release's own build, and stops the release when one fails
+([web-features.md](web-features.md)). The result goes into the release as `web-features-arm64.txt`;
+`scripts/promote.sh` makes only a release whose file says `result: passed` Stable.
+
+Clips come after the tag, not before: the build and Apple's check run while they're recorded. The
+clip hook checks the website push, not the tag (see "Clips in the release notes").
+
+### Notarization
+
+Each CPU is notarized once: `release.sh` packages the signed app into its DMG and
+`scripts/notarize.sh` submits the DMG, whose ticket covers the app inside, then staples the DMG
+and the app and zips the stapled app. Apple usually answers in minutes; on 17 Nov 2026 it took
+52, so the wait is 2 hours.
+
+A run that stops while Apple is still checking keeps its work. `notarize.sh` writes the
+submission id next to the DMG (`Cra.dmg.submission`) as soon as Apple has it; when a build job
+fails or is cancelled, the workflow uploads the signed app, the DMG and the id
+(`scripts/keep-pending.sh`, artifact `pending-<version>-<arch>`). Rerun the failed job
+(`gh run rerun <id> --failed`): it downloads them and only waits for that submission, then
+staples and publishes. Locally the same: `scripts/keep-pending.sh <dir>`, then
+`CRA_RESUME=<dir> scripts/release.sh`.
+
+Credentials, the first that is set: `NOTARY_KEYCHAIN_PROFILE`; an App Store Connect API key
+(`NOTARY_API_KEY_PATH`, `NOTARY_API_KEY_ID`, `NOTARY_API_ISSUER`; in CI the secrets
+`APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`); or the Apple ID with an
+app-specific password. Prefer the API key, with the Developer role only: an app-specific
+password can be revoked and an Apple ID locked, which stopped 0.1.47's rerun with HTTP 401.
 
 ### Sponsors in the release notes
 
 Before writing the notes, run `scripts/sponsors.py`. It reads the GitHub Sponsors tiers and
-lists who the tiers promise a name in these notes (one-time $50 and up since the last tag,
-monthly $5 and up once a year), which Backers to ask first about the next big feature, and
+lists who the tiers promise a name in these notes (one-time sponsors since the last tag,
+monthly sponsors as often as their tier says: $3 once when they join, $5 once a year, $15 twice a year, $30 every
+quarter, $60 every release, and again after a sponsor raises their monthly amount), and
 which companies need their logo on /support. Private sponsors are counted, never named. It
 needs the VictorKildahl `gh` login with the `user` scope.
 
@@ -108,8 +141,9 @@ density 2), the website build fails on them for releases after 0.1.37
 (`src/content/release-media-rules.ts`), and the hook below blocks the tag.
 
 A Claude Code hook (`.claude/settings.json` → `scripts/clips/check-release-media.sh`) blocks
-pushing a `v*` tag when `Sources/Cra/UI` changed since the previous tag and the release's
-entry has no `media`. If there is nothing to film, add `// no clip: <reason>` to the entry.
+pushing the website when its newest release changed `Sources/Cra/UI` since the previous tag and
+the release's entry has no `media`. If there is nothing to film, add `// no clip: <reason>` to
+the entry. The tag isn't held up: record the clips while the Release workflow runs.
 
 Every release ships both CPUs. The workflow builds Apple silicon and Intel in two parallel
 jobs on the same Apple silicon runner (Intel is cross-compiled) and a third job publishes:
@@ -297,6 +331,36 @@ are the controls. Details and Arc's original are in `docs/arc-reverse-engineerin
   the automatic restart) against a local appcast made with `CRA_UPDATE_URL=… scripts/appcast.sh`.
 - Copies from before the updater (0.1.0, 0.1.1) update once by hand: rerun the install line.
 
+### Channels: New and Stable
+
+Since GitHub #476 (17 Nov 2026) a release reaches New the day it ships and Stable once Victor promotes it, so a
+release that breaks something can be left behind. Settings ▸ Advanced ▸ "Update channel" picks one per Mac (user
+default `updateChannel`, CraCore `UpdateChannel`); a Mac starts on New. Stable is `scripts/stable-version`.
+
+- **Feeds.** Every release carries, per CPU, `appcast.xml` (what every Cra reads, and New: the newest release, then
+  the Stable one) and `appcast-stable.xml` (Stable alone; `-intel` names for Intel). `scripts/appcast-feeds.py` writes
+  both; `scripts/release.sh` fetches the Stable release's own appcast so its signed item is copied unchanged.
+- **CEF and the engine.** The newest release in `appcast.xml` carries
+  `<sparkle:minimumUpdateVersion>202611161309</…>` (Cra 0.1.44, the first on Chrome's engine). Every Cra since 0.1.2
+  ships Sparkle 2.10, which skips such an item below that build, so a Cra on CEF updates only to Stable, and 0.1.44
+  and 0.1.45, which have no channel switch, still update to the newest.
+- **Promote** with `scripts/promote.sh <version>` (`--dry-run` first): it rewrites both feeds on the latest release
+  from the two releases' own appcasts, sets `scripts/stable-version` and commits it with `scripts/feed-counts.tsv`
+  (those two files only); push main before the next release, which reads it. The site's download links
+  and the Homebrew tap still follow the latest release.
+- **Feed counts.** Each download of a feed is one update check, which is how daily users are estimated. Uploading over
+  a feed starts its GitHub download count over, so `scripts/promote.sh` first appends the latest release's feed counts
+  to `scripts/feed-counts.tsv` (`scripts/feed-counts.sh <tag>`), committed with `stable-version`. The promotions of
+  17 Nov (onto 0.1.45) and 18 Nov (onto 0.1.49) ran before this and lost theirs.
+- **Going back.** Sparkle never installs an older version: a Mac switched to Stable stays where it is until Stable
+  passes it, and Settings offers Stable's disk image (`Cra.dmg` beside its `Cra.zip`) to install it now. An engine
+  profile opens on Cra 0.1.43 (CEF) with its cookies and tab history (Migration scenarios run in reverse, 17 Nov).
+  An update a Mac already downloaded from New still installs when it quits.
+- **Tests.** `scripts/test-update-channels.sh` (in `scripts/test.sh`) serves the fixture feeds and asks the vendored
+  Sparkle what each build is offered; scenario `update-channel-stable` covers Settings. `scripts/test-feed-counts.sh` runs
+  `promote.sh` with a stand-in `gh` in a git copy and checks the counts are kept before the upload and
+  committed with `stable-version`, and nothing else.
+
 ## The Chromium engine
 
 Cra runs on Chrome's own framework with Cra's layer, patches and branding built in: the engine
@@ -320,7 +384,9 @@ ships the pinned engine anyway, for an urgent fix while the new one builds; in C
 
 To move to a new Chrome stable: `CHROMIUM_TAG=<version> scripts/build-chromium.sh sync`, then `apply`; a patch
 that no longer applies is rebased in `engine/chromium/patches` (`apply.sh` names it), then `gen` and `build` for
-each CPU, the scenarios on the new build, `publish-engine.sh` and the new pin.
+each CPU, the scenarios on the new build (`scripts/scenario.sh web-features` first), `publish-engine.sh` and the new
+pin. `build-chromium.sh apply` and `publish-engine.sh` stop when the new Chrome has a page hook
+(`WebContentsDelegate` method) that `Tests/web-features.tsv` doesn't map ([web-features.md](web-features.md)).
 
 `CRA_ENGINE=cef` still builds and releases on CEF (Cra's own CEF build: `scripts/build-cef.sh`,
 `scripts/cef-patches`, `scripts/publish-cef.sh`, `scripts/fetch-cef.sh`, and CEF's own release checks).

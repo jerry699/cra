@@ -14,6 +14,24 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class CraBrowser;
 
+/// Chrome's notice for a page's full screen or locks (its ExclusiveAccessBubbleType, which Chrome hangs on a window
+/// Cra's pages never show): Cra shows it over the page (docs/web-features.md).
+typedef NS_ENUM(NSInteger, CraExclusiveAccessNotice) {
+    CraExclusiveAccessNoticeNone = 0,
+    CraExclusiveAccessNoticeFullscreen = 1,             // a page's full screen: press Esc to leave
+    CraExclusiveAccessNoticeFullscreenPointerLock = 2,  // the pointer locked in full screen
+    CraExclusiveAccessNoticePointerLock = 3,            // the pointer locked: press Esc to show it
+    CraExclusiveAccessNoticeKeyboardLock = 4,           // full screen under a keyboard lock: press and hold Esc
+    CraExclusiveAccessNoticeBrowserFullscreen = 5,      // the browser's own full screen (not Cra's)
+    CraExclusiveAccessNoticeExtensionFullscreen = 6,    // an extension's full screen
+};
+
+typedef NS_ENUM(NSInteger, CraFindAction) {
+    CraFindActionShow = 0,
+    CraFindActionNext = 1,
+    CraFindActionPrevious = 2,
+};
+
 typedef NS_ENUM(NSInteger, CraDownloadState) {
     CraDownloadStateInProgress = 0,
     CraDownloadStateComplete = 1,
@@ -89,7 +107,8 @@ CRA_EXPORT @interface CraSSLStatus : NSObject
 - (void)browser:(CraBrowser *)browser didFinishLoadingURL:(NSString *)url title:(NSString *)title statusCode:(NSInteger)statusCode;
 - (void)browser:(CraBrowser *)browser didLoadFavicon:(NSImage *)image forURL:(NSString *)iconURL;
 - (void)browser:(CraBrowser *)browser didChangeStatusMessage:(NSString *)message;
-/// The page's theme colour (meta theme-color or body background) as "#RRGGBB", or "" when unknown.
+/// The page's toolbar colour as "#RRGGBB", or "" when unknown. Cra reads it off the page's pixels
+/// (ToolbarSampler, #629); the engines don't report theme-color, which Arc ignores. An Easel reports its own.
 - (void)browser:(CraBrowser *)browser didReportThemeColor:(NSString *)hex;
 - (void)browser:(CraBrowser *)browser didChangeFullscreen:(BOOL)fullscreen;
 /// Cmd-click, middle-click and similar: open a plain new tab.
@@ -126,6 +145,13 @@ CRA_EXPORT @interface CraSSLStatus : NSObject
 - (void)browserDidReceiveFocus:(CraBrowser *)browser;
 - (void)browserDidClose:(CraBrowser *)browser;
 @optional
+/// Whether the page being made starts hidden, so its video waits until it is shown: a tab opened behind the
+/// page in front (#552). Asked as the page is made and as a tab takes a spare; without it, pages start shown.
+- (BOOL)browserStartsHidden:(CraBrowser *)browser;
+
+/// Chrome's notice for this page's full screen or locks, or None when it ends; `force`: show it again even when
+/// it hasn't changed (the page asked again). Cra shows it as Arc's toast.
+- (void)browser:(CraBrowser *)browser exclusiveAccessNotice:(CraExclusiveAccessNotice)notice force:(BOOL)force;
 /// The page's context menu: Open Link in New Window, Little Window or Incognito Window.
 - (void)browser:(CraBrowser *)browser requestsWindowWithURL:(NSString *)url kind:(CraLinkWindow)kind;
 /// The page's context menu: Open Link in Split View, a pane beside this page (#257). Without it
@@ -162,9 +188,17 @@ CRA_EXPORT @interface CraSSLStatus : NSObject
 - (void)browser:(CraBrowser *)browser didReportBackgroundColor:(NSString *)hex;
 /// Find in page progress: `count` matches, `activeMatch` is the highlighted one
 /// (1-based). Either is -1 while Chromium has no new value for it.
-- (void)browser:(CraBrowser *)browser didFindMatches:(NSInteger)count activeMatch:(NSInteger)activeMatch;
+/// The immutable generation/purpose belongs to the caller's query session; identifier/final
+/// are native engine evidence (WebKit has no native identifier and reports -1).
+- (void)browser:(CraBrowser *)browser didFindMatches:(NSInteger)count activeMatch:(NSInteger)activeMatch
+    generation:(NSUUID *)generation quote:(BOOL)quote identifier:(NSInteger)identifier finalUpdate:(BOOL)finalUpdate;
+/// Chrome's native Find commands use the app's Find panel, keeping one search owner.
+- (void)browser:(CraBrowser *)browser requestsFindAction:(CraFindAction)action;
 /// The page started or stopped using the camera or microphone.
 - (void)browser:(CraBrowser *)browser didChangeMediaCapture:(BOOL)capturing;
+/// A call's tab sharing changed for the page (`isBeingShared`, `canShareInstead`): it started or stopped being
+/// the tab a page shares (getDisplayMedia), or the call can now switch to it.
+- (void)browserDidChangeTabSharing:(CraBrowser *)browser;
 /// Chromium dropped the page's permission request before Cra answered it (the page navigated or
 /// closed, or a newer request replaced it): its sheet should go, and its completion does nothing.
 - (void)browserWithdrewPermissionRequest:(CraBrowser *)browser;
@@ -191,7 +225,9 @@ CRA_EXPORT @interface CraSSLStatus : NSObject
 /// is left out): `url` is the address that failed.
 - (void)browser:(CraBrowser *)browser didFailLoadingURL:(NSString *)url errorCode:(NSInteger)errorCode;
 /// An extension asked to bring this page's tab to the front (chrome.tabs.update with
-/// active: true; scripts/cef-patches/extension-tab-activate.patch), or with byPage the page
+/// active: true; scripts/cef-patches/extension-tab-activate.patch; on the engine also
+/// chrome.windows.update with focused: true for its window's active tab,
+/// engine/chromium/patches/extension-window-focus.patch, #503), or with byPage the page
 /// did (window.focus(), or clients.focus() from a notification click; page-activate.patch).
 - (void)browserRequestsActivation:(CraBrowser *)browser byPage:(BOOL)byPage;
 /// The page's translate state changed, as JSON (CraCore's PageTranslation; GitHub #310,
@@ -317,6 +353,10 @@ CRA_EXPORT @interface CraBrowser : NSObject
 - (void)stopLoading;
 /// Leaves element fullscreen (a video), as Esc does.
 - (void)exitFullscreen;
+/// The page holds the keyboard with Esc in it (navigator.keyboard.lock() in full screen: a cloud desktop, a game).
+/// A press of Esc is then the page's, and only holding it leaves full screen, which Chrome does itself (its
+/// KeyboardLockController). NO on CEF and in WebKit.
+@property (nonatomic, readonly) BOOL holdsEscapeKey;
 - (void)setFocused:(BOOL)focused;
 /// Chrome's bars over the page, top first: `id` (NSNumber), `message`, `ok` and `cancel` (button titles, when the
 /// bar has them), `link` (its link's title, when it has one) and `closeable` (an NSNumber: it has a ✕). Empty on
@@ -336,8 +376,14 @@ CRA_EXPORT @interface CraBrowser : NSObject
 - (void)closeDevTools;
 - (double)zoomLevel;
 - (void)setZoomLevel:(double)level;
-- (void)findText:(NSString *)text forward:(BOOL)forward matchCase:(BOOL)matchCase findNext:(BOOL)findNext;
+/// A fresh generation restarts native Find; next/previous keep the same generation.
+- (void)findText:(NSString *)text forward:(BOOL)forward matchCase:(BOOL)matchCase findNext:(BOOL)findNext
+    generation:(NSUUID *)generation quote:(BOOL)quote;
 - (void)stopFinding:(BOOL)clearSelection;
+/// A Boost's colours (#602): the page draws every colour but its images through Arc's colorize, 6 comma-separated
+/// numbers (Boost.tint); nil or empty for none. Also for a page Chromium hasn't made yet.
+/// The engine only: CEF ignores it and its pages keep the Boost's CSS filter.
+- (void)setBoostTint:(nullable NSString *)tint;
 /// Mutes the page, also one Chromium hasn't made yet: it starts muted (#387).
 - (void)setAudioMuted:(BOOL)muted;
 /// Whether Chromium has the page muted (CefBrowserHost::IsAudioMuted), NO before it made it.
@@ -357,6 +403,13 @@ CRA_EXPORT @interface CraBrowser : NSObject
 @property (nonatomic, readonly) BOOL isPictureInPicturePlaying;
 /// The page is using the camera or microphone, as Chrome's tab recording indicator counts it.
 @property (nonatomic, readonly) BOOL isCapturingMedia;
+/// The page is the tab a call shares (Chrome's tab capture: getDisplayMedia, or casting the tab). Arc rings
+/// it in yellow, in the sidebar and around the page.
+@property (nonatomic, readonly) BOOL isBeingShared;
+/// A call shares another tab and can switch to this one (Chrome's "Share this tab instead").
+@property (nonatomic, readonly) BOOL canShareInstead;
+/// Makes the call share this page instead of the tab it shares. NO when it can't (`canShareInstead`).
+- (BOOL)shareInstead;
 /// The page is playing sound, in any frame (Chromium's audible state). Like Chrome's tab
 /// speaker it stays YES for 2 s after the page goes quiet. Muting the tab doesn't change it.
 @property (nonatomic, readonly) BOOL isAudible;
@@ -390,6 +443,11 @@ CRA_EXPORT @interface CraBrowser : NSObject
 /// where the isolated document start script runs.
 - (void)evaluateInIsolatedWorld:(NSString *)world params:(NSString *)params
                      completion:(void (^)(NSString * _Nullable result, NSString * _Nullable error))completion;
+/// Ask's effect authorization is checked again after isolated-world setup, immediately before IPC.
+/// A dispatched renderer command cannot be atomically revoked; callers also fence the document in JS.
+- (void)evaluateInIsolatedWorld:(NSString *)world params:(NSString *)params
+                      ifCurrent:(BOOL (^)(void))ifCurrent
+                     completion:(void (^)(NSString * _Nullable result, NSString * _Nullable error))completion;
 /// Chrome DevTools Protocol call on this browser's own session (no DevTools window).
 /// `params` is a JSON object string; the completion gets the result JSON or an error.
 - (void)sendDevToolsMethod:(NSString *)method params:(NSString *)params
@@ -419,7 +477,8 @@ CRA_EXPORT @interface CraCEFRuntime : NSObject
 /// The fork's media-distillation menu title, localized by the app's language.
 + (void)setDistillMediaTitle:(NSString *)title;
 /// One of Chromium's strings in the language Chromium runs in, as its resource bundle has it
-/// (`$1` where a name goes, `&` before a mnemonic); nil before CEF is up.
+/// (`$1` where a name goes, `&` before a mnemonic); nil before CEF is up. Chromium 159 has no
+/// "Search $1 for Image": SearchWebForImage is that English template when Chromium runs in English, else nil.
 + (nullable NSString *)chromiumString:(CraChromiumString)string;
 /// Gets the Google Lens item's title when an image's menu opens (main thread) and gives the title
 /// of the image search item that replaces it, or nil to keep Chromium's item.
@@ -447,6 +506,10 @@ CRA_EXPORT @interface CraCEFRuntime : NSObject
 /// Chrome's own pages follow; profiles that load later get it too.
 + (void)setWebsiteAppearance:(NSInteger)mode;
 @property (class, nonatomic, readonly) NSInteger websiteAppearance;
+/// Chrome's own Mode (chrome://settings/appearance) is the same setting: a choice made there
+/// calls `handler` on the main thread with its mode (0, 1 or 2, as above), and every profile
+/// already shows it (#630). Cra's own setWebsiteAppearance: doesn't call it. Not on CEF.
++ (void)setWebsiteAppearanceChangeHandler:(nullable void (^)(NSInteger mode))handler;
 /// Chromium's secure DNS setting (chrome://settings/security), app-wide in Local State:
 /// `dns_over_https.mode` and `dns_over_https.templates` as Chromium holds them now. nil
 /// before Chromium is ready and once quitting starts.
@@ -545,6 +608,9 @@ CRA_EXPORT @interface CraCEFRuntime : NSObject
 + (BOOL)isExtensionWindow:(NSWindow *)window;
 /// YES for the Chrome-style window hosting one of Cra's own browsers.
 + (BOOL)isPageWindow:(NSWindow *)window;
+/// YES while a page's focused password field holds macOS Secure Input for Cra (Chromium's lock; the
+/// system turns it on only while Cra is the active app), for cra://debug?secureInput= (GitHub #511).
+@property (class, nonatomic, readonly) BOOL holdsSecureInput;
 /// Lets one of Chromium's Picture in Picture windows show over another app's full-screen Space,
 /// as Arc's non-activating PiP panel does (GitHub #206). Chromium only makes it join every desktop Space.
 + (void)floatOverFullScreenSpaces:(NSWindow *)window;
@@ -552,6 +618,12 @@ CRA_EXPORT @interface CraCEFRuntime : NSObject
 /// them it showed off every Cra window that was on screen, and how many macOS animates in and out
 /// (GitHub #354), for cra://debug?pageWindows=.
 @property (class, nonatomic, readonly) NSString *pageWindowsReadout;
+/// "element=<0|1> shown=<0|1>" per profile's hidden Browser on the engine: whether Chrome finds the browser element its
+/// Settings look for, for cra://debug?hostBrowserView=. "no engine" on CEF.
+@property (class, nonatomic, readonly) NSString *pageHostBrowserViewReadout;
+/// Scenarios only: hides (or shows again) each hidden Browser's view, so Chrome finds no browser element, as on the
+/// Mac where Clear browsing data's Cancel crashed. Does nothing on CEF.
++ (void)setPageHostBrowserViewsHidden:(BOOL)hidden;
 + (NSString *)chromiumVersion;
 + (NSString *)cefVersion;
 /// YES when the browser-level DevTools pipe is up (it needs fds 3/4 free at start-up).

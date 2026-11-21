@@ -6,6 +6,15 @@ enum Palette {
         UIColor { $0.userInterfaceStyle == .dark ? dark : light }
     }
 
+    /// A colour as `#RRGGBB` in the given appearance, for CraCore's colour rules; nil when it has none.
+    static func hex(_ color: UIColor?, traits: UITraitCollection) -> String? {
+        guard let color else { return nil }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard color.resolvedColor(with: traits).getRed(&r, green: &g, blue: &b, alpha: &a), a > 0.5 else { return nil }
+        func byte(_ v: CGFloat) -> Int { Int((max(0, min(1, v)) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(r), byte(g), byte(b))
+    }
+
     static func rgb(_ hex: UInt32, alpha: CGFloat = 1) -> UIColor {
         UIColor(red: CGFloat((hex >> 16) & 0xff) / 255, green: CGFloat((hex >> 8) & 0xff) / 255,
                 blue: CGFloat(hex & 0xff) / 255, alpha: alpha)
@@ -42,7 +51,10 @@ enum Palette {
     /// The pill and the round buttons of the bottom bar, over the bar's blur.
     static let barControlFill = dynamic(light: UIColor(white: 0, alpha: 0.10), dark: UIColor(white: 1, alpha: 0.14))
     /// The same controls floating over the tab switcher's backdrop.
-    static let switcherPillFill = dynamic(light: UIColor(red: 71 / 255, green: 58 / 255, blue: 190 / 255, alpha: 0.16), dark: UIColor(white: 1, alpha: 0.16))
-    static let switcherButtonFill = dynamic(light: UIColor(red: 71 / 255, green: 58 / 255, blue: 190 / 255, alpha: 0.08), dark: UIColor(white: 1, alpha: 0.10))
+    /// Dark: Victor's screenshot IMG_1896 (13 Nov), pill #3B3B4B and circles #40404D on #232333.
+    static let switcherPillFill = dynamic(light: UIColor(red: 71 / 255, green: 58 / 255, blue: 190 / 255, alpha: 0.16), dark: UIColor(white: 1, alpha: 0.11))
+    static let switcherButtonFill = dynamic(light: UIColor(red: 71 / 255, green: 58 / 255, blue: 190 / 255, alpha: 0.08), dark: UIColor(white: 1, alpha: 0.12))
+    /// Their glyphs: pure white on the dark backdrop (IMG_1896).
+    static let switcherGlyph = dynamic(light: rgb(0x2e2e30), dark: .white)
     static let barControlBorder = dynamic(light: UIColor(white: 0, alpha: 0.06), dark: UIColor(white: 1, alpha: 0.08))
 }

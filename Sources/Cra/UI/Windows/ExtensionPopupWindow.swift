@@ -14,9 +14,16 @@ final class ExtensionPopupWindow: NSWindow {
     /// Chrome's bubble draws a transparent margin around the page.
     static let bubbleInset: CGFloat = 7
     static let titleBarHeight: CGFloat = 28
-    /// Where the user dragged a popup to, relative to its anchor. (Cra ≤ 0.1.17 kept an
-    /// absolute screen point under "extensionPopupWindowTopLeft"; that one is dropped.)
+    /// Where the user dragged a popup to, relative to its anchor, kept across updates. (Cra ≤ 0.1.17 kept an
+    /// absolute screen point under "extensionPopupWindowTopLeft"; that one is dropped. 0.1.52 kept it under
+    /// "extensionPopupWindowDragOffset" and dropped older ones; that key is moved back.)
     private static let savedOffsetKey = "extensionPopupWindowOffset"
+    private static let interimKey = "extensionPopupWindowDragOffset"
+    /// A test instance (CRA_DATA_DIR) keeps it in a file in its own data folder, as Picture in Picture's
+    /// placement: test copies share the app's defaults, so a run read the place the user dragged popups to
+    /// (and a test's drag moved the user's popups).
+    private static let testFile = ProcessInfo.processInfo.environment["CRA_DATA_DIR"]
+        .map { URL(fileURLWithPath: $0).appendingPathComponent("extension-popup-offset.txt") }
 
     private static var current: ExtensionPopupWindow?
     /// When the mouse-down that closed the last popup happened (event time), if one did.
@@ -27,9 +34,14 @@ final class ExtensionPopupWindow: NSWindow {
     private var anchor = NSPoint.zero
     /// Where the user dragged the frame, from hanging right under the anchor.
     private var offset = NSPoint.zero
-    /// The frame's top-left when a title-bar drag began.
+    /// The frame's top-left when a title-bar drag began, and the pointer then.
     private var dragStart = NSPoint.zero
+    private var dragPointer = NSPoint.zero
+    /// The pointer (screen) and whether the left button is down, as the hardware has them; a test stands in.
+    static var pointer: () -> NSPoint = { NSEvent.mouseLocation }
+    static var leftButtonDown: () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     private var observers: [NSObjectProtocol] = []
+    private var clickMonitor: Any?
     private var placing = false
     /// A title-bar drag is under way (willMove is only posted for those, not when the main
     /// window carries this child along).
@@ -66,7 +78,12 @@ final class ExtensionPopupWindow: NSWindow {
         let w = ExtensionPopupWindow()
         w.bubble = bubble
         w.anchor = anchor
-        UserDefaults.standard.removeObject(forKey: "extensionPopupWindowTopLeft")
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "extensionPopupWindowTopLeft")
+        if let interim = defaults.string(forKey: interimKey) {
+            if defaults.string(forKey: savedOffsetKey) == nil { defaults.set(interim, forKey: savedOffsetKey) }
+            defaults.removeObject(forKey: interimKey)
+        }
         w.offset = savedOffset ?? .zero
         w.appearance = bubble.parent?.effectiveAppearance ?? NSApp.effectiveAppearance
         w.backgroundColor = .windowBackgroundColor
@@ -105,11 +122,20 @@ final class ExtensionPopupWindow: NSWindow {
                 w.dismiss(closingBubble: true)
             }
         })
+        // A click in a Cra window that doesn't take focus for it (the floating sidebar's panel becomes key
+        // only when a click needs it) never reached the observer above: the popup stayed up (#531).
+        w.clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak w] event in
+            MainActor.assumeIsolated { w?.mouseDown(elsewhere: event) }
+            return event
+        }
         w.observers.append(NotificationCenter.default.addObserver(forName: NSWindow.willMoveNotification, object: w, queue: .main) { [weak w] _ in
             MainActor.assumeIsolated {
-                guard let w else { return }
+                // Only the user's drag of this frame's title bar (AppKit says willMove on its first
+                // leftMouseDragged) starts one: not a move of the frame for any other reason (#634).
+                guard let w, w.isUserGesture(NSApp.currentEvent, [.leftMouseDown, .leftMouseDragged]) else { return }
                 w.dragging = true
                 w.dragStart = NSPoint(x: w.frame.minX, y: w.frame.maxY)
+                w.dragPointer = Self.pointer()
             }
         })
         w.observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: w, queue: .main) { [weak w] _ in
@@ -124,7 +150,10 @@ final class ExtensionPopupWindow: NSWindow {
         // While the title bar is dragged AppKit carries the bubble along; afterwards the
         // frame stays where it was dropped.
         if dragging {
-            if NSEvent.pressedMouseButtons != 0 { return }
+            // Through the drop too: the frame's own didMove comes on the leftMouseUp, maybe after the bubble's.
+            if Self.leftButtonDown() || isUserGesture(NSApp.currentEvent, [.leftMouseDragged, .leftMouseUp]) { return }
+            // The button is up: where the pointer took the frame is where the user dropped it (#664).
+            if followsPointer() { keepDrop() }
             dragging = false
         }
         placing = true
@@ -149,11 +178,44 @@ final class ExtensionPopupWindow: NSWindow {
 
     private func userMoved() {
         guard dragging, !placing, bubble != nil else { return }
+        // A title-bar drag ends in one didMove, on its leftMouseUp. Until 0.1.51 `dragging` stayed set
+        // until the next layout, and a move after that (the window carrying the frame along, into full
+        // screen or across a display) became the offset every later popup hung by, away from its
+        // button (#634). Only a move inside the gesture counts, and the gesture ends with the button.
+        // A drag with a real mouse or trackpad runs in the window server: AppKit's current event stays the
+        // leftMouseDown, so 0.1.52 took every one for a carried move and snapped the popup back (#664).
+        // The frame went with the pointer, then, and a carried move doesn't move the pointer.
+        let event = NSApp.currentEvent
+        let gesture = isUserGesture(event, [.leftMouseDragged, .leftMouseUp])
+        let held = Self.leftButtonDown()
+        guard gesture || followsPointer() else {
+            if !held { dragging = false }
+            return
+        }
+        if event?.type == .leftMouseUp || (!gesture && !held) { dragging = false }
+        keepDrop()
+    }
+
+    /// The frame moved by as much as the pointer since the drag began.
+    private func followsPointer() -> Bool {
+        let p = Self.pointer()
+        let frameMove = NSPoint(x: frame.minX - dragStart.x, y: frame.maxY - dragStart.y)
+        return hypot(frameMove.x - (p.x - dragPointer.x), frameMove.y - (p.y - dragPointer.y)) < 3
+    }
+
+    /// Where the frame is now becomes where popups hang, unless it barely moved.
+    private func keepDrop() {
         let moved = NSPoint(x: frame.minX, y: frame.maxY)
         // A click on the title bar that barely moved it is not a new place.
         guard hypot(moved.x - dragStart.x, moved.y - dragStart.y) > 4 else { return }
         offset = NSPoint(x: moved.x - (anchor.x - frame.width), y: moved.y - anchor.y)
         Self.savedOffset = offset
+    }
+
+    /// `event` is the user's, on this frame, of one of `types`, and current (not the last one AppKit kept).
+    private func isUserGesture(_ event: NSEvent?, _ types: Set<NSEvent.EventType>) -> Bool {
+        guard let event, types.contains(event.type), event.window === self else { return false }
+        return ProcessInfo.processInfo.systemUptime - event.timestamp < 1
     }
 
     /// Top-left of a popup window `width` wide: hanging from `anchor` (top-right), moved by
@@ -173,10 +235,14 @@ final class ExtensionPopupWindow: NSWindow {
 
     private static var savedOffset: NSPoint? {
         get {
-            guard let s = UserDefaults.standard.string(forKey: savedOffsetKey) else { return nil }
-            return NSPointFromString(s)
+            let s = testFile.map { try? String(contentsOf: $0, encoding: .utf8) } ?? UserDefaults.standard.string(forKey: savedOffsetKey)
+            return s.map(NSPointFromString)
         }
-        set { UserDefaults.standard.set(newValue.map(NSStringFromPoint), forKey: savedOffsetKey) }
+        set {
+            let s = newValue.map(NSStringFromPoint)
+            guard let testFile else { return UserDefaults.standard.set(s, forKey: savedOffsetKey) }
+            if let s { try? s.write(to: testFile, atomically: true, encoding: .utf8) } else { try? FileManager.default.removeItem(at: testFile) }
+        }
     }
 
     override func performClose(_ sender: Any?) { dismiss(closingBubble: true) }
@@ -189,10 +255,25 @@ final class ExtensionPopupWindow: NSWindow {
         return event.timestamp == closingClick
     }
 
+    /// A press in one of Cra's windows other than this popup (its frame, Chrome's bubble or a window the
+    /// bubble opened): it closes the popup, as a click that takes the popup's focus does.
+    private func mouseDown(elsewhere event: NSEvent) {
+        guard let bubble, let target = event.window, target !== self, target !== bubble, target.parent !== bubble else { return }
+        if event.type == .leftMouseDown { Self.closingClick = event.timestamp }
+        dismiss(closingBubble: true)
+    }
+
+    /// The point (screen) the popup on screen hangs from, nil while none is.
+    static var shownAnchor: NSPoint? { current.map { $0.anchor } }
+    /// The frame (screen) of the popup on screen, nil while none is.
+    static var shownFrame: NSRect? { current?.frame }
+
     private func dismiss(closingBubble: Bool) {
         if let e = NSApp.currentEvent, e.type == .leftMouseDown { Self.closingClick = e.timestamp }
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
         if let bubble {
             removeChildWindow(bubble)
             // Not right away: the key change that got here can come from inside Chrome ordering

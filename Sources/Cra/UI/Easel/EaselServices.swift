@@ -80,12 +80,57 @@ extension EaselCanvasView {
         }
     }
 
+    /// cra://debug?easelCanvas=<x>,<y> (or "-" to stay): the view scrolled a view at a time, as a scroll
+    /// does, until the canvas point x,y is its top left; then the zoom, the view, the canvas and whether
+    /// a whole view's room lies past the view on every side, logged (#580).
+    func debugCanvas(_ target: String) {
+        let sheet = sheetView
+        guard let scroll = sheet.enclosingScrollView else { CraLog.note("easel canvas: none"); return }
+        let parts = target.split(separator: ",").compactMap { Double($0) }.filter(\.isFinite)
+        if parts.count == 2 {
+            for _ in 0..<1000 {
+                let v = sheet.visibleRect
+                let dx = max(-v.width, min(v.width, parts[0] - v.minX)), dy = max(-v.height, min(v.height, parts[1] - v.minY))
+                if abs(dx) < 0.5, abs(dy) < 0.5 { break }
+                let o = sheet.bounds.origin
+                scroll.contentView.scroll(to: NSPoint(x: v.minX + dx - o.x, y: v.minY + dy - o.y))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+        }
+        let v = sheet.visibleRect, e = sheet.bounds
+        let room = e.minX <= v.minX - v.width + 0.5 && e.minY <= v.minY - v.height + 0.5
+            && e.maxX >= v.maxX + v.width - 0.5 && e.maxY >= v.maxY + v.height - 0.5
+        func r(_ r: NSRect) -> String { [r.minX, r.minY, r.width, r.height].map { String(Int($0.rounded())) }.joined(separator: ",") }
+        CraLog.note("easel canvas: zoom=\(String(format: "%.2f", scroll.magnification)) view=\(r(v)) extent=\(r(e)) room=\(room ? "yes" : "no")")
+    }
+
     /// cra://debug?easelPick=<n>: what a picked item shows: the colour picker and its colour, and the menu's rows.
     func debugPick(_ n: Int) {
         guard let item = sheetView.pick(index: n) else { CraLog.note("easel pick: none"); return }
         let picker = sheetView.colorPicker
         let rows = sheetView.objectMenu(for: item).items.map { $0.isSeparatorItem ? "—" : $0.title }.joined(separator: "|")
         CraLog.note("easel pick: picker=\(picker.isHidden ? "hidden" : "shown") color=\(picker.current?.rawValue ?? "none") menu=\(rows)")
+    }
+
+    /// cra://debug?easelTool=<key>&hover=<tool>: a key pressed on the canvas ("esc" for Escape, "-"
+    /// for none) and the pointer put over a toolbar button ("duplicate", "none"); what the toolbar
+    /// shows then, logged.
+    func debugTool(key: String, hover: String?) {
+        if key != "-", !key.isEmpty {
+            let escape = key == "esc"
+            let characters = escape ? "\u{1B}" : key
+            if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window?.windowNumber ?? 0, context: nil, characters: characters,
+                                            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: escape ? 53 : 0) {
+                sheetView.keyDown(with: event)
+            }
+        }
+        if let hover {
+            let item: EaselToolbarLayout.Item? = hover == "duplicate" ? .duplicate : Easel.Tool(rawValue: hover).map { .tool($0) }
+            let rect = item.map(EaselToolbarLayout.rect(of:))
+            toolbarView.hover(at: rect.map { NSPoint(x: $0.midX, y: $0.midY) })
+        }
+        CraLog.note("easel toolbar: \(toolbarView.debugLine)")
     }
 
     /// cra://debug?easelLink=<url>: a link card, as if pasted; what it read, logged once filled in.

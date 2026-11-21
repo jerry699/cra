@@ -40,10 +40,23 @@ agent (its name and the code-signing team of the program that started it, so an 
 ask again) in `mcp.json` in the data folder. Settings ▸ Advanced lists the agents you answered;
 **Forget** asks again next time and closes the agent's open connections.
 
-While an agent acts in a page, Cra's toast says so in the window it works in ("Claude Code is
-using Cra"), with **Stop**: every agent disconnects and MCP turns off until you turn it on again.
-The toast stays while the agent works and goes a few seconds after its last action; reading,
-organizing tabs and notes never show it.
+While an agent acts in a page, a dark pill at the bottom of the window it works in shows the
+agent's face and what it does ("Claude Code is clicking “Sign in”"; each new step slides in), with
+**Take Over** (or ⌘.): that agent's session disconnects and its calls stop. MCP stays on, so other
+agents keep working and the stopped one can connect again; only Settings turns it off. The pill
+stays while the agent works and goes a few seconds after its last action; reading, organizing tabs
+and notes never show it.
+
+The same face sits at the end of the sidebar row of every tab an agent works in, reading too, and
+goes eight seconds after its last call there. When you are looking at the tab the agent acts in,
+the face is its cursor: it glides to what the agent points at, slowly enough to follow, rests on it
+for a moment and squishes when it clicks, so a page never changes without you seeing what was
+clicked. When the agent acts on something out of view, the page scrolls to it smoothly while the
+cursor looks that way, and its wheel scrolls are paced under the cursor, so the page never jumps
+somewhere you didn't see it go. The cursor stays up as long as the tab's face does, so it doesn't
+vanish while the agent thinks. Steps a few milliseconds apart change the pill's words at most once
+every 0.7 s, the latest winning. On a tab you aren't looking at there is no cursor and the agent
+works at full speed.
 
 ## How an agent works in Cra
 
@@ -235,9 +248,11 @@ some pages look for, so it stays off until asked.
 
 The bridge (`Cra --mcp <socket>`) talks to the running app over a Unix socket in the profile
 folder, mode 0600; both ends check they run as the same macOS user. No TCP port is opened. An
-exclusive lock keeps a second instance from taking a live socket. Eight clients and 32 messages
-in flight per client are admitted. A socket path is limited to 104 bytes, so a data folder
-deep in the file system can't run MCP (Settings shows the error).
+exclusive lock keeps a second instance from taking a live socket. 32 clients and 32 messages
+in flight per client are admitted. An agent session holds its connection for as long as it runs,
+idle or not; past 32, the agent's first request is answered with an error that says Cra is
+full, and the bridge prints the same on stderr and exits 1. A socket path is limited to 104
+bytes, so a data folder deep in the file system can't run MCP (Settings shows the error).
 
 Turning MCP on lets the agents you allow read your pages and act as you in them. It is not a
 per-site permission system, and Cra doesn't ask before a purchase or a message is sent. Set

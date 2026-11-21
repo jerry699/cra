@@ -48,14 +48,27 @@ run the classes a change touches, and the whole suite in halves.
 6. **Every bug fix comes with a test that fails without it.** That applies whether the bug
    came from an issue, an X DM, a crash report, a nightly failure or your own testing. Write the
    test first, see it fail on the unfixed code, then fix. When the bug has an issue, tag the test
-   `.bug(".../issues/<n>")` (`// promise: #<n>` above a harness func, `# promise: #<n>` in a
-   scenario) and run `scripts/promises.py --update`, so it's locked in `Tests/promises.lock`.
+   `.bug(".../issues/<n>")` (`// promise: #<n>` above a harness func or an iPhone UI test,
+   `# promise: #<n>` in a scenario) and run `scripts/promises.py --update`, so it's locked in `Tests/promises.lock`.
+   A crash report without an issue is locked the same way under a crash ID:
+   `.bug(id: "crash-<what-crashed>")`, `// promise: crash-<what-crashed>` or `# promise: crash-<what-crashed>`.
    When the decision can't be reached by a test, move it into CraCore (rule 1) or add the
    `cra://debug` readout a scenario needs as part of the fix. Only what needs a real site, the
    GPU or a human eye becomes a line in docs/release-checklist.md, and the commit says so.
    When a locked test fails, the change broke something that shipped: fix the change, not the
    test. Only Victor decides that a shipped behaviour changes; then run
    `scripts/promises.py --update` and name the issue in the commit (docs/testing.md rule 8).
+7. **Everything built and everything reported gets a test.** A feature, on the Mac or the
+   iPhone, reported or not, ships with tests that pin what it does: CraCore for the decision, a
+   harness, UI test or scenario for the wiring. A report whose code turns out to be right still
+   gets the test that proves it, tagged with its issue. On the iPhone that is both: the decision
+   in CraCore `Mobile/` with a `.bug` test, and the UI test with `// promise: #<n>` above it.
+   Nothing is done, or pushed, without its tests; the reply on the issue names the test.
+8. **What pages ask the browser for keeps working.** Uploads, print, dialogs, prompts and choosers broke in
+   0.1.49 (#571, #574) because Chrome read its never-seen window and nothing tried them.
+   [docs/web-features.md](docs/web-features.md) maps every way a page reaches its browser to its test
+   (`Tests/web-features.tsv`). A change to how Cra hosts pages runs `scripts/scenario.sh web-features` first; a
+   new page feature gets its row and scenario; `scripts/release.sh` won't release a build that fails them.
 
 ## Known exceptions
 

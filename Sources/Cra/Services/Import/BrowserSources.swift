@@ -1,11 +1,13 @@
 import AppKit
 
 /// A browser the import can read: Dia's list (Arc, Brave, Chrome, Edge,
-/// Firefox, Opera, Opera GX, Safari) plus Dia itself, Vivaldi, Chromium, Helium and Zen.
+/// Firefox, Opera, Opera GX, Safari) plus Dia itself, Vivaldi, Chromium, Helium, Yab, Ardia and Zen.
 struct ImportSource: Identifiable, Hashable {
     enum Kind: Hashable {
         /// Arc and Dia: their own sidebar stores, and a Chromium profile for passwords and cookies.
         case arc, dia
+        /// Yab and Ardia: Arc-style spaces in their own files, Chromium profiles for passwords and cookies.
+        case yab, ardia
         case chromium, firefox
         /// Zen: Firefox underneath, with Arc-style spaces, Essentials and pinned tabs.
         case zen
@@ -53,6 +55,10 @@ struct ImportSource: Identifiable, Hashable {
         chromium("chromium", "Chromium", "org.chromium.Chromium", "Chromium", account: "Chromium"),
         // Helium renames its Keychain item instead of using "<Name> Safe Storage".
         chromium("helium", "Helium", "net.imput.helium", "net.imput.helium", account: "Helium", service: "Helium Storage Key"),
+        ImportSource(id: "yab", name: "Yab", bundleID: "dev.serafim.fast", kind: .yab, dataDir: YabImporter.userData,
+                     keychainService: "Yab Safe Storage", keychainAccount: "Yab"),
+        ImportSource(id: "ardia", name: "Ardia", bundleID: "com.ardia.browser", kind: .ardia, dataDir: ArdiaImporter.userData,
+                     keychainService: "Ardia Safe Storage", keychainAccount: "Ardia"),
         ImportSource(id: "firefox", name: "Firefox", bundleID: "org.mozilla.firefox", kind: .firefox,
                      dataDir: support.appendingPathComponent("Firefox", isDirectory: true)),
         ImportSource(id: "zen", name: "Zen", bundleID: "app.zen-browser.zen", kind: .zen,
@@ -63,10 +69,33 @@ struct ImportSource: Identifiable, Hashable {
 
     /// Has data to bring over. The import reads only the profile on disk, so a browser
     /// someone already deleted is still offered while its data is there; Safari is always there.
-    var isAvailable: Bool {
+    /// A folder macOS won't let Cra read is offered too, asking for Full Disk Access, as Ardia
+    /// does: current macOS keeps Chrome's and Brave's data from other apps, and hiding the
+    /// browser left a Chrome user with only Opera to pick (X DM, 15 Nov).
+    var isAvailable: Bool { hasProfile || needsFullDiskAccess }
+
+    /// The data folder is there but macOS refuses to list it.
+    var needsFullDiskAccess: Bool {
+        kind != .safari && Self.isAccessDenied(dataDir)
+    }
+
+    static func isAccessDenied(_ dir: URL) -> Bool {
+        do {
+            _ = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            return false
+        } catch let error as NSError {
+            if error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoPermissionError { return true }
+            let posix = error.userInfo[NSUnderlyingErrorKey] as? NSError
+            return posix?.domain == NSPOSIXErrorDomain && (posix?.code == Int(EPERM) || posix?.code == Int(EACCES))
+        }
+    }
+
+    private var hasProfile: Bool {
         switch kind {
         case .arc: return ArcImporter.isAvailable
         case .dia: return DiaImporter.isAvailable
+        case .yab: return YabImporter.isAvailable
+        case .ardia: return ArdiaImporter.isAvailable
         case .safari: return true
         case .chromium: return !ChromiumImporter.profiles(userData: dataDir).isEmpty
         case .firefox, .zen: return FirefoxImporter.defaultProfile(root: dataDir) != nil
@@ -82,6 +111,8 @@ struct ImportSource: Identifiable, Hashable {
         switch kind {
         case .arc: return try ArcImporter.plan()
         case .dia: return try DiaImporter.plan()
+        case .yab: return try YabImporter.plan()
+        case .ardia: return try ArdiaImporter.plan()
         case .chromium: return try ChromiumImporter.plan(browser: name, userData: dataDir)
         case .firefox: return try FirefoxImporter.plan(browser: name, root: dataDir)
         case .zen: return try ZenImporter.plan(root: dataDir)
@@ -91,12 +122,22 @@ struct ImportSource: Identifiable, Hashable {
 
     /// Chromium profiles whose passwords and cookies can come over.
     var credentialProfiles: [ChromiumProfile] {
-        keychainService == nil ? [] : ChromiumImporter.profiles(userData: dataDir)
+        guard keychainService != nil else { return [] }
+        let profiles = ChromiumImporter.profiles(userData: dataDir)
+        // Yab and Ardia name their Chromium folders by an id, shown here by the space's name;
+        // Yab never uses Default.
+        let names: [String: String]
+        switch kind {
+        case .yab: names = YabImporter.profileNames(supportDir: dataDir.deletingLastPathComponent())
+        case .ardia: names = ArdiaImporter.profileNames()
+        default: return profiles
+        }
+        return profiles.filter { kind != .yab || $0.id != "Default" }.map { ChromiumProfile(id: $0.id, name: names[$0.id] ?? $0.name, dir: $0.dir) }
     }
 
     func topSites(limit: Int) -> [TopSite] {
         switch kind {
-        case .arc, .dia, .chromium: return ChromiumImporter.topSites(userData: dataDir, limit: limit)
+        case .arc, .dia, .yab, .ardia, .chromium: return ChromiumImporter.topSites(userData: dataDir, limit: limit)
         case .firefox, .zen: return FirefoxImporter.topSites(root: dataDir, limit: limit)
         case .safari: return []
         }
@@ -104,7 +145,7 @@ struct ImportSource: Identifiable, Hashable {
 
     func favicons(hosts: [String]) -> [String: NSImage] {
         switch kind {
-        case .arc, .dia, .chromium: return ChromiumImporter.favicons(userData: dataDir, hosts: hosts)
+        case .arc, .dia, .yab, .ardia, .chromium: return ChromiumImporter.favicons(userData: dataDir, hosts: hosts)
         case .firefox, .zen: return FirefoxImporter.favicons(root: dataDir, hosts: hosts)
         case .safari: return [:]
         }
@@ -112,7 +153,7 @@ struct ImportSource: Identifiable, Hashable {
 
     func extensions() -> [ImportableExtension] {
         switch kind {
-        case .arc, .dia, .chromium: return ExtensionImporter.extensions(inUserData: dataDir)
+        case .arc, .dia, .yab, .ardia, .chromium: return ExtensionImporter.extensions(inUserData: dataDir)
         case .firefox, .zen, .safari: return []
         }
     }

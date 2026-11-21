@@ -29,8 +29,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     private var closed = false
     private var pageClosedItself = false
     private var committed = false
-    /// The page's own navigation to another app's address asked already (decidePolicyFor).
-    private var askedForAppOnThisPage = false
+    /// The page's own navigation to another app's address asks once per load (decidePolicyFor).
+    private var appRedirects = AppLinks.RedirectGuard()
     private var lastStatus = 0
     private var lastLoadingState: [Bool] = []
     private var observations: [NSKeyValueObservation] = []
@@ -40,6 +40,7 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     private var capturing = false
     /// Muted before the web view existed (a popup host's): applied in makeWebView (#387).
     private var audioMuted = false
+    private let resume: (url: String, seconds: Double)?
     /// The service this page opened for ("Spotify"), kept while it signs in elsewhere: what the
     /// toast, the Site Control Center and the dimmed extension buttons name (PageEngines).
     var serviceName = ""
@@ -52,6 +53,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     private var historyIDs: [ObjectIdentifier: Int] = [:]
     private var historyItems: [Int: WKBackForwardListItem] = [:]
     private var findQuery = ""
+    private var findGeneration: UUID?
+    private var findQuote = false
     private var findCount = 0
     private var findIndex = 0
     private var messages: ScriptMessageProxy?
@@ -68,7 +71,11 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
 
     /// `interactionState`: the back and forward list WKWebView saved for this tab (PageHistory,
     /// #273). It goes in instead of loading `url`, and WebKit loads its current page.
-    init(frame: NSRect, url: String?, delegate: CraBrowserDelegate?, incognito: Bool, profilePath: String?, interactionState: Data?) {
+    /// `resume`: a page that moved here from Chromium for a protected video takes its video to
+    /// where it was, once (ProtectedVideoHandoff.seekScript).
+    init(frame: NSRect, url: String?, delegate: CraBrowserDelegate?, incognito: Bool, profilePath: String?, interactionState: Data?,
+         resume: (url: String, seconds: Double)? = nil) {
+        self.resume = resume
         container = NSView(frame: frame)
         incognitoPage = incognito
         profile = incognito ? nil : profilePath
@@ -125,6 +132,11 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         content.addUserScript(WKUserScript(source: PageScript.mediaSessionWrapper + PageScript.mainWorld, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
         content.addUserScript(WKUserScript(source: PageScript.isolatedWorld + Self.isolatedAddOn, injectionTime: .atDocumentStart,
                                            forMainFrameOnly: false, in: Self.world))
+        if let resume, given == nil {
+            let until = (Date().timeIntervalSince1970 + 60) * 1000
+            content.addUserScript(WKUserScript(source: ProtectedVideoHandoff.seekScript(url: resume.url, seconds: resume.seconds, until: until),
+                                               injectionTime: .atDocumentStart, forMainFrameOnly: true, in: Self.world))
+        }
         let proxy = ScriptMessageProxy(owner: self)
         content.add(proxy, contentWorld: Self.world, name: "cra")
         messages = proxy
@@ -203,9 +215,6 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
                     guard let self, !self.closed, web.isLoading else { return }
                     self.delegate?.browser(self, didChangeProgress: web.estimatedProgress)
                 }
-            },
-            web.observe(\.themeColor, options: [.new]) { [weak self] _, _ in
-                MainActor.assumeIsolated { self?.reportThemeColor() }
             },
             web.observe(\.cameraCaptureState, options: [.new]) { [weak self] _, _ in
                 MainActor.assumeIsolated { self?.reportCapture() }
@@ -303,14 +312,6 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         }
     }
 
-    @MainActor
-    private func reportThemeColor() {
-        guard let web = webView, !closed else { return }
-        if let color = web.themeColor, let hex = Self.hex(color) {
-            delegate?.browser(self, didReportThemeColor: hex)
-        }
-    }
-
     // MARK: Navigation
 
     override func loadURL(_ url: String) {
@@ -361,9 +362,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
             // to it opens) asks once per page it loads, from the main frame, as Chrome's flood
             // guard lets it.
             let click = action.navigationType == .linkActivated
-            let redirect = !click && action.targetFrame?.isMainFrame == true && !askedForAppOnThisPage
-            if redirect { askedForAppOnThisPage = true }
-            AppLinkPrompt.handle(url.absoluteString, from: self, userGesture: click || redirect)
+            let asks = click || (action.targetFrame?.isMainFrame == true && appRedirects.mayAsk(userGesture: false))
+            AppLinkPrompt.handle(url.absoluteString, from: self, userGesture: asks)
             return decisionHandler(.cancel, preferences)
         }
         guard action.navigationType == .linkActivated else { return decisionHandler(.allow, preferences) }
@@ -400,7 +400,7 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        askedForAppOnThisPage = false
+        appRedirects.pageLoaded()
         setCommitted(true)
     }
 
@@ -408,7 +408,6 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         guard !closed else { return }
         let url = webView.url?.absoluteString ?? pendingURL
         delegate?.browser(self, didFinishLoadingURL: url, title: webView.title ?? "", statusCode: lastStatus)
-        reportThemeColor()
         probeBackgroundColor()
         loadFavicon()
     }
@@ -572,31 +571,41 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         MainActor.assumeIsolated { webView?.pageZoom = CGFloat(pow(1.2, level)) }
     }
 
-    override func findText(_ text: String, forward: Bool, matchCase: Bool, findNext: Bool) {
+    override func findText(_ text: String, forward: Bool, matchCase: Bool, findNext: Bool, generation: UUID, quote: Bool) {
         MainActor.assumeIsolated {
             guard let web = webView, !text.isEmpty else { return }
+            let newGeneration = findGeneration != generation || findQuote != quote
+            if newGeneration {
+                stopFinding(false)
+                findGeneration = generation
+                findQuote = quote
+            }
             let config = WKFindConfiguration()
             config.backwards = !forward
             config.caseSensitive = matchCase
             config.wraps = true
-            let fresh = !findNext || text != findQuery
+            let fresh = newGeneration || !findNext || text != findQuery
             findQuery = text
-            web.find(text, configuration: config) { [weak self] result in
+            web.find(text, configuration: config) { [weak self, weak web] result in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self, let web, self.webView === web, self.findGeneration == generation,
+                          self.findQuery == text, self.findQuote == quote else { return }
                     guard result.matchFound else {
                         self.findCount = 0
                         self.findIndex = 0
-                        self.delegate?.browser?(self, didFindMatches: 0, activeMatch: 0)
+                        self.delegate?.browser?(self, didFindMatches: 0, activeMatch: 0, generation: generation,
+                                                quote: quote, identifier: -1, finalUpdate: true)
                         return
                     }
-                    let step = { [weak self] (count: Int) in
-                        guard let self else { return }
+                    let step = { [weak self, weak web] (count: Int) in
+                        guard let self, let web, self.webView === web, self.findGeneration == generation,
+                              self.findQuery == text, self.findQuote == quote else { return }
                         self.findCount = max(count, 1)
                         if fresh { self.findIndex = forward ? 1 : self.findCount } else {
                             self.findIndex = forward ? self.findIndex % self.findCount + 1 : (self.findIndex + self.findCount - 2) % self.findCount + 1
                         }
-                        self.delegate?.browser?(self, didFindMatches: self.findCount, activeMatch: self.findIndex)
+                        self.delegate?.browser?(self, didFindMatches: self.findCount, activeMatch: self.findIndex,
+                                                generation: generation, quote: quote, identifier: -1, finalUpdate: true)
                     }
                     if !fresh, self.findCount > 0 { return step(self.findCount) }
                     // WebKit's find doesn't count: the page's text does, the way find sees it.
@@ -618,6 +627,7 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
 
     override func stopFinding(_ clearSelection: Bool) {
         MainActor.assumeIsolated {
+            findGeneration = nil
             findQuery = ""
             findCount = 0
             findIndex = 0
@@ -657,12 +667,72 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
 
     // MARK: Picture in Picture (WebKit's own, the system's floating window)
 
+    /// View ▸ Picture in Picture and the sidebar player's button (after the page's own request failed):
+    /// WebKit's toggle, as Safari's menu does it; it needs no user gesture in the page (#585). Leaving a
+    /// tab takes nothing here: BrowserManager asked the page, a video that says `disablePictureInPicture`
+    /// included (Netflix's, PictureInPictureRequest).
     override func requestPictureInPicture(automatic: Bool) {
-        // BrowserManager asked the page first; WebKit has no other way in.
+        MainActor.assumeIsolated {
+            guard let web = webView else { return }
+            let action = WebKitPictureInPicture(automatic: automatic, active: inPictureInPicture || Self.flag(web, "_isPictureInPictureActive"),
+                                                canToggle: Self.flag(web, "_canTogglePictureInPicture"))
+            CraLog.note("WebKit Picture in Picture: \(action) (WebKit: can toggle \(Self.flag(web, "_canTogglePictureInPicture")), active \(Self.flag(web, "_isPictureInPictureActive")))")
+            let toggle = {
+                let sel = NSSelectorFromString("_togglePictureInPicture")
+                guard let m = class_getInstanceMethod(type(of: web), sel) else { return }
+                typealias Fn = @convention(c) (AnyObject, Selector) -> Void
+                unsafeBitCast(method_getImplementation(m), to: Fn.self)(web, sel)
+            }
+            switch action {
+            case .toggle: toggle()
+            case .page:
+                runPictureInPicture("""
+                (() => { if (document.pictureInPictureElement) return;
+                  const area = v => { const r = v.getBoundingClientRect(); return r.width * r.height; };
+                  const v = [...document.querySelectorAll('video')].filter(v => v.readyState >= 1)
+                    .sort((a, b) => ((b.paused ? 0 : 1) - (a.paused ? 0 : 1)) || (area(b) - area(a)))[0];
+                  v?.requestPictureInPicture().catch(() => {}); })()
+                """)
+            case .exit:
+                // The page's document.exitPictureInPicture() never settled here; WebKit's own call ends it.
+                if Self.flag(web, "_isPictureInPictureActive") { toggle() } else { web.closeAllMediaPresentations {} }
+            case .none: break
+            }
+        }
+    }
+
+    /// A WebKit Bool property that isn't public API (nil when this WebKit lacks it: false).
+    private static func flag(_ web: WKWebView, _ name: String) -> Bool {
+        let sel = NSSelectorFromString(name)
+        guard let m = class_getInstanceMethod(type(of: web), sel) else { return false }
+        typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
+        return unsafeBitCast(method_getImplementation(m), to: Fn.self)(web, sel)
     }
 
     override func exitPictureInPicture() {
         runPictureInPicture("if (document.pictureInPictureElement) document.exitPictureInPicture();")
+    }
+
+    /// The system Picture in Picture window's ↖ button: WebKit says so here, before it moves the
+    /// video back into the page, and Safari selects the video's tab at this point. The window's ✕
+    /// doesn't come this way (it pauses the video and puts it back). WebKit's private UI delegate
+    /// call, like the preference that turns Picture in Picture on.
+    @objc(_webViewFullscreenMayReturnToInline:)
+    func webViewFullscreenMayReturnToInline(_ webView: WKWebView) {
+        MainActor.assumeIsolated {
+            guard inPictureInPicture, !closed else { return }
+            (delegate as? WebKitPageDelegate)?.webKitPageReturnsFromPictureInPicture(self)
+        }
+    }
+
+    /// `cra://debug?pipBackToTab=1`: the ↖ button as WebKit reports it. The button itself is in the
+    /// system's window (PIPAgent's, another process), which a scenario can't press.
+    func debugPressPictureInPictureBackToTab() {
+        MainActor.assumeIsolated {
+            guard let web = webView, inPictureInPicture, let ui = web.uiDelegate as? NSObject else { return }
+            let selector = NSSelectorFromString("_webViewFullscreenMayReturnToInline:")
+            if ui.responds(to: selector) { ui.perform(selector, with: web) }
+        }
     }
 
     override func closePictureInPicture() {
@@ -749,8 +819,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
             webView?.evaluateJavaScript(Self.backgroundProbe, in: nil, in: Self.world) { [weak self] r in
                 MainActor.assumeIsolated {
                     guard let self, !self.closed, let hex = (try? r.get()) as? String, !hex.isEmpty else { return }
+                    // The toolbar takes the page's pixels, not its theme-color (ToolbarSampler, #629).
                     self.delegate?.browser?(self, didReportBackgroundColor: hex)
-                    if self.webView?.themeColor == nil { self.delegate?.browser(self, didReportThemeColor: hex) }
                 }
             }
         }
@@ -819,6 +889,14 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
         MainActor.assumeIsolated { evaluate(params, in: WKContentWorld.world(name: world), completion: completion) }
     }
 
+    override func evaluate(inIsolatedWorld world: String, params: String, ifCurrent: @escaping () -> Bool,
+                           completion: @escaping (String?, String?) -> Void) {
+        MainActor.assumeIsolated {
+            guard ifCurrent() else { reply(completion, nil, "retired evaluation"); return }
+            evaluate(params, in: WKContentWorld.world(name: world), ifCurrent: ifCurrent, completion: completion)
+        }
+    }
+
     override func sendDevToolsMethod(_ method: String, params: String, completion: @escaping (String?, String?) -> Void) {
         MainActor.assumeIsolated {
             guard let web = webView, !closed else { return reply(completion, nil, "\(method): the page is closed") }
@@ -854,6 +932,24 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
                 }
                 web.go(to: item)
                 reply(completion, "{}", nil)
+            case "Cra.pauseMedia":
+                // Pause All Media (#438), answered as Chromium's engine does: WebKit pauses every
+                // player in the page, its frames included (pauseAllMediaPlayback, harmless on a quiet
+                // page). Not gated on requestMediaPlaybackState, which answered both ways wrongly for
+                // a hidden tab (not playing while its track played, playing once all was paused), so
+                // "paused" counts the top frame's players that played; sound from a frame counts on
+                // the app's side (MediaPause.outcome).
+                let count = """
+                (() => { let n = 0; const visit = r => { for (const e of r.querySelectorAll('*')) {
+                  if (e instanceof HTMLMediaElement && !e.paused && !e.ended) n++; if (e.shadowRoot) visit(e.shadowRoot); } };
+                  visit(document); return n; })()
+                """
+                web.evaluateJavaScript(count, in: nil, in: Self.world) { [weak self] r in
+                    let playing = (try? r.get()) as? Int ?? 0
+                    web.pauseAllMediaPlayback {
+                        self?.reply(completion, #"{"playing":\#(playing > 0),"session":false,"paused":\#(playing),"resisted":0}"#, nil)
+                    }
+                }
             case "Cra.setFreezingVote", "Cra.load":
                 // WebKit decides when a hidden page sleeps; tab sleeping closes the page instead.
                 reply(completion, "{}", nil)
@@ -895,13 +991,14 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     /// Chromium does: {"result":{"type":…,"value":…}} or {"exceptionDetails":{…}}. Scripts run as a
     /// user gesture (WebKit's evaluateJavaScript always does), so play() and requestPictureInPicture work.
     @MainActor
-    private func evaluate(_ params: String, in world: WKContentWorld, completion: @escaping (String?, String?) -> Void) {
+    private func evaluate(_ params: String, in world: WKContentWorld, ifCurrent: (() -> Bool)? = nil, completion: @escaping (String?, String?) -> Void) {
         guard let web = webView, !closed else { return reply(completion, nil, "the page is closed") }
         let p = Self.object(params)
         guard let expression = p["expression"] as? String else { return reply(completion, nil, "no expression") }
         let done: (Result<Any, Error>) -> Void = { [weak self] r in
             MainActor.assumeIsolated { self?.reply(completion, Self.evaluationResult(r), nil) }
         }
+        guard ifCurrent?() != false else { return reply(completion, nil, "retired evaluation") }
         if p["awaitPromise"] as? Bool == true {
             web.callAsyncJavaScript("return await (\n\(expression)\n);", arguments: [:], in: nil, in: world, completionHandler: done)
         } else {
@@ -1078,12 +1175,8 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
                   completionHandler: @escaping @MainActor (URL?) -> Void) {
         // The profile's Download location, or a save panel when it asks for each file (#190).
         let profilePath = incognitoPage ? nil : profile
-        let asked = DownloadDestinations.location(profileID: DownloadDestinations.profileID(profilePath: profilePath)).askWhereToSave
-        DownloadDestinations.destination(profilePath: profilePath, suggestedName: suggestedFilename) { [weak self] dest in
+        DownloadDestinations.destination(profilePath: profilePath, suggestedName: suggestedFilename, replaceExisting: true) { [weak self] dest in
             guard let self, let dest else { return completionHandler(nil) }
-            // A save panel picks a taken name only after the user agreed to replace it, and
-            // WebKit won't write over a file. (Without a panel the name is a free one.)
-            if asked, FileManager.default.fileExists(atPath: dest.path) { try? FileManager.default.trashItem(at: dest, resultingItemURL: nil) }
             self.startDownload(download, response: response, to: dest, completionHandler: completionHandler)
         }
     }
@@ -1137,12 +1230,6 @@ final class WebKitBrowser: CraBrowser, WKNavigationDelegate, WKUIDelegate, WKDow
     }
 
     // MARK: Helpers
-
-    static func hex(_ color: NSColor) -> String? {
-        guard let c = color.usingColorSpace(.sRGB), c.alphaComponent > 0 else { return nil }
-        return String(format: "#%02x%02x%02x", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()),
-                      Int((c.blueComponent * 255).rounded()))
-    }
 
     /// Chromium's net error for a URL loading error, for the log and ExtensionPageRetry.
     static func netError(_ e: NSError) -> Int {

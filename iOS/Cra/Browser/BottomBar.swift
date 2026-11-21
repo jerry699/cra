@@ -9,8 +9,10 @@ final class BottomBar: UIView {
     let pill = BarButton(symbol: "plus", pointSize: 16, weight: .semibold)
     let menuButton = BarButton(symbol: "chevron.up", pointSize: 16, weight: .semibold)
     /// In the tab switcher the tab stack gives way to Spaces, and the menu to Settings.
-    let spacesButton = BarButton(symbol: "desktopcomputer", pointSize: 13, weight: .semibold)
-    let settingsButton = BarButton(symbol: "gearshape", pointSize: 15, weight: .semibold)
+    // Over the tab row (IMG_1896): the monitor 19 pt wide, the plus 16.3 pt, and the gear is
+    // the spoked one, 18 pt across.
+    let spacesButton = BarButton(symbol: "desktopcomputer", pointSize: 16, weight: .semibold)
+    let settingsButton = BarButton(symbol: "gear", pointSize: 17, weight: .medium)
 
     enum Mode { case page, tabs }
     var mode: Mode = .page { didSet { applyMode() } }
@@ -67,6 +69,10 @@ final class BottomBar: UIView {
         // tinted with its lavender (Arc Search: pill #dfddf2, circles #f0effd on #fcfafd).
         blur.alpha = tabs ? 0 : visible
         pill.backgroundColor = tabs ? Palette.switcherPillFill : Palette.barControlFill
+        pill.setSymbol("plus", pointSize: tabs ? 20.5 : 16, weight: .semibold)
+        pill.glyphTint = tabs ? Palette.switcherGlyph : Palette.glyph
+        spacesButton.glyphTint = Palette.switcherGlyph
+        settingsButton.glyphTint = Palette.switcherGlyph
         spacesButton.backgroundColor = Palette.switcherButtonFill
         settingsButton.backgroundColor = Palette.switcherButtonFill
         let small = CGAffineTransform(scaleX: 0.6, y: 0.6)
@@ -92,9 +98,10 @@ final class BottomBar: UIView {
         tabsButton.frame = frames.tabs.insetBy(dx: -6, dy: -6)
         pill.frame = frames.pill
         menuButton.frame = frames.menu
-        // The switcher's round buttons are 32 pt, a little smaller than the page's menu button.
-        spacesButton.frame = frames.tabs.insetBy(dx: 1.5, dy: 1.5)
-        settingsButton.frame = frames.menu.insetBy(dx: 1.5, dy: 1.5)
+        // The switcher's round buttons are 33.5 pt (IMG_1896), a little smaller than the page's
+        // menu button.
+        spacesButton.frame = frames.tabs.insetBy(dx: 0.75, dy: 0.75)
+        settingsButton.frame = frames.menu.insetBy(dx: 0.75, dy: 0.75)
         zip([tabsButton, menuButton, spacesButton, settingsButton], transforms).forEach { $0.transform = $1 }
         menuRing.frame = frames.menu.insetBy(dx: -4, dy: -4)
         menuRing.layer.cornerRadius = menuRing.bounds.width / 2
@@ -129,6 +136,11 @@ final class BarButton: UIControl {
 
     func setSymbol(_ symbol: String, pointSize: CGFloat, weight: UIImage.SymbolWeight) {
         glyph.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight))
+    }
+
+    var glyphTint: UIColor {
+        get { glyph.tintColor }
+        set { glyph.tintColor = newValue }
     }
 
     var glyphAlpha: CGFloat {
@@ -191,10 +203,19 @@ final class TabStackButton: UIControl {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// The newest tab's picture in front, the one before it behind.
+    /// The tab on screen in front, the one looked at before it behind.
     func setSnapshots(front: UIImage?, back: UIImage?) {
         self.front.image = front
         self.back.image = back
+    }
+
+    /// The card behind, unturned and in `view`'s coordinates: where the previous tab grows from
+    /// on a flick up.
+    func backCard(in view: UIView) -> CGRect {
+        guard let holder = back.superview else { return convert(bounds, to: view) }
+        let center = convert(holder.center, to: view)
+        return CGRect(x: center.x - holder.bounds.width / 2, y: center.y - holder.bounds.height / 2,
+                      width: holder.bounds.width, height: holder.bounds.height)
     }
 
     override func layoutSubviews() {

@@ -2,8 +2,8 @@
 # Full distributable build: build, sign, notarize, package, notarize the DMG, and
 # write the Sparkle appcast for the update archive, once per CPU.
 #   CRA_VERSION=0.1.0 CRA_SIGN_IDENTITY="Developer ID Application: …" scripts/release.sh
-# Every release ships Apple silicon (Cra.dmg, Cra.zip, appcast.xml) and Intel
-# (Cra-Intel.dmg, Cra-Intel.zip, appcast-intel.xml). CRA_ARCHS="arm64" (or "x86_64")
+# Every release ships Apple silicon (Cra.dmg, Cra.zip, appcast.xml, appcast-stable.xml) and Intel
+# (Cra-Intel.dmg, Cra-Intel.zip, appcast-intel.xml, appcast-stable-intel.xml). CRA_ARCHS="arm64" (or "x86_64")
 # builds one; the Release workflow runs one per job and merges them.
 # Without CRA_SIGN_IDENTITY it still produces an ad-hoc build and packages, so
 # the pipeline can be exercised before certificates exist. The appcast needs the
@@ -31,32 +31,87 @@ elif [ "${CRA_ALLOW_OLD_ENGINE:-}" != 1 ]; then
     { echo "Release stopped: the engine is behind Chrome stable (CRA_ALLOW_OLD_ENGINE=1 to ship it anyway)" >&2; exit 1; }
 fi
 
-rm -rf build/dist
+# The Stable channel's release (GitHub #476, docs/release.md "Channels"): scripts/promote.sh sets it. Its own
+# appcast holds its signed item, which goes into this release's feeds next to the new one.
+export CRA_STABLE_VERSION="${CRA_STABLE_VERSION:-$(tr -d '[:space:]' < scripts/stable-version)}"
+STABLE_DIR="$(mktemp -d /tmp/cra-stable.XXXXXX)"
+trap 'rm -rf "$STABLE_DIR"' EXIT
+
+# CRA_RESUME=<dir> (the Release workflow's rerun, or by hand): a CPU whose signed app, DMG and
+# Apple submission id are in <dir> (scripts/keep-pending.sh wrote them when a run stopped while
+# Apple was still checking) is not built again: its notarization is picked up where it was.
+RESUME="${CRA_RESUME:-}"
+[ -n "$RESUME" ] || rm -rf build/dist
+mkdir -p build/dist
 for ARCH in $ARCHS; do
-  CRA_ARCH="$ARCH" scripts/build.sh release
   # build.sh's rule: the host CPU builds build/Cra.app, the other one build/<arch>/Cra.app.
   if [ "$ARCH" = "$(uname -m)" ]; then APP="build/Cra.app"; else APP="build/$ARCH/Cra.app"; fi
-  SUFFIX="$(scripts/asset-suffix.sh "$APP")"
-
-  if [ "$IDENTITY" != "-" ]; then
-    # Notarize the app first (as a zip), staple it, then package the stapled app.
-    TMPZIP="$(mktemp -d /tmp/cra-notarize.XXXXXX)/Cra.zip"
-    ditto -c -k --keepParent "$APP" "$TMPZIP"
-    scripts/notarize.sh "$TMPZIP" "$APP"
-    rm -rf "$(dirname "$TMPZIP")"
+  if [ -n "$RESUME" ] && [ -f "$RESUME/$ARCH/Cra.app.zip" ] && ls "$RESUME/$ARCH"/*.dmg.submission >/dev/null 2>&1; then
+    echo "Resuming $ARCH from $RESUME/$ARCH (submission $(cat "$RESUME/$ARCH"/*.dmg.submission))"
+    rm -rf "$APP" && mkdir -p "$(dirname "$APP")"
+    ditto -x -k "$RESUME/$ARCH/Cra.app.zip" "$(dirname "$APP")"
+    cp "$RESUME/$ARCH"/*.dmg "$RESUME/$ARCH"/*.dmg.submission build/dist/
+    scripts/fetch-sparkle.sh   # build.sh fetches it; the appcast below signs with it
+    SUFFIX="$(scripts/asset-suffix.sh "$APP")"
+  else
+    CRA_ARCH="$ARCH" scripts/build.sh release
+    SUFFIX="$(scripts/asset-suffix.sh "$APP")"
+    rm -f "build/dist/Cra$SUFFIX.dmg.submission"
+    # The DMG holds the app as signed; one notarization of the DMG covers both.
+    scripts/package.sh "$APP"
   fi
 
-  scripts/package.sh "$APP"
+  # The web features (docs/web-features.md): file pickers, print, dialogs, prompts and choosers on this build, in
+  # the background while Apple notarizes it. 0.1.49 shipped with every upload button dead (#571) and print preview
+  # 3 pt tall (#574) because nothing tried them. On a copy (stapling writes into the app), for this Mac's CPU
+  # (the other CPU's app is the same code). CRA_SKIP_WEB_FEATURES="<why>" releases without it; say why in the notes.
+  WEB_FEATURES_PID=""
+  if [ "$ARCH" = "$(uname -m)" ] && [ -z "${CRA_SKIP_WEB_FEATURES:-}" ]; then
+    rm -rf build/web-features && mkdir -p build/web-features
+    ditto "$APP" build/web-features/Cra.app
+    CRA_APP="$PWD/build/web-features/Cra.app" CRA_BUDGETS=report scripts/scenario.sh web-features \
+      > build/web-features/run.log 2>&1 &
+    WEB_FEATURES_PID=$!
+  elif [ -n "${CRA_SKIP_WEB_FEATURES:-}" ]; then
+    echo "web features skipped: $CRA_SKIP_WEB_FEATURES" | tee "build/dist/web-features-$ARCH.txt"
+  fi
 
   if [ "$IDENTITY" != "-" ]; then
-    scripts/notarize.sh "build/dist/Cra$SUFFIX.dmg"
-    # Re-zip the stapled app so the zip download carries the ticket too.
+    # One submission per CPU: the DMG, whose ticket covers the app inside it. Stapled to the DMG
+    # and to the app (macOS checks the app inside the DMG online, as for most apps).
+    scripts/notarize.sh "build/dist/Cra$SUFFIX.dmg" "$APP"
+    rm -f "build/dist/Cra$SUFFIX.dmg.submission"
+    # Zip the stapled app: Sparkle updates and scripts/install.sh carry the ticket offline.
     ditto -c -k --keepParent "$APP" "build/dist/Cra$SUFFIX.zip"
     # On its own line so set -e fails the release when Gatekeeper rejects the app.
     spctl --assess --type execute --verbose=2 "$APP"
     echo "Gatekeeper accepts $APP"
   else
     echo "Ad-hoc build: not notarized. Set CRA_SIGN_IDENTITY and notary credentials for a distributable build." >&2
+  fi
+  if [ -n "$WEB_FEATURES_PID" ]; then
+    echo "Waiting for the web features on $ARCH (build/web-features/run.log)"
+    if wait "$WEB_FEATURES_PID"; then WEB_FEATURES=0; else WEB_FEATURES=1; fi
+    cp build/scenarios/web-features.txt "build/dist/web-features-$ARCH.txt"
+    cat "build/dist/web-features-$ARCH.txt"
+    # Never left registered next to the installed Cra.
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+      -u build/web-features/Cra.app 2>/dev/null || true
+    rm -rf build/web-features/Cra.app
+    if [ "$WEB_FEATURES" != 0 ]; then
+      tail -40 build/web-features/run.log >&2
+      echo "Release stopped: a web feature is broken on this build (docs/web-features.md)." >&2
+      echo "Fix it, or CRA_SKIP_WEB_FEATURES=\"<why>\" to release anyway and say so in the notes." >&2
+      exit 1
+    fi
+  fi
+  SUFFIX_LOWER="$(echo "$SUFFIX" | tr '[:upper:]' '[:lower:]')"
+  export CRA_STABLE_FEED="$STABLE_DIR/appcast$SUFFIX_LOWER.xml"
+  if [ "$CRA_STABLE_VERSION" != "$CRA_VERSION" ]; then
+    curl -fsSL -o "$CRA_STABLE_FEED" \
+      "https://github.com/VictorKildahl/cra/releases/download/v$CRA_STABLE_VERSION/appcast$SUFFIX_LOWER.xml"
+  else
+    unset CRA_STABLE_FEED  # this release is Stable itself
   fi
   # Installed copies update from the zip; the appcast must sign the final one.
   scripts/appcast.sh "build/dist/Cra$SUFFIX.zip" "$APP" "${CRA_RELEASE_NOTES:-}"

@@ -298,6 +298,9 @@ final class SidebarGlyphButton: NSView {
         setHelp(help)
     }
 
+    /// cra://debug?glyphs=: the symbol it shows and its tip, as `symbol "tip"`.
+    var debugReadout: String { "\(shownSymbol ?? "none") \"\(tip?.text ?? "")\"" }
+
     func setHelp(_ help: String) {
         if let tip { (tip.text, tip.keys) = ArcTooltipLabel.split(help) } else if !help.isEmpty { tip = ArcTooltipAnchorView.attach(to: self, help: help) }
     }
@@ -828,6 +831,12 @@ struct TabRowModel: Equatable {
     var selected: Bool
     var highlighted: Bool
     var capturing: Bool
+    /// A call shares the tab (TabSharing): Arc's yellow ring on the row.
+    var shared: Bool = false
+    /// A call shares another tab and can switch to this one: "Share this tab instead" on hover.
+    var canShareInstead: Bool = false
+    /// An MCP agent works in the tab: its face sits where the close button shows on hover.
+    var agent: Bool = false
     var audible: Bool
     var muted: Bool
     var unread: Bool
@@ -854,6 +863,18 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
     private var renameField: NSTextField?
     private var accessories: [NSView] = []
     private var focusRing: FocusRingLayer?
+    /// Arc's ring round a tab a call shares (TabSharing): 2 pt systemYellow along the fill's edge.
+    private var sharedRing: CALayer?
+    /// `cra://debug?tabSharing`: the row shows the yellow ring.
+    var showsSharedRing: Bool { sharedRing != nil && sharedRing?.isHidden == false }
+    /// `cra://debug?tabSharing`: the row shows "Share this tab instead".
+    private(set) var showsShareInsteadButton = false
+    /// `cra://debug?tabSharing=…&press=1`: the button's own action, as a click on it runs it. NO when it isn't shown.
+    func pressShareInsteadButton() -> Bool {
+        guard showsShareInsteadButton else { return false }
+        shareInsteadButton.action()
+        return true
+    }
     private let slash = SidebarSlashView(frame: NSRect(origin: .zero, size: SidebarSlashView.size))
     /// The pointer is on the favicon of a pinned tab away from its page (Arc's icon region):
     /// a click there goes back, and the line under the name says so.
@@ -867,9 +888,7 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
     private let regionLayer = CALayer()
     /// The Tidy Tab Titles rename this row last played, and what it is drawing for it.
     private var playedRename: UUID?
-    private var renameOld: NSTextField?
-    private var renameSparkles: CALayer?
-    private var renameBright = false
+    private let renameSweep = TidyTitleSweep()
 
     override var pressRow: SidebarRowPress.Row { .tab }
 
@@ -889,6 +908,11 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    var tidyTitleLayout: TidyTitleLayout {
+        layoutSubtreeIfNeeded()
+        return TidyTitleLayout(label: titleLabel, inset: SidebarText.inset)
+    }
+
     func apply(_ m: TabRowModel) {
         guard m != model else { return }
         // A subtitle coming or going moves the title (developer mode on a live tab, GitHub #88).
@@ -896,6 +920,7 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
             needsLayout = true
         }
         model = m
+        renameSweep.update(effectToken: m.tidyRename?.token, editing: m.editing)
         if overIcon, !canReset { overIcon = false; stopWatchingFlags(); needsLayout = true }
         refreshIcon()
         slash.color = (colors.isDark ? NSColor.white : .black).withAlphaComponent(0.3)
@@ -917,12 +942,28 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
                 focusRing = r
             }
         }
+        if m.shared != (sharedRing != nil) {
+            sharedRing?.removeFromSuperlayer()
+            sharedRing = nil
+            if m.shared {
+                let r = CALayer()
+                r.borderWidth = TabSharing.ringWidth
+                r.borderColor = NSColor.systemYellow.cgColor
+                r.cornerRadius = CraMetrics.rowCorner
+                r.cornerCurve = .continuous
+                r.actions = ["bounds": NSNull(), "position": NSNull()]
+                r.frame = fillRect
+                r.zPosition = 9  // under the keyboard's ring
+                layer?.addSublayer(r)
+                sharedRing = r
+            }
+        }
         rebuildAccessories()
         refreshBackground()
         // A rename that just happened plays once; a row rebuilt later shows only the subtitle.
         if let e = m.tidyRename, e.token != playedRename {
             playedRename = e.token
-            if window != nil, Date().timeIntervalSince(e.start) < 0.3 { playTidyRename(from: e.oldTitle) }
+            if !m.editing, window != nil, Date().timeIntervalSince(e.start) < 0.3 { playTidyRename(from: e.oldTitle, token: e.token) }
         }
     }
 
@@ -937,7 +978,7 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
     /// left to right at ~1,180 pt/s, fading the old title out and the new title and its "Double-click
     /// to rename" in, the subtitle bright meanwhile; sparkles rise along a band that crosses the row in
     /// 0.55 s, and everything stops at once when it has.
-    private func playTidyRename(from old: String) {
+    private func playTidyRename(from old: String, token: UUID) {
         layoutSubtreeIfNeeded()
         let total = TidyTitlesService.sweep
         let fade: CGFloat = 72, speed: CGFloat = 1180
@@ -951,34 +992,22 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
                                 width: max(titleLabel.frame.width, bounds.width - 8 - titleLabel.frame.minX), height: titleLabel.frame.height)
         oldLabel.wantsLayer = true
         addSubview(oldLabel)
-        renameOld = oldLabel
         titleLabel.wantsLayer = true
         subtitleLabel.wantsLayer = true
+        let sparkles = Self.sparkles(in: bounds, dark: colors.isDark, duration: total)
+        renameSweep.begin(token: token, oldTitle: oldLabel, sparkles: sparkles,
+                          title: titleLabel, subtitle: subtitleLabel, row: layer, duration: total) { [weak self] in
+            self?.refreshSubtitle()
+        }
         let end = oldLabel.frame.maxX + fade / 2
         let sweep = min(total, Double((end - start) / speed))
         for (view, reveal) in [(titleLabel as NSView, true), (subtitleLabel, true), (oldLabel, false)] {
             view.layer?.mask = Self.frontMask(reveal: reveal, fade: fade, height: view.bounds.height,
                                               from: start - view.frame.minX, to: end - view.frame.minX, duration: sweep)
         }
-        renameBright = true
         refreshSubtitle()
-        let sparkles = Self.sparkles(in: bounds, dark: colors.isDark, duration: total)
         layer?.addSublayer(sparkles)
-        renameSparkles = sparkles
         layer?.zPosition = 50
-        DispatchQueue.main.asyncAfter(deadline: .now() + total) { [weak self] in self?.endTidyRename() }
-    }
-
-    private func endTidyRename() {
-        renameOld?.removeFromSuperview()
-        renameOld = nil
-        renameSparkles?.removeFromSuperlayer()
-        renameSparkles = nil
-        titleLabel.layer?.mask = nil
-        subtitleLabel.layer?.mask = nil
-        layer?.zPosition = 0
-        renameBright = false
-        refreshSubtitle()
     }
 
     /// A horizontal mask whose soft edge (`fade` wide) travels `from` → `to`: opaque behind the front
@@ -1200,23 +1229,50 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         if subtitleLabel.alphaValue < 1, shownSubtitle != nil { subtitleFade += 1; subtitleLabel.alphaValue = 1 }
         subtitleLabel.stringValue = shownSubtitle ?? ""
         // Arc draws the subtitle bright while the rename sweeps in.
-        subtitleLabel.textColor = renameBright ? colors.textPrimary : colors.textTertiary
+        subtitleLabel.textColor = renameSweep.isActive ? colors.textPrimary : colors.textTertiary
         subtitleLabel.isHidden = shownSubtitle == nil || renameField != nil
     }
 
-    /// Recording dot, mute or playing sound, unread dot, and on hover close. Made once
-    /// per row and shown or hidden: hover moves from row to row on every frame of a scroll.
+    /// Arc's recording dot (RecordingDot): before the favicon, pulsing. Made once per row and shown or hidden.
     private lazy var captureDot: NSView = {
-        let dot = NSView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
-        let c = CALayer()
-        c.frame = CGRect(x: 4.5, y: 4.5, width: 7, height: 7)
-        c.cornerRadius = 3.5
-        c.backgroundColor = NSColor.systemRed.cgColor
+        let d = CGFloat(RecordingDot.diameter)
+        let dot = NSView(frame: NSRect(x: 0, y: 0, width: d, height: d))
         dot.wantsLayer = true
-        dot.layer?.addSublayer(c)
+        dot.layer?.cornerRadius = d / 2
+        dot.layer?.backgroundColor = NSColor.systemRed.cgColor
         _ = ArcTooltipAnchorView.attach(to: dot, help: "This tab is using your camera or microphone")
+        addSubview(dot)
         return dot
     }()
+    private var showsCaptureDot = false
+    /// `cra://debug?recordingDot`: the dot shows, and where it and the favicon are in the row.
+    var recordingDotReadout: String {
+        guard showsCaptureDot else { return "dot=0 icon=\(Int(favicon.frame.minX))" }
+        let pulsing = captureDot.layer?.animation(forKey: "pulse") != nil
+        return "dot=1 x=\(Int(captureDot.frame.minX)) w=\(Int(captureDot.frame.width)) icon=\(Int(favicon.frame.minX)) pulse=\(pulsing ? 1 : 0)"
+    }
+
+    /// Arc's pulse: the red toward white and back, forever; still under Reduce Motion.
+    private func syncCapturePulse() {
+        guard let layer = captureDot.layer else { return }
+        let pulse = showsCaptureDot && window != nil && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard pulse != (layer.animation(forKey: "pulse") != nil) else { return }
+        guard pulse else { layer.removeAnimation(forKey: "pulse"); return }
+        let red = NSColor.systemRed
+        let a = CABasicAnimation(keyPath: "backgroundColor")
+        a.fromValue = red.cgColor
+        a.toValue = (red.blended(withFraction: CGFloat(RecordingDot.pulseWhite), of: .white) ?? red).cgColor
+        a.duration = RecordingDot.pulseHalfPeriod
+        a.autoreverses = true
+        a.repeatCount = .infinity
+        a.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(a, forKey: "pulse")
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if showsCaptureDot { syncCapturePulse() }
+    }
     /// Arc 1.171: a playing or muted tab shows a speaker between the favicon and the title (17.5 pt
     /// wide, 8 pt before the title, in the glyph tone); clicking it mutes or unmutes the tab
     /// (31 Oct 2026, issue #28).
@@ -1230,6 +1286,7 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
     private static let soundGlyphWidth: CGFloat = 17.5
     private var showsSound = false
     private lazy var peekBadge = SidebarFaviconView()
+    private lazy var agentFace = AgentFaceView()
     private lazy var unreadDot: NSView = {
         let dot = NSView(frame: NSRect(x: 0, y: 0, width: 6, height: 6))
         dot.wantsLayer = true
@@ -1243,13 +1300,26 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
     }()
     /// Arc's close button: a 24 pt square (TabCellView, GitHub #139).
     private static let closeSize: CGFloat = 24
+    /// Arc's "Share this tab instead", against the close button while a call can switch to the tab (TabSharing).
+    private lazy var shareInsteadButton: SidebarGlyphButton = {
+        SidebarGlyphButton(symbol: TabSharing.shareInsteadSymbol, size: Self.closeSize, iconSize: 13,
+                           help: TabSharing.shareInsteadHelp, colors: colors) { [weak self] in
+            guard let self, let m = self.model, let list = self.list else { return }
+            list.actions.shareTabInstead(m.id)
+        }
+    }()
     private var closeKind: SidebarClose.Button?
 
     private func rebuildAccessories() {
         guard let m = model, list != nil else { return }
         let id = m.id
         var shown: [NSView] = []
-        if m.capturing { shown.append(captureDot) }
+        if m.capturing != showsCaptureDot {
+            showsCaptureDot = m.capturing
+            captureDot.isHidden = !m.capturing
+            needsLayout = true
+        }
+        if showsCaptureDot { syncCapturePulse() }
         let sound = (m.muted || m.audible) && !m.editing
         if sound {
             if soundButton.superview == nil { addSubview(soundButton) }
@@ -1259,6 +1329,10 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         }
         soundButton.isHidden = !sound
         if sound != showsSound { showsSound = sound; needsLayout = true }
+        if m.agent && !isHovered && !m.editing {
+            agentFace.show(fill: colors.textPrimary)
+            shown.append(agentFace)
+        }
         if let peek = m.peekIcon, !isHovered {
             peekBadge.show(peek, flip: false, colors: colors)
             shown.append(peekBadge)
@@ -1266,6 +1340,12 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         if m.unread && !m.selected && !isHovered {
             unreadDot.layer?.backgroundColor = colors.textPrimary.withAlphaComponent(0.55).cgColor
             shown.append(unreadDot)
+        }
+        showsShareInsteadButton = TabSharing.showsShareInstead(hovered: isHovered, editing: m.editing,
+                                                               canShareInstead: m.canShareInstead, shared: m.shared)
+        if showsShareInsteadButton {
+            shareInsteadButton.colors = colors
+            shown.append(shareInsteadButton)
         }
         // Arc hides the button while the pointer is on the icon of a tab it can take back.
         if isHovered && !m.editing && !overIcon {
@@ -1303,7 +1383,12 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         super.layout()
         guard let m = model else { return }
         let h = bounds.height
-        var x = CraMetrics.rowLeading + CGFloat(m.depth) * CraMetrics.indent
+        let lead = RecordingDot.leading(iconX: Double(CraMetrics.rowLeading + CGFloat(m.depth) * CraMetrics.indent), recording: showsCaptureDot)
+        if let dx = lead.dotX {
+            let d = CGFloat(RecordingDot.diameter)
+            captureDot.frame = NSRect(x: CGFloat(dx), y: (h - d) / 2, width: d, height: d)
+        }
+        var x = CGFloat(lead.iconX)
         favicon.frame = NSRect(x: x, y: (h - CraMetrics.favicon) / 2, width: CraMetrics.favicon, height: CraMetrics.favicon)
         if m.navigatedAway {
             // Arc: 4 pt, the slash, then the name 5 pt on (2 pt later than without it).
@@ -1322,7 +1407,8 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         // The unread dot and a peek badge are centred where the close button shows on hover, which
         // is also under a live folder's refresh button (FolderRowView, Arc lines them up too).
         let trailing = TabRowTrailing.layout(rowWidth: bounds.width, textX: x, controls: accessories.map {
-            TabRowTrailing.Control(width: $0.frame.width, slot: $0 === unreadDot || $0 === peekBadge ? Self.closeSize : nil)
+            TabRowTrailing.Control(width: $0.frame.width, slot: $0 === unreadDot || $0 === peekBadge || $0 === agentFace ? Self.closeSize : nil,
+                                   gapAfter: $0 === shareInsteadButton ? 0 : TabRowTrailing.controlGap)
         })
         for (v, vx) in zip(accessories, trailing.controlX) {
             let s = v.frame.size
@@ -1343,6 +1429,7 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
             f.frame = NSRect(x: x - SidebarText.inset, y: (h - fh) / 2, width: max(0, bounds.width - 6 - x + SidebarText.inset), height: fh)
         }
         focusRing?.frame = fillRect
+        sharedRing?.frame = fillRect
         refreshRegion()
     }
 
@@ -1364,6 +1451,9 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
         needsLayout = true
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
         }
     }
@@ -1380,8 +1470,11 @@ final class TabRowView: SidebarRowView, ArcTooltipTarget, NSTextFieldDelegate {
 
     private func commitRename() {
         guard let m = model, let list, list.ui.renamingID == m.id, let f = renameField else { return }
-        list.store.rename(m.id, to: f.stringValue)
+        let typed = f.stringValue
+        list.store.rename(m.id, to: typed)
         list.ui.renamingID = nil
+        // Whether typed keys reached the field (#424), without the name itself.
+        CraLog.note(typed == m.renameText ? "sidebar rename: name unchanged" : "sidebar rename: new name, \(typed.count) characters")
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
@@ -1478,10 +1571,8 @@ struct FolderRowModel: Equatable {
     var back: NSColor
     var tabCount: Int
     var liveBusy: Bool
-    /// The warning button's tip after a failed refresh.
-    var liveError: String?
-    /// Where the warning button signs in, when GitHub asked for that (else it tries again).
-    var liveSignInURL: String?
+    /// The warning button after a failed refresh or while single sign-on hides some of the folder.
+    var liveWarning: LiveFolderWarning?
     var liveHelp: String
     var liveIcon: NSImage? = nil
     var symbol: FolderSymbol? = nil
@@ -1556,11 +1647,12 @@ final class FolderRowView: SidebarRowView, NSTextFieldDelegate {
                 p.startAnimation(nil)
                 slot.addSubview(p)
                 accessory = slot
-            } else if let error = m.liveError {
-                // Arc keeps the warning on hover too ("Sign back in to GitHub."): a click signs in, or tries again.
-                let signIn = m.liveSignInURL
-                accessory = SidebarGlyphButton(symbol: "exclamationmark.triangle", size: 26, iconSize: 13, weight: .regular,
-                                               help: error, colors: colors) { [weak list] in
+            } else if let warning = m.liveWarning {
+                // Arc keeps the warning on hover too ("Sign back in to GitHub.", or a key for "Login with
+                // SSO to unlock this folder"): a click signs in, or tries again.
+                let signIn = warning.signInURL
+                accessory = SidebarGlyphButton(symbol: warning.symbol, size: 26, iconSize: 13, weight: .regular,
+                                               help: warning.help, colors: colors) { [weak list] in
                     if let signIn { list?.actions.openURL(signIn) } else { LiveFolderManager.shared.refresh(id) }
                 }
             } else if hover {
@@ -1618,6 +1710,9 @@ final class FolderRowView: SidebarRowView, NSTextFieldDelegate {
         needsLayout = true
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
         }
     }
@@ -1682,9 +1777,13 @@ struct SplitRowModel: Equatable {
     var highlighted: Bool
     var focusRing: Bool
     var cells: [Cell]
+    /// Arc's Change Icon… on a split (#600): its emoji or glyph, shown where the pane count goes.
+    var icon: NSImage? = nil
 
-    /// Arc's customInfo layout for a renamed split: the pane count and the name, one row.
-    var named: Bool { title != nil || editing }
+    /// Arc's customInfo layout for a renamed split, or one with an icon: the pane count (or the
+    /// icon) and the name, "N Tabs" when it has none, one row.
+    var named: Bool { title != nil || editing || icon != nil }
+    var shownTitle: String { title ?? "\(cells.count) Tabs" }
 }
 
 /// Arc's split cell (SplitViewCellView): the panes side by side, hairlines between them, each
@@ -1697,6 +1796,7 @@ final class SplitRowView: SidebarRowView, NSTextFieldDelegate, ArcTooltipTarget 
     private var separators: [NSView] = []
     private var focusRing: FocusRingLayer?
     private let countBadge = SplitCountBadgeView()
+    private let iconView = NSImageView()
     private let titleLabel = NSTextField.sidebarLabel(size: 14)
     private var renameField: NSTextField?
     private lazy var closeButton: SidebarGlyphButton = {
@@ -1713,8 +1813,13 @@ final class SplitRowView: SidebarRowView, NSTextFieldDelegate, ArcTooltipTarget 
     override init(key: SpaceListView.RowKey, list: SpaceListView, colors: SidebarColors) {
         super.init(key: key, list: list, colors: colors)
         addSubview(countBadge)
+        iconView.imageScaling = .scaleNone
+        addSubview(iconView)
         addSubview(titleLabel)
     }
+
+    /// Where the pane count or the icon sits, for the icon picker's arrow.
+    var iconRect: NSRect { countBadge.frame }
 
     required init?(coder: NSCoder) { fatalError() }
 
@@ -1743,8 +1848,11 @@ final class SplitRowView: SidebarRowView, NSTextFieldDelegate, ArcTooltipTarget 
             s.isHidden = m.highlighted || m.named
         }
         countBadge.show(m.cells.count, colors: colors)
-        countBadge.isHidden = !m.named
-        titleLabel.stringValue = m.title ?? ""
+        countBadge.isHidden = !m.named || m.icon != nil
+        iconView.image = m.icon
+        iconView.contentTintColor = colors.textSecondary
+        iconView.isHidden = !m.named || m.icon == nil
+        titleLabel.stringValue = m.named ? m.shownTitle : ""
         titleLabel.textColor = colors.textPrimary
         titleLabel.isHidden = !m.named || m.editing
         if m.editing != (renameField != nil) { m.editing ? beginRename(m.renameText) : endRename() }
@@ -1841,6 +1949,7 @@ final class SplitRowView: SidebarRowView, NSTextFieldDelegate, ArcTooltipTarget 
             let h = bounds.height
             var x = CraMetrics.rowLeading + CGFloat(m.depth) * CraMetrics.indent
             countBadge.frame = NSRect(x: x, y: (h - CraMetrics.favicon) / 2, width: CraMetrics.favicon, height: CraMetrics.favicon)
+            iconView.frame = countBadge.frame
             x += CraMetrics.favicon + 11
             let right = button?.minX ?? bounds.width - 6
             let th = titleLabel.intrinsicContentSize.height
@@ -1900,6 +2009,9 @@ final class SplitRowView: SidebarRowView, NSTextFieldDelegate, ArcTooltipTarget 
         needsLayout = true
         DispatchQueue.main.async { [weak self, weak f] in
             guard let f, let w = self?.window else { return }
+            // The sidebar sliding out at the edge is a panel that becomes key only when a click needs
+            // it, and a click on a row doesn't: the field showed selected while keys went to the page (#424).
+            w.makeKey()
             w.makeFirstResponder(f)
         }
     }
@@ -2477,9 +2589,7 @@ struct ClipboardPaste: Equatable {
 
     /// The clipboard's text on one line, nil when it holds none.
     @MainActor static func read() -> String? {
-        guard let s = NSPasteboard.general.string(forType: .string) else { return nil }
-        let line = s.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        return line.isEmpty || line.count > 2048 ? nil : line
+        PasteAndGo.line(NSPasteboard.general.string(forType: .string))
     }
 }
 
@@ -2705,8 +2815,6 @@ enum SidebarTidyMetrics {
     /// One sweep of the broom: tips 31° clockwise from the top of its handle in 0.2 s, holds,
     /// swings 7° past upright and settles, 0.9 s in all.
     static let sweep: TimeInterval = 0.9
-    /// A tidy runs at least this long on screen: one sweep and the squiggle's ramp in.
-    static let minimumRun: TimeInterval = 0.9
 }
 
 /// The divider's squiggle (Arc's SquiggleDivider): the line becomes a travelling sine wave

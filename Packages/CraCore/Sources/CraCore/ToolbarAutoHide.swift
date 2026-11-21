@@ -33,6 +33,31 @@ public enum ToolbarAutoHide {
         enabled && toolbarShown && panes == 1 && !developerBar && !devToolsOpen && !pageFullscreen
     }
 
+    /// Whether a Little Window's toolbar floats over its page (`autoHideLittleWindowToolbar`, GitHub #435).
+    /// Only over a page in the window's own view: ⌥⌘N's card is all bar, a Peek has its own, a page in
+    /// full screen shows nothing of Cra's, and DevTools or a page that came as a window of its own (the
+    /// CEF engine's Chrome-style hosting) sit above anything the window draws.
+    public static func littleWindowFloats(enabled: Bool, card: Bool, peek: Bool, pageFullscreen: Bool, devToolsOpen: Bool,
+                                          pageInOwnWindow: Bool) -> Bool {
+        enabled && !card && !peek && !pageFullscreen && !devToolsOpen && !pageInOwnWindow
+    }
+
+    /// Whether a Peek's bar floats over its page (`autoHidePeekToolbar`, GitHub #493): the Peek's own
+    /// switch, by the Little Window's rules. An easel's Peek has no bar to float, a page in full screen
+    /// shows nothing of Cra's, and DevTools or a page in a window of its own sit above the card.
+    public static func peekFloats(enabled: Bool, hasBar: Bool, pageFullscreen: Bool, devToolsOpen: Bool,
+                                  pageInOwnWindow: Bool) -> Bool {
+        enabled && hasBar && !pageFullscreen && !devToolsOpen && !pageInOwnWindow
+    }
+
+    /// Whether a Little Window or a Peek shows its bar at all, floating or above the page. `barless`:
+    /// ⌥⌘N's card or an easel's Peek, which have none. A page in full screen (a video) has the whole
+    /// window, as the browser window's does: on the CEF engine the page was a window of its own over
+    /// the bar, but with the Chromium engine it is a view under it, so the bar has to go.
+    public static func littleWindowHasBar(barless: Bool, pageFullscreen: Bool) -> Bool {
+        !barless && !pageFullscreen
+    }
+
     /// The strip that brings the toolbar out: the top of the card and everything above it, up to
     /// just outside the window (`container` is the view the card sits in).
     public static func inRevealStrip(_ point: CGPoint, card: CGRect, container: CGRect) -> Bool {
@@ -83,13 +108,16 @@ public enum ToolbarAutoHide {
     }
 }
 
-/// Whether the floating toolbar is out, from pointer samples and the clock.
+/// Whether the floating toolbar is out, from pointer samples, keyboard focus and the clock.
 ///
 /// The pointer has to rest in the strip for `revealDwell` before the toolbar comes out, and has to
 /// be away for `hideDelay` before it goes. A resting pointer sends no samples, so each sample
-/// returns when to look again; `tick(at:)` is that look.
+/// returns when to look again; `tick(at:)` is that look. Keyboard focus on one of the bar's
+/// buttons brings it out too, and keeps it out until the focus leaves (`focus(_:at:)`).
 public struct ToolbarAutoHideTracker: Equatable, Sendable {
     public private(set) var shown = false
+    /// One of the bar's buttons has the keyboard focus.
+    public private(set) var focused = false
     private var last: ToolbarAutoHide.Pointer = .away
     private var held = false
     private var stripSince: TimeInterval?
@@ -114,6 +142,22 @@ public struct ToolbarAutoHideTracker: Equatable, Sendable {
         return step(at: now)
     }
 
+    /// The keyboard focus came to one of the bar's buttons (Tab with Full Keyboard Access on, Shift-Tab
+    /// back into it) or left the bar. Focus brings the bar out at once: there is no pointer passing
+    /// by to wait out, and the button with the focus ring has to be seen. The bar stays out while it
+    /// has the focus, wherever the pointer is, and once the focus has left it goes the usual way.
+    /// Returns the time to call `tick(at:)`, as `sample` does.
+    @discardableResult
+    public mutating func focus(_ inBar: Bool, at now: TimeInterval) -> TimeInterval? {
+        guard inBar != focused else { return nil }
+        focused = inBar
+        guard inBar else { return step(at: now) }
+        shown = true
+        stripSince = nil
+        awaySince = nil
+        return nil
+    }
+
     /// Out now, whatever the pointer does: something asked for the toolbar (a popover hangs under
     /// one of its buttons). It goes again the usual way once the pointer is away and nothing holds it.
     public mutating func bringOut() {
@@ -122,7 +166,8 @@ public struct ToolbarAutoHideTracker: Equatable, Sendable {
         awaySince = nil
     }
 
-    /// Hidden now: the toolbar stopped floating, or another tab took the card.
+    /// Hidden now: the toolbar stopped floating, or another tab took the card. The focus is forgotten
+    /// too; whoever still sees it on the bar says so again.
     public mutating func reset() {
         self = ToolbarAutoHideTracker()
     }
@@ -130,7 +175,7 @@ public struct ToolbarAutoHideTracker: Equatable, Sendable {
     private mutating func step(at now: TimeInterval) -> TimeInterval? {
         if shown {
             stripSince = nil
-            guard last == .away, !held else { awaySince = nil; return nil }
+            guard last == .away, !held, !focused else { awaySince = nil; return nil }
             let start = awaySince ?? now
             awaySince = start
             // Compared with the time handed back, so the look asked for is never a hair too early.

@@ -33,6 +33,9 @@ namespace download {
 class DownloadItem;
 }
 class GURL;
+namespace url {
+class Origin;
+}
 
 namespace cra {
 
@@ -44,9 +47,10 @@ inline ExtraPartsFactory g_extra_parts_factory = nullptr;
 // (NSApp's delegate in Chrome) and Chrome's main menu are never made (chrome_browser_main_mac.mm).
 inline bool g_embedder_owns_app = false;
 
-// A page asked to come to the front: an extension (chrome.tabs.update with active: true, by_page false) or the
-// page itself (window.focus(), clients.focus() after a notification click). Cra selects its tab; Chrome's
-// window never shows (patches/page-activate.patch, patches/extension-tab-activate.patch).
+// A page asked to come to the front: an extension (chrome.tabs.update with active: true, or chrome.windows.update
+// with focused: true for its window's active tab; by_page false) or the page itself (window.focus(), clients.focus()
+// after a notification click). Cra selects its tab; Chrome's window never shows (patches/page-activate.patch,
+// patches/extension-tab-activate.patch, patches/extension-window-focus.patch).
 using PageActivationHook = void (*)(content::WebContents* contents, bool by_page);
 inline PageActivationHook g_page_activation = nullptr;
 
@@ -85,16 +89,40 @@ inline PageIsFullscreenHook g_page_is_fullscreen = nullptr;
 using TargetURLHook = bool (*)(content::WebContents* contents, const GURL& url);
 inline TargetURLHook g_target_url = nullptr;
 
+// Whether a page of Cra's is in the window the user is in: Cra the active app and the page's view in its key
+// window. -1 for a page that isn't Cra's, which keeps Chrome's answer (its Browser's window, which for Cra's
+// pages is never seen and never active), else 0 or 1. PaymentRequest.show() asks it
+// (patches/cra-payments-window.patch), and chrome.action.openPopup() (patches/cra-extension-popup-window.patch).
+using PageWindowActiveHook = int (*)(content::WebContents* contents);
+inline PageWindowActiveHook g_page_window_active = nullptr;
+
+// The exclusive-access notice Chrome decided for a page ("Press Esc to exit full screen", "Press Esc to show your
+// cursor", "Press and hold Esc"), which it hangs on its Browser's never-seen window: Cra shows it over the page
+// (patches/cra-exclusive-access-notice.patch). `type` is Chrome's ExclusiveAccessBubbleType (0: none);
+// `contents` is the page holding full screen or a lock, or null; `force_update`: show it again even if unchanged.
+// True when the page is Cra's and Cra says it: Chrome's own bubble then stays away.
+using ExclusiveAccessNoticeHook = bool (*)(content::WebContents* contents, int type, bool force_update);
+inline ExclusiveAccessNoticeHook g_exclusive_access_notice = nullptr;
+
 // Whether a page is one of Cra's. Its DevTools never dock into Chrome's window: they open in a DevTools window
 // of their own, which Cra's layer takes over (patches/cra-devtools.patch).
 using IsCraPageHook = bool (*)(const content::WebContents* contents);
 inline IsCraPageHook g_is_cra_page = nullptr;
 
-// Cra's ad and tracker blocking (Settings): whether a subresource or subframe request from `frame` is cancelled,
-// as the CEF bridge's OnBeforeResourceLoad decided (CraContentBlocker.h). Top-level navigations never come here
-// (patches/cra-content-blocking.patch).
-using BlockRequestHook = bool (*)(const GURL& url, const content::GlobalRenderFrameHostId& frame);
+// Cra's ad and tracker blocking (Settings): whether a subresource or subframe request from `frame` is stopped,
+// as the CEF bridge decides (CraContentBlocker.h). A frame's navigation has no `frame` (Chromium proxies it with
+// no process); `top_frame` is then the origin of the page it navigates in, from the navigation's isolation info,
+// or null. Top-level navigations never come here (patches/cra-content-blocking.patch).
+using BlockRequestHook = bool (*)(const GURL& url,
+                                  const content::GlobalRenderFrameHostId& frame,
+                                  const url::Origin* top_frame);
 inline BlockRequestHook g_block_request = nullptr;
+
+// A Boost's colours for a page of Cra's: Arc's colorize as 6 comma-separated numbers (Boost.tint) that Blink draws
+// every colour of the page through but its images (GraphicsContext::SetCraTint), as Arc's Boosts do. Empty for none
+// (patches/cra-boost-tint.patch, #602).
+using BoostTintHook = std::string (*)(content::WebContents* contents);
+inline BoostTintHook g_boost_tint = nullptr;
 
 // A page's context menu, Arc's in Cra's pages (patches/cra-page-menu.patch): Cra changes the model Chrome built,
 // runs its own items (ids kCraMenuFirst to kCraMenuLast) and the Chrome ones it takes over (true: done), and

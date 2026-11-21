@@ -1,5 +1,14 @@
 import Foundation
 
+/// Where the theme editor's pad puts a second and third colour (Arc: the saved theme's `wheel`, #632);
+/// SpaceColorWheel places them. Here, with the theme, so a file that reads themes needs no more.
+public enum SpaceThemeWheel: String, Codable, Sendable, CaseIterable {
+    /// +40°, then −40°: a page-2 swatch.
+    case analogous
+    /// Across the wheel: 180°, or 150° and 210° (Arc's spelling, as its file has it).
+    case complimentary
+}
+
 public struct SpaceTheme: Codable, Equatable {
     /// One or two hex colors blended into a gradient (Arc: blendedGradient.baseColors).
     public var colors: [String]
@@ -26,6 +35,10 @@ public struct SpaceTheme: Codable, Equatable {
     /// The theme editor's pad colours the theme was built from (Arc: the editor's key colour and
     /// the ones its wheel adds); nil for a preset or an import, whose own colours go on the pad.
     public var key: [String]? = nil
+    /// The pad's wheel for two or three `key` colours (Arc: the saved theme's `wheel`), which + , −
+    /// and a drag place them on (#632); nil for one colour, a preset or an import, and for a theme
+    /// saved before 0.1.53 (SpaceColorPresets.wheel(of:) then picks it).
+    public var wheel: SpaceThemeWheel? = nil
 
     /// One half of an Auto theme: everything but the appearance, which is the half's own.
     public struct Variant: Codable, Equatable {
@@ -59,7 +72,7 @@ public struct SpaceTheme: Codable, Equatable {
     }
 
     public init(colors: [String], intensity: Double, noise: Double, appearance: String, vibrant: Bool = false, accent: String? = nil,
-         solid: Bool = false, dark: Variant? = nil, key: [String]? = nil) {
+         solid: Bool = false, dark: Variant? = nil, key: [String]? = nil, wheel: SpaceThemeWheel? = nil) {
         self.colors = colors
         self.intensity = intensity
         self.noise = noise
@@ -69,6 +82,7 @@ public struct SpaceTheme: Codable, Equatable {
         self.solid = solid
         self.dark = dark
         self.key = key
+        self.wheel = wheel
     }
 
     /// Arc's Auto: a light and a dark half, shown as macOS' appearance says.
@@ -90,6 +104,8 @@ public struct SpaceTheme: Codable, Equatable {
         // A dark half that can't be read is dropped, not the whole sidebar.json with it.
         dark = (try? c.decodeIfPresent(Variant.self, forKey: .dark)) ?? nil
         key = try c.decodeIfPresent([String].self, forKey: .key)
+        // A wheel this Cra doesn't know falls back to the colours' own, not a failed sidebar.json.
+        wheel = (try? c.decodeIfPresent(SpaceThemeWheel.self, forKey: .wheel)) ?? nil
     }
 
     var variant: Variant {
@@ -105,8 +121,11 @@ public struct SpaceTheme: Codable, Equatable {
         guard followsSystem else { return self }
         if let d = dark {
             if !systemDark { var t = self; t.appearance = "light"; t.dark = nil; return t }
-            return SpaceTheme(colors: d.colors, intensity: d.intensity, noise: d.noise, appearance: "dark", vibrant: d.vibrant,
-                              accent: d.accent, solid: d.solid)
+            var t = SpaceTheme(colors: d.colors, intensity: d.intensity, noise: d.noise, appearance: "dark", vibrant: d.vibrant,
+                               accent: d.accent, solid: d.solid)
+            // The pad's colours belong to both halves: the dark one is the editor's too (drawnOverMaterial).
+            t.key = key
+            return t
         }
         // One set of colours keeps its look on both sides, as an Arc `single` theme does: swapping
         // it for a derived half made an imported space look nothing like Arc's while macOS ran the
@@ -114,6 +133,22 @@ public struct SpaceTheme: Codable, Equatable {
         var t = self
         t.appearance = isDark ? "dark" : "light"
         return t
+    }
+
+    /// Whether a one-colour sidebar is drawn over Arc's light material rather than its dark one. Arc's
+    /// follows its own appearance (View ▸ Appearance, which the theme editor's sun and moon set) and
+    /// never changes the colour for it (offline Arc 1.172, 17 Nov 2026); a Cra space's Light or Dark
+    /// stands in for that appearance, and Auto follows macOS, as Arc on Automatic does (#455).
+    public func usesLightMaterial(systemDark: Bool) -> Bool { Self.isLight(appearance, systemDark: systemDark) }
+
+    /// Light or Dark as they are, Auto as macOS shows: Arc's appearance setting, which picks the
+    /// one-colour material and the theme editor's card (light card, black controls) alike (#455).
+    public static func isLight(_ appearance: String, systemDark: Bool) -> Bool {
+        switch appearance {
+        case "light": return true
+        case "dark": return false
+        default: return !systemDark
+        }
     }
 
     /// Dark first: colors borrowed from Victor's other projects (GhostWriter
@@ -140,6 +175,20 @@ public struct SpaceTheme: Codable, Equatable {
     /// active, α·colour + (1 − α)·212 while inactive, with α = 0.19 + 0.55·intensity (fits 0.191,
     /// 0.459, 0.742 at 0, 0.5, 1; within 3/255). isVibrant and the text appearance don't matter.
     public static func solidAlpha(intensity: Double) -> Double { 0.19 + 0.55 * max(0, min(1, intensity)) }
+
+    /// Whether the sidebar is drawn as Arc draws a theme made in its editor: the colours at
+    /// `solidAlpha(intensity)` over Arc's material (SidebarBackdrop's solid one, light or dark by
+    /// appearance). A one-colour theme always is (31 Oct, 17 Nov 2026), and so is a gradient made in
+    /// the editor: Arc 1.174 on a fake home under Dark (20 Nov 2026), Brand8 and its pair (#6CBAD9,
+    /// #7F7EDC) at 0.8 read 144/187/210 over white and 94/139/162 over black at the top: α 0.63 =
+    /// solidAlpha(0.8) of the first colour over 63 + 0.53·backdrop; at 0.3 α ≈ 0.34. Until #643 Cra
+    /// drew it opaque, then (on the way) with the imported themes' fit, nearly opaque above 0.5. An
+    /// imported vibrant theme keeps the stops that fit baked in (ArcThemeImport).
+    public var drawnOverMaterial: Bool { solid || (vibrant && key != nil) }
+
+    /// An editor gradient whose colours read dark: Arc saves it with `translucencyStyle` dark and draws it
+    /// over a darker material than one colour's (SidebarBackdrop.solidActiveDarkGradient, #643).
+    public var drawnOverDarkGradientMaterial: Bool { !solid && vibrant && key != nil && isDark }
 
     public var isDark: Bool {
         // Light and Dark from the theme editor keep a picked colour as it is, as Arc does, so its own

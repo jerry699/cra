@@ -101,6 +101,35 @@ struct PerfStateTests {
         #expect(s.longTasks == 0)
     }
 
+    /// Tab sleep's discard ends the page's renderer cleanly: Chromium's FastShutdown reports
+    /// NORMAL_TERMINATION, which the engine names "unknown", and Chrome shows no "Aw, Snap!" for it.
+    /// In 0.1.44 a user's outlook.live.com counted as a page crash the second tab sleep discarded it.
+    @Test func aRendererTabSleepEndedIsNoCrash() {
+        var s = PerfState()
+        s.count(.tabSlept, key: "idle", at: 1)
+        s.count(.rendererTerminated, key: "unknown", at: 1, site: "outlook.live.com")
+        #expect(s.counters[.rendererTerminated] == nil)
+        #expect(s.events.elements.isEmpty)
+        #expect(s.historySample().rendererCrashes == 0)
+        let r = s.report(generatedAt: Self.start, session: Self.session(), selfCost: PerfSelfCost())
+        #expect(!r.insights.contains { $0.id == "renderer-crashes" })
+
+        // Every end either engine names is one.
+        let crashes = ["abnormal termination", "killed", "crashed", "out of memory", "launch failed", "integrity failure"]
+        for (i, how) in crashes.enumerated() { s.count(.rendererTerminated, key: how, at: Double(2 + i), site: "a.example") }
+        #expect(s.counters[.rendererTerminated] == Dictionary(uniqueKeysWithValues: crashes.map { ($0, 1) }))
+        #expect(s.events.elements.map(\.detail) == crashes)
+        #expect(s.historySample().rendererCrashes == crashes.count)
+    }
+
+    /// PerfProcessTable saturates a group at Int64.max; the history's total adds the groups again.
+    @Test(.bug(id: "crash-perf-counter-overflow")) func historyFootprintSaturatesInsteadOfOverflowing() {
+        var s = PerfState()
+        s.processes = [PerfProcessGroup(kind: .renderer, count: 1, footprintBytes: .max),
+                       PerfProcessGroup(kind: .gpu, count: 1, footprintBytes: 1 << 20)]
+        #expect(s.historySample().footprintBytes == .max)
+    }
+
     @Test func historySamplesCountWhatHappenedSinceTheLastOne() {
         var s = Self.sampleState()
         let first = s.historySample()

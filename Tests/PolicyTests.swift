@@ -21,6 +21,9 @@ enum PolicyTests {
         featureFlags()
         liveScheduler()
         try webHandoff()
+        try defaultBrowserPicker()
+        try iPhoneDefaultBrowser()
+        try iPhoneWebContentLoadsHTTP()
         print("Policies: \(checks) checks passed")
     }
 
@@ -54,6 +57,60 @@ enum PolicyTests {
             expect(resume(web) == true, "continue a handed-off web page")
         }
         expect(receiver.openedURLs == urls, "only the accepted pages reach normal URL opening, once each and intact")
+    }
+
+    // promise: #452
+    /// #452: System Settings ▸ Desktop & Dock ▸ Default web browser lists only the apps that open
+    /// http and https links and both public.html and public.xhtml files (DesktopSettings.appex asks
+    /// LSOpenWithMenuConstructor for that set). With public.html alone, Cra was missing from it.
+    private static func defaultBrowserPicker() throws {
+        let plist = try Data(contentsOf: URL(fileURLWithPath: "resources/Info.plist"))
+        let info = try PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
+        let schemes = (info?["CFBundleURLTypes"] as? [[String: Any]] ?? [])
+            .flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+        expect(schemes.contains("http") && schemes.contains("https"), "Cra opens http and https links")
+        let types = (info?["CFBundleDocumentTypes"] as? [[String: Any]] ?? [])
+            .filter { ($0["CFBundleTypeRole"] as? String) == "Viewer" }
+            .flatMap { $0["LSItemContentTypes"] as? [String] ?? [] }
+        expect(types.contains("public.html"), "Cra views HTML files")
+        expect(types.contains("public.xhtml"), "Cra views XHTML files, so the system's default browser picker lists it")
+    }
+
+    // promise: #504 #536
+    /// #504: iOS lists an app under Settings ▸ Apps ▸ Default Apps ▸ Browser App, and gives the
+    /// app's own Settings page its "Default Browser App" row, only when the app is signed with
+    /// Apple's managed `com.apple.developer.web-browser` entitlement (granted to the team 18 Nov
+    /// 2026, request 2557T8YX24). Without it "Set Cra as Default Browser" led to a page with nothing
+    /// to pick. Apple also asks for http and https in the Info.plist, and the entitlement rules out
+    /// Universal Links (associated domains). #536: the same entitlement is what lets WebKit pass a
+    /// site's passkey request to iOS; without it every passkey sign-in failed (PasskeyTests).
+    private static func iPhoneDefaultBrowser() throws {
+        let entitlementsData = try Data(contentsOf: URL(fileURLWithPath: "iOS/Support/Cra.entitlements"))
+        let entitlements = try PropertyListSerialization.propertyList(from: entitlementsData, format: nil) as? [String: Any]
+        expect(entitlements?["com.apple.developer.web-browser"] as? Bool == true,
+               "the iPhone app is signed as a web browser, so iOS lets people make it the default")
+        expect(entitlements?["com.apple.developer.associated-domains"] == nil,
+               "a default-browser app claims no Universal Links")
+        let plist = try Data(contentsOf: URL(fileURLWithPath: "iOS/Support/Info.plist"))
+        let info = try PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
+        let schemes = (info?["CFBundleURLTypes"] as? [[String: Any]] ?? [])
+            .flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] }
+        expect(schemes.contains("http") && schemes.contains("https"), "the iPhone app opens http and https links")
+    }
+
+    // promise: #568
+    /// #568: every http:// address opened as a blank white page on the iPhone. With no
+    /// NSAppTransportSecurity entry iOS refuses plain-http loads in the web view too (error -1022).
+    /// NSAllowsArbitraryLoadsInWebContent is Apple's key for browsers: it lets web views load http
+    /// as Arc Search, Safari and Cra for Mac do, while the app's own requests stay under ATS. The
+    /// broader NSAllowsArbitraryLoads would let those through as well, and iOS ignores the
+    /// web-content key when it is set.
+    private static func iPhoneWebContentLoadsHTTP() throws {
+        let plist = try Data(contentsOf: URL(fileURLWithPath: "iOS/Support/Info.plist"))
+        let info = try PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any]
+        let ats = info?["NSAppTransportSecurity"] as? [String: Any]
+        expect(ats?["NSAllowsArbitraryLoadsInWebContent"] as? Bool == true, "the iPhone app's web views load http:// pages")
+        expect(ats?["NSAllowsArbitraryLoads"] == nil, "the app's own requests stay https-only")
     }
 
     /// #41: a click never reaches an extension turned off in chrome://extensions (Chromium crashed

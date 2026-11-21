@@ -1,6 +1,6 @@
 import CoreGraphics
 
-/// The trailing end of a tab's sidebar row: its controls (the capture dot, a peek badge, the unread
+/// The trailing end of a tab's sidebar row: its controls (a peek badge, the unread
 /// dot, the close button on hover) laid out right to left from the fill's end, and the width that
 /// leaves the name (and the subtitle under it, which shares it).
 ///
@@ -24,10 +24,14 @@ public enum TabRowTrailing {
         /// The width it's centred in: its own, or the close button's for a dot or badge that sits
         /// where the button shows on hover.
         public var slot: CGFloat
+        /// From this control to the next one: `controlGap`, or 0 for a button that sits against the
+        /// next one (Arc's "Share this tab instead" against the close button).
+        public var gapAfter: CGFloat
 
-        public init(width: CGFloat, slot: CGFloat? = nil) {
+        public init(width: CGFloat, slot: CGFloat? = nil, gapAfter: CGFloat = TabRowTrailing.controlGap) {
             self.width = width
             self.slot = slot ?? width
+            self.gapAfter = gapAfter
         }
     }
 
@@ -45,7 +49,7 @@ public enum TabRowTrailing {
         for i in controls.indices.reversed() {
             let c = controls[i]
             xs[i] = right - c.slot / 2 - c.width / 2
-            right = xs[i] - controlGap
+            if i > 0 { right = xs[i] - controls[i - 1].gapAfter }
         }
         let textEnd = xs.first.map { $0 - nameGap } ?? rowWidth - restingTail
         return Layout(controlX: xs, textWidth: max(0, textEnd - textX))

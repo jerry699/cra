@@ -67,13 +67,23 @@ struct PinCandidate: Identifiable, Hashable {
 @MainActor
 @Observable
 final class ImportFlowModel {
+    /// Browsers with something to bring over; only these can be picked.
     let sources = ImportSource.allCases.filter(\.isAvailable)
+    /// What the browser step shows: every browser Cra imports from, the available ones first
+    /// and the rest dimmed (ImportSourceList).
+    var listedSources: [ImportSource] {
+        let available = Set(sources.map(\.id))
+        let byID = Dictionary(uniqueKeysWithValues: ImportSource.allCases.map { ($0.id, $0) })
+        return ImportSourceList.ordered(ImportSource.allCases.map(\.id), available: available).compactMap { byID[$0] }
+    }
     var step: ImportStep
     /// Direction of the last step change, for the slide transition.
     var forward = true
     private(set) var source: ImportSource?
     private(set) var plan: ImportPlan?
     private(set) var loadError: String?
+    /// macOS won't let Cra read the picked browser's folder until Cra has Full Disk Access.
+    private(set) var needsFullDiskAccess = false
 
     var selectedSpaces: Set<Int> = []
     var includeFavorites = true
@@ -226,9 +236,25 @@ final class ImportFlowModel {
     // MARK: Source
 
     func select(_ s: ImportSource) {
-        guard s != source else { return }
+        // Only a browser with something to bring over; the others are listed dimmed (ImportSourceList).
+        guard s != source, sources.contains(s) else { return }
+        load(s)
+    }
+
+    /// Back from System Settings: read the browser again once Full Disk Access is on.
+    func recheckFullDiskAccess() {
+        guard needsFullDiskAccess, let source, !source.needsFullDiskAccess else { return }
+        load(source)
+    }
+
+    static let fullDiskAccessSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!
+
+    func openFullDiskAccessSettings() { NSWorkspace.shared.open(Self.fullDiskAccessSettings) }
+
+    private func load(_ s: ImportSource) {
         source = s
         loadError = nil
+        needsFullDiskAccess = s.needsFullDiskAccess
         credentials = ImportedCredentials()
         credentialError = nil
         unlockError = nil
@@ -236,7 +262,7 @@ final class ImportFlowModel {
         exportFileName = nil
         exportError = nil
         exportTopSites = []
-        if s.needsExportedFile {
+        if s.needsExportedFile || needsFullDiskAccess {
             plan = nil
         } else {
             do {
@@ -268,7 +294,7 @@ final class ImportFlowModel {
         switch source.kind {
         case .safari: go(.safariExport)
         case .firefox, .zen: go(.passwordsFile)
-        case .arc, .dia, .chromium: credentialProfiles.isEmpty ? goToSpaces() : go(.unlock)
+        case .arc, .dia, .yab, .ardia, .chromium: credentialProfiles.isEmpty ? goToSpaces() : go(.unlock)
         }
     }
 
@@ -590,7 +616,7 @@ final class ImportFlowModel {
     func loadPinCandidates() {
         guard !pinsLoaded else { return }
         pinsLoaded = true
-        let source = self.source?.kind == .safari ? nil : (self.source ?? sources.first { $0.kind != .safari })
+        let source = self.source?.kind == .safari ? nil : (self.source ?? sources.first { $0.kind != .safari && !$0.needsFullDiskAccess })
         let fromExport = exportTopSites
         let existing = Set(store.tabs(under: store.focusedSpace.favoritesContainerID).compactMap { $0.tab.flatMap { FaviconKey.key(for: $0.url) } })
         pinCandidates = Self.presetPins

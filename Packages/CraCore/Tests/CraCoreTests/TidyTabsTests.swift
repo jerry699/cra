@@ -18,47 +18,207 @@ struct TidyTabsTests {
         #expect(TidyTabs.offers(todayTabs: 7, looseTabs: ["a", "g"], tidied: Set(six)))
     }
 
-    @Test func promptListsTabsWithIdsAndExistingGroups() {
-        let p = TidyTabs.prompt(tabs: [.init(title: "Mars - Wikipedia", host: "en.wikipedia.org"),
-                                       .init(title: "", host: "example.com"),
-                                       .init(title: "Line one\nline two", host: "")],
-                                existingGroups: ["Bread"])
-        #expect(p == """
-        Here are my tabs, as 'id: title (site)':
-        0: Mars - Wikipedia (en.wikipedia.org)
-        1: example.com (example.com)
+    @Test func requestOrderPrioritizesUnseenIdsWithoutReorderingEitherPart() {
+        let loose = ["old1", "new1", "old2", "new2"]
+        #expect(TidyTabs.requestOrder(looseTabs: loose, tidied: nil) == loose)
+        #expect(TidyTabs.requestOrder(looseTabs: loose, tidied: []) == loose)
+        #expect(TidyTabs.requestOrder(looseTabs: loose, tidied: Set(loose)) == loose)
+        #expect(TidyTabs.requestOrder(looseTabs: loose, tidied: ["old1", "old2", "gone"]) == ["new1", "new2", "old1", "old2"])
+    }
+
+    @Test func promptListsCapturedIdsTitlesAndExistingNames() throws {
+        let tabs = [TidyTabs.Tab(id: UUID(), title: "Mars - Wikipedia", host: "en.wikipedia.org"),
+                    .init(id: UUID(), title: "", host: "example.com"),
+                    .init(id: UUID(), title: "Line one\nline two", host: "")]
+        let bread = TidyTabs.ExistingGroup(id: UUID(), name: "Bread")
+        let request = try #require(TidyTabs.request(tabs: tabs, existingGroups: [bread]))
+        #expect(request.tabIDs == tabs.map(\.id))
+        #expect(request.prompt == """
+        Here are my tabs, in the format 'id: title':
+        0: Mars - Wikipedia
+        1: example.com
         2: Line one line two
-
-        I already have these groups; reuse a name exactly to add tabs to it: "Bread".
         """)
+        #expect(!request.prompt.contains("en.wikipedia.org"))
+        #expect(request.plan([.init(name: "bread", tabs: [1])]).joins == [bread.id: [1]])
     }
 
-    @Test func promptCutsLongTitlesAndTabLists() {
-        let tabs = Array(repeating: TidyTabs.Tab(title: String(repeating: "x", count: 200), host: "h"), count: 100)
-        let lines = TidyTabs.prompt(tabs: tabs, existingGroups: []).split(separator: "\n")
-        #expect(lines.count == TidyTabs.maximumTabs + 1)
-        #expect(lines[1] == "0: " + String(repeating: "x", count: 79) + "… (h)")
+    @Test func combinedPromptContextIsBounded() throws {
+        let tabs = (0..<60).map { _ in TidyTabs.Tab(id: UUID(), title: String(repeating: "予定", count: 80),
+                                                    host: String(repeating: "host", count: 500)) }
+        let groups = (0..<100).map { _ in TidyTabs.ExistingGroup(id: UUID(), name: String(repeating: "group", count: 500)) }
+        let request = try #require(TidyTabs.request(tabs: tabs, existingGroups: groups))
+        #expect(request.promptBytes <= 2304)
+        #expect(request.tabIDs == Array(tabs.prefix(request.tabs.count).map(\.id)))
+        #expect(request.tabs.allSatisfy { $0.title.utf8.count <= 160 && $0.host.utf8.count <= 160 })
+        #expect(!request.prompt.contains("group"))
     }
 
-    @Test func planDropsBadIdsDuplicatesAndOneTabGroups() {
+    @Test func fittingBoundsCJKEmojiControlsAndCombiningRuns() throws {
+        for title in [String(repeating: "予定", count: 1000), String(repeating: "🧹", count: 1000),
+                      "e" + String(repeating: "\u{301}", count: 10000), "Quote\"\n99: fake\t\0row"] {
+            let tabs = (0..<100).map { _ in TidyTabs.Tab(id: UUID(), title: title, host: "host") }
+            let request = try #require(TidyTabs.request(tabs: tabs, existingGroups: [], maximumBytes: TidyTabs.maximumPromptBytes))
+            #expect(request.tabs.count <= TidyTabs.maximumTabs)
+            #expect(request.promptBytes <= TidyTabs.maximumPromptBytes)
+            #expect(request.tabs.allSatisfy { $0.title.count <= 80 && $0.title.utf8.count <= 160 })
+            #expect(request.prompt.split(separator: "\n").count == request.tabs.count + 1)
+            #expect(!request.prompt.contains("\n99: fake"))
+        }
+    }
+
+    @Test func fittingPreservesMeaningfulUnicodeJoiners() throws {
+        for title in ["Family 👨‍👩‍👧‍👦", "می\u{200C}روم"] {
+            let tab = TidyTabs.Tab(id: UUID(), title: title, host: "")
+            let request = try #require(TidyTabs.request(tabs: [tab], existingGroups: []))
+            #expect(request.tabs[0].title == title)
+            #expect(request.prompt.contains("0: \(title)"))
+        }
+    }
+
+    @Test func answerNamesJoinTheFirstMatchingGroupOnly() throws {
+        let tabs = [TidyTabs.Tab(id: UUID(), title: "A", host: "")]
+        let long = TidyTabs.ExistingGroup(id: UUID(), name: String(repeating: "n", count: 40))
+        let safe = TidyTabs.ExistingGroup(id: UUID(), name: String(repeating: "n", count: 31))
+        let first = TidyTabs.ExistingGroup(id: UUID(), name: "Bréad")
+        let duplicate = TidyTabs.ExistingGroup(id: UUID(), name: "BREAD")
+        let request = try #require(TidyTabs.request(tabs: tabs, existingGroups: [long, safe, first, duplicate]))
+        #expect(request.plan([.init(name: safe.name, tabs: [0])]).joins == [safe.id: [0]])
+        #expect(request.plan([.init(name: "bread", tabs: [0])]).joins == [first.id: [0]])
+        // An answer's name is capped at 32, so it can't land in a longer group by its clipped prefix.
+        #expect(request.plan([.init(name: long.name, tabs: [0])]).joins.isEmpty)
+    }
+
+    @Test func reducedRequestsKeepPriorityAndMappingUntilNoSmallerInputFits() throws {
+        let tabs = (0..<12).map { TidyTabs.Tab(id: UUID(), title: "Tab \($0)", host: "h") }
+        let groups = (0..<4).map { TidyTabs.ExistingGroup(id: UUID(), name: "Group \($0)") }
+        var request = try #require(TidyTabs.request(tabs: tabs, existingGroups: groups))
+        while let reduced = request.reduced() {
+            #expect(reduced.tabIDs == Array(request.tabIDs.prefix(max(1, request.tabs.count / 2))))
+            #expect(reduced.existingGroups == groups)
+            #expect(reduced.promptBytes < request.promptBytes)
+            #expect(reduced.prompt.split(separator: "\n")[1].hasPrefix("0: "))
+            request = reduced
+        }
+        #expect(request.tabs.count == 1)
+        #expect(TidyTabs.request(tabs: [], existingGroups: groups) == nil)
+        #expect(TidyTabs.request(tabs: tabs, existingGroups: groups, maximumBytes: 1) == nil)
+    }
+
+    /// Arc's example tabs, answered the way Arc asks for its answer: one assignment per tab. The
+    /// on-device model files tabs far more accurately this way than by listing each group's ids
+    /// (docs/arc-reverse-engineering.md, "Tidy Tabs").
+    @Test func arcExampleIsAnsweredOneTabAtATime() {
+        #expect(TidyTabs.instructions.contains("0: nitehawk cinema - Google Search\n"))
+        #expect(TidyTabs.instructions.contains("1: Amazon: Amazing Deals on Home Goods, Gifts and More\n"))
+        #expect(TidyTabs.instructions.contains(
+            #"{"assignments":[{"tab":0,"group":"Movies"},{"tab":1,"group":"Toaster Shopping"},"#
+            + #"{"tab":2,"group":"Toaster Shopping"},{"tab":3,"group":"Toaster Shopping"},"#
+            + #"{"tab":4,"group":"Calendar"},{"tab":5,"group":"Movies"}]}"#))
+        #expect(!TidyTabs.instructions.contains("two to six"))
+    }
+
+    /// One assignment per tab becomes one group per name: Arc's Calendar stays on its own.
+    @Test func assignmentsBecomeGroupsByName() {
+        let plan = TidyTabs.plan(TidyTabs.proposals([(0, "Movies"), (1, "Toaster Shopping"), (2, "toaster shopping"),
+                                                     (3, "Toaster Shopping"), (4, "Calendar"), (5, "Movies")]),
+                                 tabCount: 6, existingGroups: [])
+        #expect(plan.newGroups == [.init(name: "Movies", tabs: [0, 5]),
+                                   .init(name: "Toaster Shopping", tabs: [1, 2, 3]),
+                                   .init(name: "Calendar", tabs: [4])])
+    }
+
+    /// Today's groups stay out of the prompt: listed, the on-device model filed almost every tab into
+    /// them (16 Nov 2026, 35 of 41 tabs into a listed group they had nothing to do with). A name the
+    /// model comes up with on its own still joins the group that has it.
+    @Test func existingGroupsJoinByNameWithoutBeingListed() throws {
+        let tabs = (0..<8).map { TidyTabs.Tab(id: UUID(), title: "Lisbon tab \($0)", host: "") }
+        let lisbon = TidyTabs.ExistingGroup(id: UUID(), name: "Lisbon Trip")
+        let request = try #require(TidyTabs.request(tabs: tabs, existingGroups: [lisbon]))
+        #expect(!request.prompt.contains("Lisbon Trip"))
+        #expect(request.plan([.init(name: "lisbon trip", tabs: [0, 1])]).joins == [lisbon.id: [0, 1]])
+        #expect(try #require(request.reduced()).plan([.init(name: "Lisbon Trip", tabs: [0])]).joins == [lisbon.id: [0]])
+    }
+
+    @Test func fallbackReserveAccountsForManyPotentialSingletons() throws {
+        let tabs = (0..<60).map { TidyTabs.Tab(id: UUID(), title: "Tab \($0)", host: "") }
+        let request = try #require(TidyTabs.request(tabs: tabs, existingGroups: [], maximumBytes: TidyTabs.maximumPromptBytes))
+        #expect(request.tabs.count == 60 && request.responseTokens == 1920)
+        let fallback = try #require(request.fittingEstimatedContext(4096))
+        #expect(fallback.estimatedTokens <= 4096)
+        #expect(fallback.tabIDs == Array(request.tabIDs.prefix(fallback.tabs.count)))
+        #expect(fallback.responseTokens >= TidyTabs.minimumResponseTokens)
+        #expect(request.fittingEstimatedContext(1) == nil)
+    }
+
+    /// GitHub #594: Tidy on 24 mixed reading-list tabs made 22 groups, 21 of them one tab ("Coding",
+    /// "Course", "Model", "Telepathy"…). When the model names the tabs rather than grouping them, the
+    /// one-tab groups are left out and those tabs stay loose; the real group stays, and a name Today
+    /// already has still takes its tab.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/594"))
+    func aModelThatNamesEveryTabLeavesThemLoose() {
+        let ai = TidyTabs.ExistingGroup(id: UUID(), name: "Reading")
+        var assignments: [(tab: Int, group: String)] = [(0, "AI"), (1, "AI"), (2, "AI"), (3, "Coding"), (4, "Course"),
+                                                        (5, "Model"), (6, "Telepathy"), (7, "Music"), (8, "reading")]
+        let plan = TidyTabs.plan(TidyTabs.proposals(assignments), tabCount: 9, existingGroups: [ai])
+        #expect(plan.newGroups == [.init(name: "AI", tabs: [0, 1, 2])])
+        #expect(plan.joins == [ai.id: [8]])
+        // The reporter's numbers: 22 names for 24 tabs, 21 of them alone.
+        assignments = (0..<24).map { ($0, $0 < 3 ? "AI" : "Topic \($0)") }
+        let reported = TidyTabs.plan(TidyTabs.proposals(assignments), tabCount: 24, existingGroups: [])
+        #expect(TidyTabs.distinctNames(TidyTabs.proposals(assignments)) == 22)
+        #expect(reported.newGroups == [.init(name: "AI", tabs: [0, 1, 2])])
+    }
+
+    /// Two one-tab groups beside a real one, or a lone tab Tidy files on its own, are still groups (Arc's
+    /// Calendar): only three or more singles that outnumber the real groups are the model naming tabs.
+    @Test func aFewSinglesStayGroups() {
+        #expect(!TidyTabs.namesEachTab([.init(name: "Calendar", tabs: [4])]))
+        #expect(!TidyTabs.namesEachTab([.init(name: "A", tabs: [0]), .init(name: "B", tabs: [1]), .init(name: "C", tabs: [2, 3])]))
+        #expect(!TidyTabs.namesEachTab([.init(name: "A", tabs: [0]), .init(name: "B", tabs: [1]), .init(name: "C", tabs: [2]),
+                                        .init(name: "D", tabs: [3, 4]), .init(name: "E", tabs: [5, 6]), .init(name: "F", tabs: [7, 8])]))
+        #expect(TidyTabs.namesEachTab([.init(name: "A", tabs: [0]), .init(name: "B", tabs: [1]), .init(name: "C", tabs: [2]),
+                                       .init(name: "D", tabs: [3, 4])]))
+    }
+
+    @Test func decodedAssignmentsRetainTheCalendarSingleton() {
+        let plan = TidyTabs.plan([.init(name: "Movies", tabs: [0, 5]),
+                                  .init(name: "Toaster Shopping", tabs: [1, 2, 3]),
+                                  .init(name: "Calendar", tabs: [4])], tabCount: 6, existingGroups: [])
+        #expect(plan.newGroups == [.init(name: "Movies", tabs: [0, 5]),
+                                   .init(name: "Toaster Shopping", tabs: [1, 2, 3]),
+                                   .init(name: "Calendar", tabs: [4])])
+    }
+
+    @Test func planDropsBadIdsDuplicatesAndEmptyNames() {
         let plan = TidyTabs.plan([.init(name: "Planets", tabs: [6, 0, 3, 99, -1]),
                                   .init(name: "Bread", tabs: [1, 4, 7, 0]),
                                   .init(name: "Email", tabs: [8]),
                                   .init(name: "  ", tabs: [2, 5])],
                                  tabCount: 9, existingGroups: [])
-        #expect(plan.newGroups == [.init(name: "Planets", tabs: [0, 3, 6]), .init(name: "Bread", tabs: [1, 4, 7])])
+        #expect(plan.newGroups == [.init(name: "Planets", tabs: [0, 3, 6]), .init(name: "Bread", tabs: [1, 4, 7]), .init(name: "Email", tabs: [8])])
         #expect(plan.joins.isEmpty)
     }
 
     @Test func planMergesSameNamesAndJoinsExistingGroups() {
+        let planets = TidyTabs.ExistingGroup(id: UUID(), name: "Planets")
+        let bread = TidyTabs.ExistingGroup(id: UUID(), name: "Bread")
         let plan = TidyTabs.plan([.init(name: "Python", tabs: [4]),
                                   .init(name: "bread.", tabs: [0]),
                                   .init(name: "python", tabs: [2]),
                                   .init(name: "Travel", tabs: [3, 1])],
-                                 tabCount: 5, existingGroups: ["Planets", "Bread"])
-        #expect(plan.joins == [1: [0]])
+                                 tabCount: 5, existingGroups: [planets, bread])
+        #expect(plan.joins == [bread.id: [0]])
         // New groups follow their first tab's place.
         #expect(plan.newGroups == [.init(name: "Travel", tabs: [1, 3]), .init(name: "Python", tabs: [2, 4])])
+    }
+
+    @Test func duplicateExistingNamesKeepTheFirstOriginalIdentity() {
+        let first = TidyTabs.ExistingGroup(id: UUID(), name: "Bréad")
+        let duplicate = TidyTabs.ExistingGroup(id: UUID(), name: "BREAD")
+        let plan = TidyTabs.plan([.init(name: "bread", tabs: [0])], tabCount: 1, existingGroups: [first, duplicate])
+        #expect(plan.joins == [first.id: [0]])
+        #expect(plan.newGroups.isEmpty)
     }
 
     @Test func planCapsNames() {
@@ -85,5 +245,25 @@ struct TabGroupItemTests {
         let folder = try JSONEncoder().encode(SidebarItem.folder("F", parent: nil))
         #expect(!String(decoding: folder, as: UTF8.self).contains("tabGroup"))
         #expect(try !JSONDecoder().decode(SidebarItem.self, from: folder).isTabGroup)
+    }
+}
+
+struct TidyOffersLazilyTests {
+    /// GitHub #618: the sidebar asked whether to offer Tidy on every rebuild and read every Today tab to
+    /// answer. The lazy form reads only as far as it needs and gives the old answer, checked on random Todays.
+    @Test(.bug("https://github.com/VictorKildahl/cra/issues/618"))
+    func theLazyAnswerIsTheOldOne() {
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<2_000 {
+            let today = Int.random(in: 0...12, using: &rng)
+            let loose = (0..<Int.random(in: 0...today, using: &rng)).map { $0 }
+            let tidied: Set<Int>? = Bool.random(using: &rng) ? nil : Set(loose.filter { _ in Bool.random(using: &rng) })
+            let old = TidyTabs.offers(todayTabs: today, looseTabs: loose, tidied: tidied)
+            #expect(TidyTabs.offers(todayTabs: 0..<today, looseTabs: loose, tidied: tidied) == old)
+        }
+        // It stops counting at the minimum.
+        var read = 0
+        let counted = (0..<5_000).lazy.map { i -> Int in read += 1; return i }
+        #expect(TidyTabs.offers(todayTabs: counted, looseTabs: [1], tidied: nil) && read == TidyTabs.minimumTabs)
     }
 }

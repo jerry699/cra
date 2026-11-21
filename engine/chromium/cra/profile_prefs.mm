@@ -20,6 +20,7 @@
 #include "chrome/browser/profiles/profile_observer.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
+#include "chrome/common/pref_names.h"
 #include "components/prefs/pref_change_registrar.h"
 #include "components/prefs/pref_service.h"
 
@@ -33,6 +34,7 @@ bool g_stopped = false;
 void (^g_profile_loaded)(NSString*) = nil;
 void (^g_extension_settings_changed)(void) = nil;
 void (^g_secure_dns_changed)(void) = nil;
+void (^g_website_appearance_changed)(NSInteger) = nil;
 bool g_extension_settings_pending = false;
 bool g_secure_dns_pending = false;
 
@@ -53,23 +55,6 @@ void ApplyWebsiteAppearance(Profile* profile) {
   }
 }
 
-void ApplySettings(Profile* profile) {
-  PrefService* prefs = profile->GetPrefs();
-  ApplyWebsiteAppearance(profile);
-  // No local address offered to WebRTC at all, so nothing is announced over mDNS and macOS never asks for
-  // Local Network access for a page's peer connection.
-  prefs->SetString("webrtc.ip_handling_policy", "default_public_interface_only");
-  // Cra shows downloads in its own sidebar.
-  prefs->SetBoolean("download_bubble.partial_view_enabled", false);
-  // Every download asks where to go, and Cra's app answers (its save panel or its Downloads folder;
-  // patches/cra-downloads.patch).
-  prefs->SetBoolean("download.prompt_for_download", true);
-  prefs->SetBoolean("https_only_mode_enabled", g_https_only);
-  if (prefs->FindPreference(kFingerprintingProtection)) {
-    prefs->SetBoolean(kFingerprintingProtection, g_fingerprinting);
-  }
-}
-
 // Every profile of Chrome's, including each one's off-the-record profile.
 template <typename Function>
 void ForEachProfile(Function function) {
@@ -81,6 +66,60 @@ void ForEachProfile(Function function) {
     for (Profile* off_the_record : profile->GetAllOffTheRecordProfiles()) {
       function(off_the_record);
     }
+  }
+}
+
+// Chromium's own Mode (chrome://settings/appearance) is the same setting as Cra's View ▸ Appearance. A choice
+// made there becomes Cra's: the other profiles follow and the app saves it, so the next launch applies it instead of
+// putting Cra's old choice back (GitHub #630). Cra's own writes come back here too and change nothing.
+void WebsiteAppearanceChanged(Profile* profile) {
+  ThemeService* themes = ThemeServiceFactory::GetForProfile(profile);
+  if (!themes || g_stopped) {
+    return;
+  }
+  NSInteger mode = static_cast<NSInteger>(themes->GetBrowserColorScheme());
+  if (mode == g_website_appearance || mode < 0 || mode > 2) {
+    return;
+  }
+  g_website_appearance = mode;
+  ForEachProfile([](Profile* other) {
+    if (!other->IsOffTheRecord()) {
+      ApplyWebsiteAppearance(other);
+    }
+  });
+  dispatch_async(dispatch_get_main_queue(), ^{
+    // Unless Cra's own choice came in meanwhile.
+    if (g_website_appearance_changed && !g_stopped && g_website_appearance == mode) {
+      g_website_appearance_changed(mode);
+    }
+  });
+}
+
+// Settings ▸ Privacy ▸ "Always use secure connections" is Chrome's HTTPS-First in Balanced Mode
+// ("Warn you for insecure public sites"), not its strict mode (GitHub #625): an address on the
+// user's own network (192.168…, 10…, Tailscale's 100.64.0.0/10, a .local or single-label name)
+// can't get a public certificate, so it loads over HTTP without the full-page warning, as in Arc
+// and in Chrome's default. Public sites still upgrade and warn. Both prefs are written, so Chrome's
+// own heuristics never turn a mode on by themselves.
+void ApplyHttpsFirst(PrefService* prefs) {
+  prefs->SetBoolean("https_only_mode_enabled", false);
+  prefs->SetBoolean("https_first_balanced_mode_enabled", g_https_only);
+}
+
+void ApplySettings(Profile* profile) {
+  PrefService* prefs = profile->GetPrefs();
+  ApplyWebsiteAppearance(profile);
+  // No local address offered to WebRTC at all, so nothing is announced over mDNS and macOS never asks for
+  // Local Network access for a page's peer connection.
+  prefs->SetString("webrtc.ip_handling_policy", "default_public_interface_only");
+  // Cra shows downloads in its own sidebar.
+  prefs->SetBoolean("download_bubble.partial_view_enabled", false);
+  // Every download asks where to go, and Cra's app answers (its save panel or its Downloads folder;
+  // patches/cra-downloads.patch).
+  prefs->SetBoolean("download.prompt_for_download", true);
+  ApplyHttpsFirst(prefs);
+  if (prefs->FindPreference(kFingerprintingProtection)) {
+    prefs->SetBoolean(kFingerprintingProtection, g_fingerprinting);
   }
 }
 
@@ -129,7 +168,7 @@ class Profiles : public ProfileManagerObserver, public ProfileObserver {
 
   void Stop() {
     local_state_.RemoveAll();
-    extension_settings_.clear();
+    prefs_.clear();
   }
 
   // ProfileManagerObserver:
@@ -145,7 +184,7 @@ class Profiles : public ProfileManagerObserver, public ProfileObserver {
   // ProfileObserver:
   void OnOffTheRecordProfileCreated(Profile* off_the_record) override { ApplySettings(off_the_record); }
   void OnProfileWillBeDestroyed(Profile* profile) override {
-    extension_settings_.erase(profile);
+    prefs_.erase(profile);
     observations_.RemoveObservation(profile);
   }
 
@@ -158,7 +197,8 @@ class Profiles : public ProfileManagerObserver, public ProfileObserver {
     auto registrar = std::make_unique<PrefChangeRegistrar>();
     registrar->Init(profile->GetPrefs());
     registrar->Add("extensions.settings", base::BindRepeating(&NotifyExtensionSettings));
-    extension_settings_[profile] = std::move(registrar);
+    registrar->Add(prefs::kBrowserColorScheme, base::BindRepeating(&WebsiteAppearanceChanged, base::Unretained(profile)));
+    prefs_[profile] = std::move(registrar);
     // The app hears about every profile but Default, which loads first (as from the CEF bridge).
     if (notify && g_profile_loaded && profile->GetBaseName().value() != "Default") {
       NSString* path = base::SysUTF8ToNSString(profile->GetPath().value());
@@ -173,7 +213,8 @@ class Profiles : public ProfileManagerObserver, public ProfileObserver {
   raw_ptr<ProfileManager> manager_ = nullptr;
   base::ScopedMultiSourceObservation<Profile, ProfileObserver> observations_{this};
   PrefChangeRegistrar local_state_;
-  std::map<Profile*, std::unique_ptr<PrefChangeRegistrar>> extension_settings_;
+  // Each profile's prefs the app hears about: extension settings and Chromium's Mode.
+  std::map<Profile*, std::unique_ptr<PrefChangeRegistrar>> prefs_;
 };
 
 Profiles& TheProfiles() {
@@ -195,7 +236,7 @@ void StopProfilePrefs() {
 
 void SetHttpsOnly(bool enabled) {
   g_https_only = enabled;
-  ForEachProfile([](Profile* profile) { profile->GetPrefs()->SetBoolean("https_only_mode_enabled", g_https_only); });
+  ForEachProfile([](Profile* profile) { ApplyHttpsFirst(profile->GetPrefs()); });
 }
 
 void SetFingerprintingProtection(bool enabled) {
@@ -315,6 +356,10 @@ void SetProfileLoadedHandler(void (^handler)(NSString*)) {
 
 void SetExtensionSettingsHandler(void (^handler)(void)) {
   g_extension_settings_changed = [handler copy];
+}
+
+void SetWebsiteAppearanceHandler(void (^handler)(NSInteger mode)) {
+  g_website_appearance_changed = [handler copy];
 }
 
 }  // namespace cra

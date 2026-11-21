@@ -70,6 +70,12 @@ function parseItem(d) {
     return {id: url, url, title: plain(title), subtitle: login(d.author) ?? login(d.user) ?? d.author_name ?? d.authorLogin ?? null,
         group, createdAt: date(d.createdAt ?? d.created_at ?? d.created), updatedAt: date(d.updatedAt ?? d.updated_at ?? d.updated)};
 }
+// The folder holds open pull requests (drafts too), whatever else GitHub's answer carries (#523).
+function isOpen(d) {
+    const state = String(d.state ?? "").toLowerCase();
+    return state !== "merged" && state !== "closed" && d.merged !== true && d.closed !== true &&
+        !(d.mergedAt ?? d.merged_at ?? d.closedAt ?? d.closed_at);
+}
 function walk(root, visitor, limit, depth = 0) {
     if (!root || typeof root !== "object" || depth >= limit) return;
     if (visitor(root)) return;
@@ -77,7 +83,7 @@ function walk(root, visitor, limit, depth = 0) {
 }
 function parseJSON(root) {
     const items = [];
-    walk(root, value => { const item = parseItem(value); if (item) items.push(item); return !!item; }, 40);
+    walk(root, value => { const item = parseItem(value); if (item && isOpen(value)) items.push(item); return !!item; }, 40);
     let viewer = null;
     walk(root, value => {
         if (viewer) return true;
@@ -97,6 +103,7 @@ function meta(name, html) {
 function parseHTML(html) {
     const chunks = html.split("js-issue-row"), items = [];
     for (const chunk of chunks.length > 1 ? chunks.slice(1) : chunks) {
+        if (chunks.length > 1 && /octicon-git-(merge|pull-request-closed)(?![\w-])/.test(chunk)) continue;
         for (const m of matches(/<a\b([^>]*)>([\s\S]*?)<\/a>/g, chunk)) {
             const href = attribute("href", m[1]), path = href ? pullPath(href) : null;
             if (!path || !href.endsWith("/pull/" + path.number) ||
@@ -123,9 +130,7 @@ function read(url) {
     if (response.status === 401 || (body.length < 2000 && /authenticate you/i.test(body)) || body.includes('"logged_in":false')) fail("notSignedIn");
     if (response.status < 200 || response.status >= 300) fail("unexpectedPage");
     const elsewhere = path && !path.startsWith("/pulls") && !path.startsWith("/search");
-    const sso = matches(/\/orgs\/([A-Za-z0-9_.-]+)\/sso/g, body).map(m => m[1]);
-    for (const m of matches(/"protected_org_logins"\s*:\s*\[([^\]]*)\]/g, body))
-        sso.push(...matches(/"([A-Za-z0-9_.-]+)"/g, m[1]).map(v => v[1]));
+    const sso = ssoOrganizations(body);
     let parsed;
     if (/^[\s]*[\[{]/.test(body)) {
         try { parsed = parseJSON(JSON.parse(body)); } catch (_) { fail("unexpectedPage"); }
@@ -146,7 +151,27 @@ function read(url) {
         parsed.items = unique(parsed.items);
         if (!parsed.items.length && (elsewhere || (!sawPayload && !body.includes("blankslate")))) fail("unexpectedPage");
     }
-    return {...parsed, sso: [...new Set(sso)]};
+    return {...parsed, sso: [...new Set(sso)], ssoKnown: path.startsWith("/search") || /"(protected_org_logins|sso_organizations)"/.test(body)};
+}
+// Organisations whose pull requests wait for SAML single sign-on: GitHub's search names them in
+// `protected_org_logins`, the pulls page in its layout's `sso_organizations` (what Arc reads), older
+// pages link to /orgs/<org>/sso.
+function ssoOrganizations(body) {
+    const orgs = matches(/\/orgs\/([A-Za-z0-9_.-]+)\/sso/g, body).map(m => m[1]);
+    for (const m of matches(/"protected_org_logins"\s*:\s*\[([^\]]*)\]/g, body))
+        orgs.push(...matches(/"([A-Za-z0-9_.-]+)"/g, m[1]).map(v => v[1]));
+    for (const m of matches(/"sso_organizations"\s*:\s*\[([^\]]*)\]/g, body))
+        orgs.push(...matches(/"login"\s*:\s*"([A-Za-z0-9_.-]+)"/g, m[1]).map(v => v[1]));
+    return orgs;
+}
+// The pulls page's JSON lists pull requests but not the organisations waiting for SSO (#521): when no
+// answer said, the page itself does. Best effort: the searches already decided the folder's items.
+function pageSSO() {
+    try {
+        const response = cra.session.fetch("https://github.com/pulls", {headers: {Accept: "text/html"}});
+        return response.status >= 200 && response.status < 300 && /^https:\/\/github\.com\/pulls(?:[?#]|$)/.test(response.url)
+            ? ssoOrganizations(response.body) : [];
+    } catch (_) { return []; }
 }
 function search(query) {
     let first, error;
@@ -179,7 +204,9 @@ function refresh(input) {
             previous.updatedAt ??= item.updatedAt;
         } else items.set(item.url, item);
     }
-    const orgs = [...new Set(pages.flatMap(page => page.sso))].sort();
+    const sso = pages.flatMap(page => page.sso);
+    if (pages.length && !pages.some(page => page.ssoKnown)) sso.push(...pageSSO());
+    const orgs = [...new Set(sso)].sort();
     return {
         items: [...items.values()].sort((a, b) => {
             const left = a.createdAt ?? a.updatedAt, right = b.createdAt ?? b.updatedAt;

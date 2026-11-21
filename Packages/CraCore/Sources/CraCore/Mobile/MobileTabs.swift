@@ -74,6 +74,9 @@ public struct MobileTabsDocument: Codable, Equatable {
     public var selected: UUID?
     /// Newest first.
     public var archived: [MobileTab]
+    /// Incognito tabs opened in the background and not looked at yet (#572). Never written down,
+    /// like the incognito tabs themselves.
+    public private(set) var unseenIncognito: Set<UUID> = []
 
     public init(tabs: [MobileTab] = [], selected: UUID? = nil, archived: [MobileTab] = []) {
         self.tabs = tabs
@@ -104,11 +107,29 @@ public struct MobileTabsDocument: Codable, Equatable {
         tabs.append(tab)
     }
 
+    /// "Open in Background Tab" (#572): `tab` at the end of the row, not shown. An incognito one
+    /// waits unseen for as long as the private session goes on (`closeIncognitoTabsLeftBehind`).
+    public mutating func addInBackground(_ tab: MobileTab) {
+        tabs.append(tab)
+        if tab.isIncognito { unseenIncognito.insert(tab.id) }
+    }
+
     /// Shows a tab and restarts its archive clock.
     public mutating func select(_ id: UUID, now: Date) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs[index].lastActive = now
         selected = id
+        unseenIncognito.remove(id)
+    }
+
+    /// Shows a tab picked from the tab row (or the search sheet's recent tabs) and moves it to the
+    /// row's newest end, as Arc Search's row keeps tabs from the least to the most recently picked,
+    /// like the iPhone's app switcher (#647). A swipe along the bar only `select`s, so it walks the
+    /// row without shuffling it.
+    public mutating func bringToFront(_ id: UUID, now: Date) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs.append(tabs.remove(at: index))
+        select(id, now: now)
     }
 
     /// Closes a tab. When it was the one on screen, the tab after it takes its place, or the one
@@ -116,6 +137,7 @@ public struct MobileTabsDocument: Codable, Equatable {
     public mutating func close(_ id: UUID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs.remove(at: index)
+        unseenIncognito.remove(id)
         guard selected == id else { return }
         selected = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id
     }
@@ -146,9 +168,13 @@ public struct MobileTabsDocument: Codable, Equatable {
 
 extension MobileTabsDocument {
     /// Closes a tab into the archive, as a swipe up on its card does. Incognito tabs just close.
-    public mutating func archive(_ id: UUID) {
+    /// A popup on screen hands the screen back to `opener`, the tab that opened it, when that is
+    /// still open, as closing it from the page does (#647).
+    public mutating func archive(_ id: UUID, returningTo opener: UUID? = nil) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        let wasSelected = selected == id
         close(id)
+        if wasSelected, let opener, tabs.contains(where: { $0.id == opener }) { selected = opener }
         guard !tab.isIncognito else { return }
         archived.insert(tab, at: 0)
     }
@@ -158,16 +184,39 @@ extension MobileTabsDocument {
     }
 
     /// Incognito tabs live only while they are on screen: Arc Search keeps them out of the tab
-    /// row, so one that is left has no way back and closes. Returns the tabs that closed.
+    /// row, so one that is left has no way back and closes. One opened in the background and not
+    /// looked at yet waits while the private session goes on (an incognito tab is on screen), and
+    /// closes with it (#572). Returns the tabs that closed.
     @discardableResult
-    public mutating func closeIncognitoTabsLeftBehind() -> [UUID] {
-        let left = tabs.filter { $0.isIncognito && $0.id != selected }.map(\.id)
+    public mutating func closeIncognitoTabsLeftBehind(keeping liveOpeners: Set<UUID> = []) -> [UUID] {
+        let privateSession = selectedTab?.isIncognito == true
+        let left = tabs.filter {
+            $0.isIncognito && $0.id != selected && !liveOpeners.contains($0.id)
+                && !(privateSession && unseenIncognito.contains($0.id))
+        }.map(\.id)
         tabs.removeAll { left.contains($0.id) }
+        unseenIncognito.subtract(left)
         return left
     }
 
     /// The tab row's tabs: every open tab that is not incognito.
     public var rowTabs: [MobileTab] { tabs.filter { !$0.isIncognito } }
+
+    /// What the tab switcher shows: the row, and while a private page is on screen, the private
+    /// tabs waiting unseen after it, the only way to reach them (#572).
+    public var switcherTabs: [MobileTab] {
+        tabs.filter { !$0.isIncognito || ($0.id != selected && unseenIncognito.contains($0.id) && selectedTab?.isIncognito == true) }
+    }
+
+    /// Where a flick up on the tab button goes (#537): the row's tab looked at most recently
+    /// before the one on screen, so a second flick comes back. Arc Search 1.0 toggled between
+    /// the current and the previous page this way. Ties go to the newer tab in the row.
+    public var previousTab: MobileTab? {
+        rowTabs.filter { $0.id != selected }.reduce(nil) { best, tab in
+            guard let best, best.lastActive > tab.lastActive else { return tab }
+            return best
+        }
+    }
 
     /// Export Data: the open tabs as text, a title and an address each. Incognito tabs stay out.
     public var exportText: String {

@@ -8,11 +8,58 @@ import CraCEF
 /// dialog (CraCEF's OnProtocolExecution).
 @MainActor
 enum AppLinkPrompt {
-    /// Chromium's new tabs and windows (CraCEF's OnBeforePopup) come here first.
+    /// Chromium's new tabs and windows (CraCEF's OnBeforePopup) and a page's own navigation to
+    /// another app (the engine's HandleExternalProtocol) come here first. The page's own redirect
+    /// gets Chrome's flood guard, as WebKit pages do: asked once per page load. Slack's
+    /// "Launching…" page after a browser sign-in has no button to click, so it was dropped (#560).
     static func install() {
         CraCEFRuntime.setAppLinkHandler { browser, url, userGesture in
-            MainActor.assumeIsolated { handle(url, from: browser, userGesture: userGesture) }
+            MainActor.assumeIsolated {
+                handle(url, from: browser, userGesture: userGesture || mayAskWithoutClick(url, from: browser))
+            }
         }
+    }
+
+    /// An address typed in a command bar and sent with Return (#604): another app's opens it here and
+    /// needs no tab; the caller loads a page, searches an address no app opens, and drops a refused one.
+    static func openTyped(_ url: String) -> AppLinks.Typed {
+        let target = URL(string: url)
+        let app = target.flatMap { NSWorkspace.shared.urlForApplication(toOpen: $0) }
+        let typed = AppLinks.typed(url, hasApp: app != nil)
+        let scheme = url.prefix { $0 != ":" }.lowercased() + ":"
+        switch typed {
+        case .load: break
+        case .openApp:
+            let name = app.map { FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "") } ?? "?"
+            CraLog.note("command bar opens \(name) for \(scheme)")
+            if let target { NSWorkspace.shared.open(target) }
+        case .search: CraLog.note("command bar: no app opens \(scheme), searched")
+        case .refuse: CraLog.note("command bar can't open \(scheme) (refused)")
+        }
+        return typed
+    }
+
+    /// A Chromium page committed in its main frame (a new page or a reload; its tab's or Little
+    /// Window's delegate says so): its own redirect may ask once again.
+    static func pageLoaded(_ browser: CraBrowser) {
+        redirectGuards.object(forKey: browser)?.value.pageLoaded()
+    }
+
+    /// Only another app's address spends the page's one question; a refused scheme doesn't, and a
+    /// boost still needs a click.
+    private static func mayAskWithoutClick(_ url: String, from browser: CraBrowser) -> Bool {
+        guard AppLinks.kind(of: url) == .asksFirst, !BoostInstall.isBoostLink(url) else { return false }
+        return redirectGuard(for: browser).value.mayAsk(userGesture: false)
+    }
+
+    /// Each Chromium page's `AppLinks.RedirectGuard`, gone with its page.
+    private static let redirectGuards = NSMapTable<CraBrowser, GuardBox>.weakToStrongObjects()
+    private final class GuardBox { var value = AppLinks.RedirectGuard() }
+    private static func redirectGuard(for browser: CraBrowser) -> GuardBox {
+        if let box = redirectGuards.object(forKey: browser) { return box }
+        let box = GuardBox()
+        redirectGuards.setObject(box, forKey: browser)
+        return box
     }
 
     /// Whether `url` is another app's. Then it is dealt with here (asked about, opened or

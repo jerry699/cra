@@ -37,6 +37,25 @@ enum TestGesture {
         }
     }
 
+    /// A left-button press at a point of the window, moved by `delta` in `steps` drags and released
+    /// there, through the app's event queue as `click`'s are: the view under the press gets the
+    /// drags, as the pointer's would (a drag on the sidebar's empty space, #547).
+    static func drag(from point: NSPoint, by delta: NSPoint, steps: Int = 4, in window: NSWindow) {
+        let steps = max(steps, 1)
+        var events: [(NSEvent.EventType, NSPoint, Float)] = [(.leftMouseDown, point, 1)]
+        for i in 1...steps {
+            let f = CGFloat(i) / CGFloat(steps)
+            events.append((.leftMouseDragged, NSPoint(x: point.x + delta.x * f, y: point.y + delta.y * f), 1))
+        }
+        events.append((.leftMouseUp, NSPoint(x: point.x + delta.x, y: point.y + delta.y), 0))
+        for (type, at, pressure) in events {
+            guard let e = NSEvent.mouseEvent(with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                                             pressure: pressure) else { return }
+            NSApp.postEvent(e, atStart: false)
+        }
+    }
+
     /// A middle click (button 2) at a point of the window, through the app's event queue: the window's
     /// event monitors and the view under it get it as they get the mouse's.
     static func middleClick(at point: NSPoint, in window: NSWindow) {
@@ -46,6 +65,13 @@ enum TestGesture {
                                               pressure: type == .otherMouseDown ? 1 : 0)?.cgEvent else { continue }
             cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
             guard let e = NSEvent(cgEvent: cg) else { continue }
+            // Where the event goes once it is a CGEvent and back: Nightly's runner opened no link with it while this Mac
+            // does (split-middle-click-pane), so the readout says which window and point AppKit routes it to.
+            if type == .otherMouseDown {
+                let target = NSApp.window(withWindowNumber: e.windowNumber)
+                let hit = target?.contentView?.superview?.hitTest(e.locationInWindow).map { String(describing: Swift.type(of: $0)) } ?? "nothing"
+                CraLog.note("middle click event: window \(e.windowNumber) (asked \(window.windowNumber)) at \(Int(e.locationInWindow.x)),\(Int(e.locationInWindow.y)) (asked \(Int(point.x)),\(Int(point.y))) button \(e.buttonNumber), hits \(hit); screen point \(Int(cg.location.x)),\(Int(cg.location.y))")
+            }
             NSApp.postEvent(e, atStart: false)
         }
     }
@@ -89,6 +115,59 @@ enum TestGesture {
                                            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode) else { return }
             target.sendEvent(e)
         }
+    }
+
+    /// A trackpad gesture's phase, as the window server numbers it (CGGesturePhase, CGScrollPhase).
+    enum TrackpadPhase: Int64 {
+        case began = 1, changed = 2, ended = 4, cancelled = 8, mayBegin = 128
+    }
+
+    /// A trackpad pinch on a window, its events made the way the window server makes them and
+    /// routed as a trackpad's were in a probe (19 Nov 2026): the scrolls of the fingers to the view
+    /// under `point` (the window's `sendEvent`), the magnify events addressed to the window through
+    /// the app (`NSApp.sendEvent`, its event monitors first). The order is one a trackpad can send:
+    /// two fingers touch down (a scroll and a magnify that may begin), then one magnify per step of
+    /// `steps` (0.1 is 10 % apart) between its beginning and its end, and only as the fingers lift
+    /// is the touch-down's scroll cancelled (#573). AppKit hands events only to a window that is
+    /// ordered in.
+    static func pinch(_ steps: [CGFloat], at point: NSPoint, in window: NSWindow) {
+        let magnify = { (phase: TrackpadPhase, m: Double) in
+            if let e = trackpadMagnify(phase, by: m, at: point, to: window) { NSApp.sendEvent(e) }
+        }
+        trackpadScroll(.mayBegin, at: point).map(window.sendEvent)
+        magnify(.mayBegin, 0)
+        magnify(.began, 0)
+        for m in steps { magnify(.changed, Double(m)) }
+        magnify(.ended, 0)
+        trackpadScroll(.cancelled, at: point).map(window.sendEvent)
+    }
+
+    /// A trackpad magnify at a point of a window: a gesture event (type 29) of the zoom kind
+    /// (IOHIDEventType 8), which AppKit reads as `.magnify`. Made here it has no window, and AppKit
+    /// keeps its location as is, so it is placed where `point` is in the window's coordinates.
+    /// `to`: addressed to that window as the window server addresses it (the event's window).
+    static func trackpadMagnify(_ phase: TrackpadPhase, by magnification: Double = 0, at point: NSPoint, to window: NSWindow? = nil) -> NSEvent? {
+        guard let e = CGEvent(source: nil), let gesture = CGEventType(rawValue: 29) else { return nil }
+        e.type = gesture
+        e.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)                    // the gesture's kind: zoom
+        e.setIntegerValueField(CGEventField(rawValue: 132)!, value: phase.rawValue)       // its phase
+        e.setDoubleValueField(CGEventField(rawValue: 113)!, value: magnification)         // its magnification
+        if let window { e.setIntegerValueField(CGEventField(rawValue: 51)!, value: Int64(window.windowNumber)) }   // its window
+        return event(e, at: point)
+    }
+
+    /// Two fingers on the trackpad that don't move: a continuous scroll with no deltas.
+    static func trackpadScroll(_ phase: TrackpadPhase, at point: NSPoint) -> NSEvent? {
+        guard let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: 0, wheel2: 0, wheel3: 0) else { return nil }
+        e.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        e.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase.rawValue)
+        return event(e, at: point)
+    }
+
+    private static func event(_ e: CGEvent, at point: NSPoint) -> NSEvent? {
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        e.location = CGPoint(x: point.x, y: top - point.y)
+        return NSEvent(cgEvent: e)
     }
 
     /// Opens the menu a click (or a right-click) at a point of the window would open, without

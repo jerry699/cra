@@ -11,7 +11,7 @@
 # ~/chromium.noindex: .noindex keeps Spotlight out). Needs ~45 GB for one CPU. Never edit this file
 # while it runs (bash reads it as it goes).
 set -euo pipefail
-CHROMIUM_TAG="${CHROMIUM_TAG:-158.0.8127.37}"
+CHROMIUM_TAG="${CHROMIUM_TAG:-159.0.8154.13}"
 ARCH="${CRA_ARCH:-arm64}"
 ROOT="${CHROMIUM_ROOT:-$HOME/chromium.noindex}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,6 +48,9 @@ EOF
 
 apply() {
   "$REPO/engine/chromium/apply.sh" "$ROOT/src"
+  # Every way a page reaches its browser in this Chrome has a test, or a reason it needs none (docs/web-features.md):
+  # a new Chrome's new page hook stops here until someone decides.
+  python3 -I "$REPO/scripts/web-features.py" --chromium "$ROOT/src"
 }
 
 gen() {

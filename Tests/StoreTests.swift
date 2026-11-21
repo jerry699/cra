@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import Foundation
 import Observation
@@ -18,12 +19,19 @@ enum StoreTests {
         setenv("CRA_DATA_DIR", data.path, 1)
         setenv("CRA_ARC_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Arc").path, 1)
         setenv("CRA_DIA_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Dia").path, 1)
+        setenv("CRA_ARDIA_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Ardia").path, 1)
+        setenv("CRA_YAB_DIR", URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Fixtures/Yab").path, 1)
 
         try arcImport()
         try diaImport()
+        try ardiaImport()
+        try yabImport()
         chromiumProfile()
         deletedBrowserStillImports()
+        protectedBrowserAsksForFullDiskAccess()
+        signedInChromeProfileImports()
         chromiumManifestV2Import()
+        zenFaviconSize()
         autoArchive()
         longAutoArchive()
         tabSleepCadence()
@@ -34,6 +42,7 @@ enum StoreTests {
         liveRepositoryFiltering()
         liveRepositoryMenus()
         liveFolderExpiryKeepsNavigatedPages()
+        mergedPullRequestsLeaveAnUpdatedFolder()
         gitLabHiddenItems()
         gitLabFolderExpiryAndDeletion()
         gitLabMultipleServers()
@@ -42,18 +51,24 @@ enum StoreTests {
         gitLabFolderMovesRejectDuplicateServers()
         gitLabProfileChangeKeepsNavigatedPages()
         stampsUseTheClock()
+        visitsRememberTheirProfile()
         persistenceFaults()
         incognitoStaysOffDisk()
+        chromePagesLeaveIncognito()
+        incognitoKeepsItsSpacesProfile()
         mcpExcludesPrivateTabs()
         pinnedURL()
         tabFavicons()
         folderSymbols()
         moveTabToSpace()
+        moveFolderToSpace()
         folderPeek()
+        folderPeekAfterClosing()
         collapsedPinnedPeek()
         closeSuccessor()
         favoritesEmptyState()
         sharedFavorites()
+        profileTabsSpaceBySpace()
         newDocumentApps()
         themePreview()
         try arcSpacesWithoutAThemeShareOneDefault()
@@ -63,10 +78,17 @@ enum StoreTests {
         try arcSpaceIconTabGlyphImports()
         littleWindowProfile()
         tidyTabs()
+        tidyExistingGroupIdentity()
+        tidyConsideredSnapshots()
+        tidySingletonGroups()
         pinHook()
         dropOnPinnedTabSplits()
         reopenClosedTabs()
+        reopenClosedPinnedTabs()
+        reopenClosedTabInThisSpaceOnly()
+        duplicateFavoritesAndSplits()
         windowsShareTheSidebar()
+        clearTodayArchivesInOnePass()
         settingsSync()
         syncLeavesBlankWindowsOnTheirMac()
         blankWindows()
@@ -74,15 +96,23 @@ enum StoreTests {
         tornOffTabMovesToABlankWindow()
         tornOffTabKeepsItsProfile()
         archiveTabsBelow()
+        archiveTabsAboveAndOthers()
+        splitIconAndReset()
+        numberedSidebarItems()
         clearTodayKeepsSelectedAndPlaying()
+        tabsMenuCountsStopEarly()
         allFoldersExpanded()
         dropIntoFolderGoesOnTop()
         revealInSidebar()
         oneWindowAtLaunch()
         openLinkInSplit()
+        fullSplitTakesNoMorePanes()
         backToReferrer()
         recentTabsTakeBackgroundTabs()
+        recentTabsInAllSpacesGoBack()
+        recentCardsKeepSplitsWhole()
         incognitoSpaceKeepsItsContext()
+        newWindowsTakeTheLastSidebarChoice()
         print("Store: \(checks) checks passed")
     }
 
@@ -249,6 +279,100 @@ enum StoreTests {
         expect(composition.store.integrityProblems().isEmpty, "the imported sidebar is sound")
     }
 
+    /// Ardia (X request, 18 Nov): its profiles are its spaces (Tests/Fixtures/Ardia/session.json).
+    /// Top Apps become favorites, pinned rows and pinned groups the pinned section with nested
+    /// folders, the rest Today; pins mirrored into a second window come over once, and a profile
+    /// with no window brings the pins Ardia parked for it. Spaces on their own Chromium profile
+    /// land on a Cra profile, so their sign-ins follow.
+    @MainActor
+    private static func ardiaImport() throws {
+        expect(ArdiaImporter.isAvailable, "a session.json counts as Ardia data")
+        let plan = try ArdiaImporter.plan()
+        expect(plan.source == "Ardia" && plan.spaces.map(\.title) == ["Personal", "Work", "Side"], "Ardia's profiles come over as spaces, in its order")
+        let personal = plan.spaces[0], work = plan.spaces[1], side = plan.spaces[2]
+        expect(personal.favorites.compactMap(\.url) == ["https://mail.example.com/"],
+               "a Top App comes over once, at the page it was pinned with, though every window holds a copy")
+        expect(personal.pinned.count == 1 && personal.pinned[0].isFolder && personal.pinned[0].pageTitle == "Dev", "a pinned group is a pinned folder")
+        let dev = personal.pinned[0].children
+        expect(dev.count == 2 && dev[0].url == "https://code.example.com/" && dev[0].customTitle == "Code"
+               && dev[1].isFolder && dev[1].pageTitle == "Reading" && dev[1].children.compactMap(\.url) == ["https://docs.example.com/"],
+               "folders nest, each tab in its deepest group, renamed tabs keep their name")
+        expect(personal.today.compactMap(\.url) == ["https://news.example.com/", "https://other.example.com/"],
+               "unpinned tabs of every window come over, an empty new tab left out, an unpinned group flattened")
+        expect(personal.profile == nil && personal.emoji == "" && personal.theme?.accent == "#C07A98",
+               "the first profile stays on Default; no icon is a dot; its swatch becomes the theme")
+        expect(work.favorites.compactMap(\.url) == ["https://tasks.example.com/"] && work.today.compactMap(\.url) == ["https://design.example.com/"],
+               "a Top Apps folder's tiles come over as favorites")
+        expect(work.profile == ImportedProfile(folder: "Profile p-work", name: "Work") && work.emoji == "💼",
+               "a profile signs in on Chromium's \"Profile <id>\" folder")
+        expect(side.pinned.count == 1 && side.pinned[0].pageTitle == "Talk" && side.pinned[0].children.compactMap(\.url) == ["https://chat.example.com/"],
+               "a profile with no window open brings its parked pins")
+        expect(side.profile == work.profile, "a profile sharing another's sign-ins goes on that profile")
+        expect(side.symbol == "star" && side.theme?.colors == ["#FF8000", "#0000FF"] && side.theme?.appearance == "dark",
+               "an SF Symbol icon and a custom gradient come over")
+
+        let composition = AppComposition(clock: ManualScheduler())
+        let store = composition.store
+        let result = store.apply(plan, includeArchive: false, includeSettings: false)
+        expect(result.spaces == 3 && result.folders == 3, "applying adds the spaces and their folders")
+        let ids = result.spaceIDs.compactMap { store.space($0) }
+        expect(ids[0].profileID == nil && ids[1].profileID != nil && ids[1].profileID == ids[2].profileID
+               && store.profile(ids[1].profileID)?.name == "Work", "Work and Side share one Cra profile, Personal stays on Default")
+        expect(result.profiles.craFolder(forSource: "Profile p-work") != "Default", "Work's cookies go to that profile")
+        expect(store.integrityProblems().isEmpty, "the imported sidebar is sound")
+        for id in result.spaceIDs { store.deleteSpace(id) }
+    }
+
+    /// Yab (X request, 18 Nov): spaces.json plus one session file per space
+    /// (Tests/Fixtures/Yab). Tiles are favorites, kept tabs the pinned section in their folders,
+    /// the rest Today; a space without tiles of its own shows the shared ones. A space with
+    /// sign-ins of its own is on the Chromium folder its receipt names.
+    @MainActor
+    private static func yabImport() throws {
+        expect(YabImporter.isAvailable, "spaces.json counts as Yab data")
+        let plan = try YabImporter.plan()
+        expect(plan.source == "Yab" && plan.spaces.map(\.title) == ["Personal", "Work"], "Yab's spaces come over in its order")
+        let personal = plan.spaces[0], work = plan.spaces[1]
+        expect(personal.favorites.compactMap(\.url) == ["https://mail.example.com/"] && personal.favorites[0].pageTitle == "Inbox",
+               "a tile is a favorite, at the page it was pinned with")
+        expect(personal.pinned.map(\.pageTitle) == ["Clients", "Code"] && personal.pinned[0].isFolder,
+               "kept tabs are pinned, a folder where its first tab is")
+        let clients = personal.pinned[0].children
+        expect(clients.count == 1 && clients[0].pageTitle == "Work" && clients[0].children.first?.url == "https://tasks.example.com/"
+               && clients[0].children.first?.customTitle == "Tasks", "folders nest through folderPath, renamed tabs keep their name")
+        expect(personal.today.compactMap(\.url) == ["https://news.example.com/"], "today's tabs come over, about:blank left out")
+        expect(personal.emoji == "🏠" && personal.profile == nil && personal.theme?.accent == "#8DB6E6",
+               "an emoji icon, the shared sign-ins on Default, a swatch as the theme")
+        expect(work.favorites.compactMap(\.url) == ["https://calendar.example.com/"], "a space without tiles of its own gets the shared ones")
+        expect(work.pinned.compactMap(\.url) == ["https://wiki.example.com/"] && work.today.compactMap(\.url) == ["https://design.example.com/"],
+               "each space reads its own session file")
+        expect(work.profile == ImportedProfile(folder: "space-9C6B1E52-3D1F-4C2B-8E37-5A0F1D2C3B4A", name: "Work"),
+               "own sign-ins: the Chromium folder the receipt names, not the space id")
+        expect(work.symbol == "briefcase" && work.theme?.accent == "#7FB8A3" && work.theme?.noise == 0.4,
+               "an Icon-tab symbol and a colour of its own with grain")
+        let shared = try YabImporter.plan(supportDir: YabImporter.supportDir, pinsInEverySpace: true)
+        expect(shared.spaces[0].favorites.compactMap(\.url) == ["https://calendar.example.com/"],
+               "with pins in every space on, every space shows the shared tiles")
+
+        let yab = ImportSource.allCases.first { $0.id == "yab" }, ardia = ImportSource.allCases.first { $0.id == "ardia" }
+        expect(yab?.isAvailable == true && ardia?.isAvailable == true, "both are listed in the picker from their data alone")
+        expect(yab?.keychainService == "Yab Safe Storage" && ardia?.keychainService == "Ardia Safe Storage",
+               "cookies and passwords open with each browser's own Keychain item")
+        let profiles = yab?.credentialProfiles ?? []
+        expect(Set(profiles.map(\.name)) == ["Shared", "Work"] && !profiles.contains { $0.id == "Default" },
+               "Yab's space-<id> profiles are found and shown by space; its unused Default is left out")
+        expect(ardia?.credentialProfiles.map(\.id) == ["Default", "Profile p-work"]
+               && ardia?.credentialProfiles.map(\.name) == ["Personal", "Work"], "Ardia's \"Profile <id>\" folders are found, shown by space")
+
+        let composition = AppComposition(clock: ManualScheduler())
+        let result = composition.store.apply(plan, includeArchive: false, includeSettings: false)
+        expect(result.spaces == 2 && result.folders == 2, "applying adds the spaces and their folders")
+        expect(result.profiles.craFolder(forSource: "space-9C6B1E52-3D1F-4C2B-8E37-5A0F1D2C3B4A") != "Default"
+               && result.profiles.craFolder(forSource: "space-00000000-0000-0000-0000-000000000001") == "Default",
+               "the Work space's cookies go to its Cra profile, the shared ones to Default")
+        expect(composition.store.integrityProblems().isEmpty, "the imported sidebar is sound")
+    }
+
     /// Chrome-family profiles (Tests/Fixtures/Chromium/Default): the last session's open tabs,
     /// bookmarks and which extensions are turned off.
     private static func chromiumProfile() {
@@ -287,6 +411,51 @@ enum StoreTests {
         let empty = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium,
                                  dataDir: firefoxRoot.appendingPathComponent("none"))
         expect(!empty.isAvailable, "no profile, nothing to offer")
+    }
+
+    /// Current macOS can keep Chrome's and Brave's folders from other apps. Cra listed only the
+    /// browsers it could read, so Chrome vanished from the picker while Ardia, which asks for
+    /// Full Disk Access instead, imported it (X DM, 15 Nov). A folder that is there but refused
+    /// is offered, flagged as needing Full Disk Access.
+    private static func protectedBrowserAsksForFullDiskAccess() {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cra-protected-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: root.appendingPathComponent("Default"), withIntermediateDirectories: true)
+        fm.createFile(atPath: root.appendingPathComponent("Default/History").path, contents: Data())
+        let chrome = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium, dataDir: root)
+        expect(chrome.isAvailable && !chrome.needsFullDiskAccess, "a readable Chrome folder needs nothing more")
+        try? fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: root.path)
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
+            try? fm.removeItem(at: root)
+        }
+        expect(chrome.isAvailable, "a Chrome folder macOS won't let Cra read is still offered")
+        expect(chrome.needsFullDiskAccess, "and it asks for Full Disk Access")
+        let missing = ImportSource(id: "brave", name: "Brave", bundleID: "app.cra.tests.not-installed", kind: .chromium,
+                                   dataDir: root.deletingLastPathComponent().appendingPathComponent("cra-none-\(UUID().uuidString)"))
+        expect(!missing.isAvailable && !missing.needsFullDiskAccess, "a browser never used is neither offered nor asks")
+    }
+
+    /// Chrome signed in to a Google account keeps the bookmarks saved there in AccountBookmarks,
+    /// and Local State lists every profile folder. Ardia reads both; Cra looked only for
+    /// Bookmarks, History, Cookies and Login Data in folders named Default or "Profile N".
+    private static func signedInChromeProfileImports() {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("cra-signed-in-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let profile = root.appendingPathComponent("Work", isDirectory: true)
+        try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
+        try? Data(#"{"profile":{"info_cache":{"Work":{"name":"Work"}},"profiles_order":["Work"]}}"#.utf8)
+            .write(to: root.appendingPathComponent("Local State"))
+        try? Data("{}".utf8).write(to: profile.appendingPathComponent("Preferences"))
+        try? Data(#"{"roots":{"bookmark_bar":{"children":[{"type":"url","name":"Docs","url":"https://docs.example.com/"}]}}}"#.utf8)
+            .write(to: profile.appendingPathComponent("AccountBookmarks"))
+        let profiles = ChromiumImporter.profiles(userData: root)
+        expect(profiles.map(\.id) == ["Work"] && profiles.first?.name == "Work", "a profile Local State lists is found by its folder")
+        expect(ChromiumImporter.bookmarks(profile: profile).bar.map(\.url) == ["https://docs.example.com/"],
+               "bookmarks saved to the Google account come over")
+        let chrome = ImportSource(id: "chrome", name: "Chrome", bundleID: "app.cra.tests.not-installed", kind: .chromium, dataDir: root)
+        expect(chrome.isAvailable, "a signed-in Chrome with only account bookmarks is offered")
     }
 
     // promise: #228
@@ -556,6 +725,52 @@ enum StoreTests {
         }
     }
 
+    // promise: #523
+    /// A folder that 0.1.47 filled with merged pull requests (GitHub #523) cleans itself up after the
+    /// update: the fixed plugin's first refresh leaves them out, they get the usual 120 s grace and go,
+    /// except one showing in a window, which goes once the window shows something else.
+    @MainActor
+    private static func mergedPullRequestsLeaveAnUpdatedFolder() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        guard let folder = store.createLiveFolder(.github, inSpace: store.focusedSpaceID) else { return expect(false, "a live folder is made") }
+        func pr(_ number: Int, _ title: String) -> LiveFolderPluginItem {
+            let url = "https://github.com/team/app/pull/\(number)"
+            return LiveFolderPluginItem(id: url, url: url, title: title, group: "team/app")
+        }
+        let open = pr(1, "Open"), merged = pr(2, "Merged"), shown = pr(3, "Merged and on screen")
+        store.applyPluginResults(.init(items: [open, merged, shown]), to: folder.id)
+        expect(store.children(of: folder.id).count == 3, "the folder as 0.1.47 left it, merged ones included")
+        guard let shownTab = store.children(of: folder.id).first(where: { $0.tab?.liveItemURL == shown.url }) else {
+            return expect(false, "the shown pull request has a tab")
+        }
+        store.prefs.windows[0].selectedTabPerSpace[store.focusedSpaceID] = shownTab.id
+
+        clock.advance(by: 600)
+        store.applyPluginResults(.init(items: [open]), to: folder.id)
+        expect(store.children(of: folder.id).filter { $0.tab?.liveGoneAt == clock.now }.compactMap(\.tab?.liveItemURL).sorted()
+               == [merged.url, shown.url], "the first refresh after the update marks both merged ones gone")
+        clock.advance(by: 119)
+        store.expireLiveItems(olderThan: 120)
+        expect(store.children(of: folder.id).count == 3, "they stay through the grace period")
+        clock.advance(by: 1)
+        store.expireLiveItems(olderThan: 120)
+        expect(store.children(of: folder.id).compactMap(\.tab?.liveItemURL).sorted() == [open.url, shown.url],
+               "then the merged one goes, the one on screen stays")
+        guard let openTab = store.children(of: folder.id).first(where: { $0.tab?.liveItemURL == open.url }) else {
+            return expect(false, "the open pull request has a tab")
+        }
+        store.prefs.windows[0].selectedTabPerSpace[store.focusedSpaceID] = openTab.id
+        store.expireLiveItems(olderThan: 120)
+        expect(store.children(of: folder.id).compactMap(\.tab?.liveItemURL) == [open.url],
+               "and it goes once the window shows another tab; only the open pull request is left")
+        clock.advance(by: 600)
+        store.applyPluginResults(.init(items: [open]), to: folder.id)
+        store.expireLiveItems(olderThan: 120)
+        expect(store.children(of: folder.id).compactMap(\.tab?.liveItemURL) == [open.url], "later refreshes don't bring them back")
+        expect(store.integrityProblems().isEmpty, "the cleanup keeps the sidebar sound")
+    }
+
     @MainActor
     private static func liveFolderExpiryKeepsNavigatedPages() {
         let clock = ManualScheduler()
@@ -748,13 +963,34 @@ enum StoreTests {
         expect(store.item(b.id)?.tab?.timeLastActiveAt == clock.now, "selecting a tab stamps it with the clock")
         let split = store.createSplit(with: [a.id, b.id])
         expect(split?.split?.timeLastActiveAt == clock.now, "a new split is stamped with the clock")
-        store.recordVisit(url: "https://example.com/a", title: "A")
+        store.recordVisit(url: "https://example.com/a", title: "A", profile: nil)
         expect(store.history["https://example.com/a"]?.lastVisit == clock.now, "history visits use the clock")
         store.archiveLittleWindowPage(url: "https://example.com/little", title: "Little")
         expect(store.archive.first?.archivedAt == clock.now, "a Little Window's page is archived at the clock's time")
         let incognito = store.addIncognitoWindow(frame: nil)
         expect(incognito.focusedSpaceID.flatMap { store.spaces[$0] }?.createdAt == clock.now, "an incognito space is made at the clock's time")
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    // promise: #609
+    /// A page's history entry keeps the profiles it was visited in, so a space's ⌘T suggests only its
+    /// own profile's pages (CommandBarProfileScope). One visited on two profiles is suggested on both.
+    @MainActor
+    private static func visitsRememberTheirProfile() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let work = store.createProfile(name: "Work")
+        store.recordVisit(url: "https://example.com/work", title: "Work page", profile: work.id)
+        store.recordVisit(url: "https://example.com/home", title: "Home page", profile: nil)
+        store.recordVisit(url: "https://example.com/both", title: "Both", profile: nil)
+        store.recordVisit(url: "https://example.com/both", title: "Both", profile: work.id)
+        store.recordVisit(url: "https://example.com/both", title: "Both", profile: work.id)
+        let suggested = { (profile: UUID?) in
+            Set(store.history.values.filter { CommandBarProfileScope.suggests($0, on: profile) }.map(\.url))
+        }
+        expect(suggested(work.id) == ["https://example.com/work", "https://example.com/both"], "Work's bar: \(suggested(work.id))")
+        expect(suggested(nil) == ["https://example.com/home", "https://example.com/both"], "Default's bar: \(suggested(nil))")
+        expect(store.history["https://example.com/both"]?.profiles == ["default", work.id.uuidString], "each profile once, in visit order")
+        expect(store.history["https://example.com/both"]?.visitCount == 3, "visits still count across profiles")
     }
 
     /// A file that can't be read or written says so (a fault) instead of failing silently.
@@ -784,6 +1020,59 @@ enum StoreTests {
         expect(store.mcpTab(UUID()) == nil, "MCP refuses unknown IDs")
         expect(store.spaces.values.allSatisfy { store.mcpTab($0.todayContainerID) == nil },
                "MCP refuses containers")
+    }
+
+    // promise: #620
+    /// Each Chrome profile has its own incognito: an incognito window opened from a space with a profile of
+    /// its own loads in that profile's off-the-record one, with its extensions and their "Allow in Incognito".
+    /// Cra put every incognito window in Default's, so a profile's extensions found nothing to work on there.
+    @MainActor
+    private static func incognitoKeepsItsSpacesProfile() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let work = store.createProfile(name: "Work")
+        let fromWork = store.addIncognitoWindow(frame: nil, profileID: work.id)
+        let space = fromWork.focusedSpaceID!
+        expect(store.isIncognito(space: space), "a window of its own, incognito")
+        expect(store.profileDirectoryName(space: space) == work.directoryName, "in Work's profile, whose off-the-record one it uses")
+        expect(store.profilePath(space: space) == store.profilePath(profile: work.id), "its pages load from Work's folder")
+        expect(store.profileID(space: space) == work.id, "and it counts as Work's for extensions and profile choices")
+        let tab = store.createTab(url: "https://example.com/private", window: fromWork.id)
+        expect(store.profileDirectoryName(item: tab.id) == work.directoryName && store.isIncognito(item: tab.id), "and so do its tabs")
+        let fromDefault = store.addIncognitoWindow(frame: nil)
+        expect(store.profileDirectoryName(space: fromDefault.focusedSpaceID!) == "Default"
+               && store.profilePath(space: fromDefault.focusedSpaceID!) == nil, "from a space on Default it is Default's, as before")
+        let gone = store.addIncognitoWindow(frame: nil, profileID: UUID())
+        expect(store.profileDirectoryName(space: gone.focusedSpaceID!) == "Default", "a profile that is gone falls back to Default")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    // promise: #412
+    /// Chrome keeps chrome://extensions, settings, history and the password manager out of
+    /// incognito; Cra built the incognito page for chrome://extensions and quit (#412). From an
+    /// incognito window they open in the normal window in use last, which becomes the active one;
+    /// pages Chrome allows there stay.
+    @MainActor
+    private static func chromePagesLeaveIncognito() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let normal = store.activeWindowID
+        let normalSpace = store.focusedSpaceID(window: normal)
+        let incognito = store.addIncognitoWindow(frame: nil)
+        store.activeWindowID = incognito.id
+        var fronted: [UUID] = []
+        store.pageLeftIncognito = { fronted.append($0) }
+        let extensions = store.createTab(url: "chrome://extensions", select: true, window: incognito.id)
+        expect(store.spaceID(ofItem: extensions.id) == normalSpace, "chrome://extensions from incognito opens in the normal window's space")
+        expect(store.selectedTabID(window: normal) == extensions.id, "and is the tab the normal window shows")
+        expect(store.selectedTabID(window: incognito.id) == nil, "the incognito window keeps none")
+        expect(store.activeWindowID == normal && fronted == [normal], "and the normal window comes to the front")
+        let settings = store.createTab(url: "chrome://settings/privacy", in: incognito.focusedSpaceID, select: false)
+        expect(store.spaceID(ofItem: settings.id) == normalSpace, "a page asked for in the incognito space by name goes too")
+        store.activeWindowID = incognito.id
+        let version = store.createTab(url: "chrome://version", select: true, window: incognito.id)
+        expect(store.isIncognito(item: version.id) && store.activeWindowID == incognito.id, "chrome://version stays in incognito, as in Chrome")
+        let web = store.createTab(url: "https://example.com", select: true, window: incognito.id)
+        expect(store.isIncognito(item: web.id), "and so does a web page")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
     }
 
     /// Incognito tabs never reach sidebar.json (#46's review: updateTab saved every item), and
@@ -1172,6 +1461,42 @@ enum StoreTests {
                "and it stays closed after a relaunch")
     }
 
+    // promise: #617
+    /// ⌘T's tabs (profileTabs) were every tab walked up to its space: most of the first keystroke at 5,000
+    /// tabs. Gathered space by space now; the same tabs, in folders, groups and splits, pinned, favorites
+    /// shared across spaces and another profile's, and none from a Blank Window's space.
+    @MainActor
+    private static func profileTabsSpaceBySpace() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        func asBefore() -> Set<UUID> {
+            Set(store.allTabs().filter { store.spaceID(ofItem: $0.id).map { !store.isStandalone(space: $0) } ?? false }.map(\.id))
+        }
+        func now() -> [UUID] { store.profileTabs(window: nil).map(\.id) }
+        let home = store.focusedSpaceID
+        let work = store.createSpace(title: "PT Work", emoji: "💼", focus: false).id
+        let client = store.createProfile(name: "PT Client")
+        let other = store.createSpace(title: "PT Client", emoji: "🧾", focus: false).id
+        store.setProfile(client.id, forSpace: other)
+        let a = store.createTab(url: "https://example.com/pt-a", in: home, select: false).id
+        let b = store.createTab(url: "https://example.com/pt-b", in: home, select: false).id
+        _ = store.createFolder(with: [a, b], named: "PT Folder")
+        let c = store.createTab(url: "https://example.com/pt-c", in: work, select: false).id
+        let d = store.createTab(url: "https://example.com/pt-d", in: work, select: false).id
+        _ = store.createSplit(with: [c, d])
+        let e = store.createTab(url: "https://example.com/pt-e", in: other, select: false).id
+        store.addToFavorites(e, in: other)
+        let f = store.createTab(url: "https://example.com/pt-f", in: home, pinned: true, select: false).id
+        let g = store.createTab(url: "https://example.com/pt-g", in: home, select: false).id
+        let h = store.createTab(url: "https://example.com/pt-h", in: home, select: false).id
+        store.applyTidy(TidyTabs.Plan(newGroups: [.init(name: "PT Group", tabs: [0, 1])], joins: [:]), tabIDs: [g, h], in: home)
+        expect(Set(now()) == asBefore() && Set([a, b, c, d, e, f, g, h]).isSubset(of: Set(now())),
+               "⌘T's tabs are the same, folders, splits, groups, pinned and favorites included (#617)")
+        expect(now().count == Set(now()).count, "no tab twice")
+        store.setFavoritesShared(true)
+        expect(Set(now()) == asBefore() && now().count == Set(now()).count, "favorites shared by spaces are listed once")
+        store.setFavoritesShared(false)
+    }
+
     // promise: #154
     /// Settings ▸ Tabs ▸ Share Favorites (#154): Arc's one favorites list per profile.
     @MainActor
@@ -1360,6 +1685,39 @@ enum StoreTests {
                && store.isIncognito(item: secret.id) && store.focusedSpaceID(window: incognito.id) != home,
                "an incognito tab never leaves its window")
         expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    // promise: #662
+    @MainActor
+    private static func moveFolderToSpace() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let a = store.createSpace(title: "Folder source", emoji: "🏠", focus: false)
+        let b = store.createSpace(title: "Folder destination", emoji: "💼", focus: false)
+        let first = store.createTab(url: "https://example.com/first", in: a.id, pinned: true, select: false)
+        let folder = store.createFolder(named: "F", in: a.pinnedContainerID)
+        let last = store.createTab(url: "https://example.com/last", in: a.id, pinned: true, select: false)
+        let t1 = store.createTab(url: "https://example.com/t1", pinned: true, select: false, parent: folder.id)
+        let nested = store.createFolder(named: "N", in: folder.id)
+        let t2 = store.createTab(url: "https://example.com/t2", pinned: true, select: false, parent: nested.id)
+        let t3 = store.createTab(url: "https://example.com/t3", pinned: true, select: false, parent: folder.id)
+        let existing = store.createTab(url: "https://example.com/existing", in: b.id, pinned: true, select: false)
+        store.setExpanded(folder.id, true)
+        store.setExpanded(nested.id, false)
+        let window = store.addWindow(spaceID: a.id, frame: nil)
+        store.selectTab(t2.id, window: window.id)
+        store.setExpanded(nested.id, false)
+        let count = store.orderedSpaces.reduce(0) { $0 + store.tabs(under: $1.pinnedContainerID).count + store.tabs(under: $1.todayContainerID).count + store.tabs(under: $1.favoritesContainerID).count }
+        store.moveTab(folder.id, toSpace: b.id, window: nil)
+        expect(store.children(of: b.pinnedContainerID).map(\.id) == [existing.id, folder.id], "folder appends to target pinned")
+        expect(store.children(of: a.pinnedContainerID).map(\.id) == [first.id, last.id], "folder leaves source pinned")
+        expect(store.children(of: folder.id).map(\.id) == [t1.id, nested.id, t3.id] && store.children(of: nested.id).map(\.id) == [t2.id], "folder subtree keeps ids and order")
+        expect([folder.id, nested.id, t1.id, t2.id, t3.id].allSatisfy { store.spaceID(ofItem: $0) == b.id }, "whole subtree belongs to target")
+        let after = store.orderedSpaces.reduce(0) { $0 + store.tabs(under: $1.pinnedContainerID).count + store.tabs(under: $1.todayContainerID).count + store.tabs(under: $1.favoritesContainerID).count }
+        expect(count == after && store.integrityProblems().isEmpty, "moving preserves tabs and sidebar integrity")
+        expect(store.isExpanded(folder.id) && !store.isExpanded(nested.id), "folder expansion states survive")
+        expect(store.selectedTabID(in: a.id, window: window.id).map { ![t1.id, t2.id, t3.id].contains($0) } ?? true, "source selection does not follow moved tab")
+        store.moveTab(folder.id, toSpace: b.id, window: nil)
+        expect(store.children(of: b.pinnedContainerID).map(\.id) == [existing.id, folder.id] && store.children(of: folder.id).map(\.id) == [t1.id, nested.id, t3.id], "moving to own space does nothing")
     }
 
     // promise: #105
@@ -1581,6 +1939,37 @@ enum StoreTests {
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
     }
 
+    // promise: #557
+    /// The steps of #557: a tab open inside an open folder, the folder closed, another tab picked. The
+    /// tab stays listed under the closed folder, as in Arc; opening the folder or ⌘W takes it out.
+    @MainActor
+    private static func folderPeekAfterClosing() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let folder = store.createFolder(named: "tools", in: store.focusedSpace.pinnedContainerID)
+        let pdf = store.createTab(url: "https://example.org/pdf", pinned: true, select: false, parent: folder.id)
+        let cobalt = store.createTab(url: "https://example.org/cobalt", pinned: true, select: false, parent: folder.id)
+        let elsewhere = store.createTab(url: "https://example.net/", select: false)
+        store.setExpanded(folder.id, true)
+        store.selectTab(pdf.id)
+        expect(store.peekedTabs(in: folder.id).isEmpty, "an open folder keeps nothing to peek")
+
+        store.setExpanded(folder.id, false)
+        expect(store.peekedTabs(in: folder.id).map(\.id) == [pdf.id], "closing it keeps only the open tab in sight")
+        store.selectTab(elsewhere.id)
+        expect(store.peekedTabs(in: folder.id).map(\.id) == [pdf.id], "picking a tab outside it keeps the tab there (Arc)")
+        expect(!store.isExpanded(folder.id) && !store.peekedTabs(in: folder.id).contains { $0.id == cobalt.id },
+               "the folder stays closed and its other tabs stay hidden")
+
+        store.setExpanded(folder.id, true)
+        store.setExpanded(folder.id, false)
+        expect(store.peekedTabs(in: folder.id).isEmpty, "opening and closing it while another tab is open drops the peek")
+        store.selectTab(pdf.id)
+        store.selectTab(elsewhere.id)
+        _ = store.resetPinnedTab(pdf.id)
+        expect(store.peekedTabs(in: folder.id).isEmpty, "closing the tab (⌘W) takes it out")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
     /// A collapsed pinned section keeps the pinned tab you were last on in sight once you pick a
     /// favorite or a Today tab (Arc's peekedPinnedSidebarItemID; X DM 6 Nov 2026: Reddit vanished
     /// from under the space name as soon as YouTube was picked).
@@ -1656,7 +2045,7 @@ enum StoreTests {
         let fresh = store.createTab(url: "https://example.org/Jupiter", in: sid, select: false)
         expect(store.canTidy(sid), "a new loose tab brings Tidy back")
         let loose2 = store.looseTodayTabs(sid).map(\.id)
-        let existing = store.tabGroups(in: sid).map { $0.title ?? "" }
+        let existing = store.tabGroups(in: sid).map { TidyTabs.ExistingGroup(id: $0.id, name: $0.title ?? "") }
         let join = TidyTabs.plan([.init(name: "planets", tabs: [loose2.firstIndex(of: fresh.id)!])], tabCount: loose2.count, existingGroups: existing)
         store.applyTidy(join, tabIDs: loose2, in: sid)
         groups = store.tabGroups(in: sid)
@@ -1696,6 +2085,192 @@ enum StoreTests {
         store.archiveTab(byName["Croissant"]!, reason: .manual)
         expect(store.item(bread.id) == nil && !store.item(today)!.children.contains(bread.id), "its last tab takes the header with it")
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    /// A model result retains the original destination while headers and tab membership change.
+    @MainActor
+    private static func tidyExistingGroupIdentity() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        for change in ["remove earlier header", "reorder headers", "rename destination", "remove destination",
+                       "replace destination", "close destination", "pin destination"] {
+            let space = store.createSpace(title: "Pending tidy", emoji: "🧹")
+            for i in 0..<6 { store.createTab(url: "https://example.org/identity/\(i)", in: space.id, select: false) }
+            let tabs = store.looseTodayTabs(space.id).map(\.id)
+            let initial = TidyTabs.plan([.init(name: "A", tabs: [0, 1]), .init(name: "B", tabs: [2, 3]),
+                                         .init(name: "C", tabs: [4, 5])], tabCount: tabs.count, existingGroups: [])
+            store.applyTidy(initial, tabIDs: tabs, in: space.id)
+            let groups = store.tabGroups(in: space.id)
+            let destination = groups[1].id
+            let fresh = store.createTab(url: "https://example.org/identity/fresh", in: space.id, select: false).id
+            let pending = TidyTabs.plan([.init(name: "B", tabs: [0])], tabCount: 1,
+                                        existingGroups: groups.map { TidyTabs.ExistingGroup(id: $0.id, name: $0.title ?? "") })
+            switch change {
+            case "remove earlier header": store.removeGroupHeader(groups[0].id)
+            case "reorder headers": store.moveItem(destination, to: space.todayContainerID, index: 0)
+            case "rename destination": store.rename(destination, to: "Renamed B")
+            case "remove destination": store.removeGroupHeader(destination)
+            case "replace destination":
+                store.removeGroupHeader(destination)
+                let replacement = TidyTabs.plan([.init(name: "B", tabs: [0, 1])], tabCount: 2, existingGroups: [])
+                store.applyTidy(replacement, tabIDs: groups[1].children, in: space.id)
+            case "close destination": store.deleteFolder(destination)
+            case "pin destination": store.folderFromGroup(destination)
+            default: fatalError("unknown destination change")
+            }
+            let destinationSurvives = ["remove earlier header", "reorder headers", "rename destination"].contains(change)
+            let before = store.item(space.todayContainerID)!.children
+            store.applyTidy(pending, tabIDs: [fresh], in: space.id)
+            expect(store.item(fresh)?.parentID == (destinationSurvives ? destination : space.todayContainerID),
+                   "pending tidy uses original group identity after \(change)")
+            expect(!store.item(groups[2].id)!.children.contains(fresh), "pending tidy never retargets neighboring C after \(change)")
+            if destinationSurvives {
+                expect(store.undoTidy() && store.item(fresh)?.parentID == space.todayContainerID
+                       && store.item(space.todayContainerID)?.children == before && store.item(destination) != nil,
+                       "undo restores loose order and retains original destination after \(change)")
+            } else {
+                expect(!store.undoTidy(), "skipping a removed destination creates no tidy undo after \(change)")
+            }
+            expect(store.integrityProblems().isEmpty, "pending tidy preserves sidebar integrity after \(change)")
+        }
+
+        let space = store.createSpace(title: "Changed members", emoji: "🧹")
+        for i in 0..<4 { store.createTab(url: "https://example.org/members/grouped/\(i)", in: space.id, select: false) }
+        let grouped = store.looseTodayTabs(space.id).map(\.id)
+        store.applyTidy(TidyTabs.plan([.init(name: "Destination", tabs: [0, 1]), .init(name: "Other", tabs: [2, 3])],
+                                     tabCount: grouped.count, existingGroups: []), tabIDs: grouped, in: space.id)
+        let groups = store.tabGroups(in: space.id)
+        let members = (0..<5).map { store.createTab(url: "https://example.org/members/pending/\($0)", in: space.id, select: false).id }
+        let pending = TidyTabs.plan([.init(name: "Destination", tabs: Array(members.indices))], tabCount: members.count,
+                                    existingGroups: groups.map { TidyTabs.ExistingGroup(id: $0.id, name: $0.title ?? "") })
+        store.archiveTab(members[0], reason: .manual)
+        store.moveItem(members[1], to: space.pinnedContainerID, index: nil)
+        store.moveItem(members[2], to: groups[1].id, index: nil)
+        let elsewhere = store.createSpace(title: "Elsewhere", emoji: "🌍")
+        store.moveItem(members[3], to: elsewhere.todayContainerID, index: nil)
+        store.applyTidy(pending, tabIDs: members, in: space.id)
+        expect(store.item(groups[0].id)?.children == grouped.prefix(2) + [members[4]],
+               "pending tidy joins only original members still loose in the source Today")
+        expect(store.item(members[0]) == nil && store.item(members[1])?.parentID == space.pinnedContainerID
+               && store.item(members[2])?.parentID == groups[1].id && store.item(members[3])?.parentID == elsewhere.todayContainerID,
+               "pending tidy does not revive closed tabs or steal pinned, grouped or moved tabs")
+        expect(store.undoTidy() && store.item(members[4])?.parentID == space.todayContainerID
+               && store.item(groups[0].id)?.children == Array(grouped.prefix(2)), "undo moves back only the surviving joined member")
+        expect(store.integrityProblems().isEmpty, "changed-member completion and undo preserve integrity")
+    }
+
+    /// Only successfully considered request IDs are consumed, including when requests fit a prefix.
+    @MainActor
+    private static func tidyConsideredSnapshots() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        for groupsTabs in [false, true] {
+            let space = store.createSpace(title: "Tidy snapshot", emoji: "🧹")
+            for i in 0..<6 { store.createTab(url: "https://example.org/snapshot/\(i)", in: space.id, select: false) }
+            let captured = store.looseTodayTabs(space.id).map(\.id)
+            let plan = TidyTabs.plan(groupsTabs ? [.init(name: "Captured", tabs: [0, 1])] : [],
+                                     tabCount: captured.count, existingGroups: [])
+            let arrival = store.createTab(url: "https://example.org/snapshot/new", in: space.id, select: false)
+            store.applyTidy(plan, tabIDs: captured, in: space.id)
+            expect(store.canTidy(space.id) && store.item(arrival.id)?.parentID == space.todayContainerID,
+                   "a \(groupsTabs ? "grouping" : "successful empty") request leaves an unseen arrival eligible")
+            expect(store.tidiedTabs[space.id] == Set(captured), "successful tidy consumes only its captured snapshot")
+            if groupsTabs {
+                expect(store.undoTidy() && store.tidiedTabs[space.id] == nil && store.canTidy(space.id),
+                       "undo clears considered state after a snapshot-only grouping")
+            } else {
+                store.applyTidy(TidyTabs.plan([], tabCount: 1, existingGroups: []), tabIDs: [arrival.id], in: space.id)
+                expect(!store.canTidy(space.id) && store.tidiedTabs[space.id] == Set(captured + [arrival.id]),
+                       "successfully considering the arrival retains earlier considered IDs and ends offered state")
+            }
+            expect(store.integrityProblems().isEmpty, "snapshot-only completion and undo preserve integrity")
+        }
+
+        let mixed = store.createSpace(title: "Prompt priority", emoji: "🧹")
+        for i in 0..<6 { store.createTab(url: "https://example.org/priority/\(i)", in: mixed.id, select: false) }
+        let old = store.looseTodayTabs(mixed.id).map(\.id)
+        store.applyTidy(TidyTabs.plan([], tabCount: old.count, existingGroups: []), tabIDs: old, in: mixed.id)
+        let fresh = (0..<2).map { store.createTab(url: "https://example.org/priority/new/\($0)", in: mixed.id, select: false).id }
+        store.moveItem(old[0], to: mixed.todayContainerID, index: 0)
+        let before = store.item(mixed.todayContainerID)!.children
+        let request = store.tidyCandidates(mixed.id).map(\.id)
+        expect(request == fresh.reversed() + old, "request priority retains unseen-first mapping even when an old tab leads Today")
+        func at(_ id: UUID) -> Int { request.firstIndex(of: id)! }
+        let plan = TidyTabs.plan([.init(name: "Second", tabs: [at(fresh[1]), at(old[1])]),
+                                  .init(name: "First", tabs: [at(fresh[0]), at(old[0])])],
+                                 tabCount: request.count, existingGroups: [])
+        expect(plan.newGroups.map(\.name) == ["Second", "First"], "model plan remains in captured request order")
+        store.applyTidy(plan, tabIDs: request, in: mixed.id)
+        let groups = store.tabGroups(in: mixed.id)
+        expect(groups.map(\.title) == ["First", "Second"], "new groups follow visible Today order, not unseen-first prompt priority")
+        expect(groups[0].children == [old[0], fresh[0]] && groups[1].children == [fresh[1], old[1]],
+               "group members retain Today order while resolving the captured prompt mapping")
+        expect(store.undoTidy() && store.item(mixed.todayContainerID)?.children == before,
+               "undo restores exact Today order after a prioritized request")
+        expect(store.integrityProblems().isEmpty, "prioritized mapping and undo preserve sidebar integrity")
+
+        for limit in [TidyTabs.maximumTabs, 7] {
+            let space = store.createSpace(title: "Fitted tidy", emoji: "🧹")
+            for i in 0..<75 { store.createTab(url: "https://example.org/fitted/\(i)", in: space.id, select: false) }
+            let original = store.looseTodayTabs(space.id).map(\.id)
+            var seen = Set<UUID>()
+            let attempts = (original.count + limit - 1) / limit
+            for attempt in 0..<attempts {
+                expect(store.canTidy(space.id), "a fitted request leaves unconsidered tabs eligible before attempt \(attempt)")
+                let selected = Array(store.tidyCandidates(space.id).prefix(limit).map(\.id))
+                let unseen = original.filter { !seen.contains($0) }
+                expect(Array(selected.prefix(unseen.count)) == Array(unseen.prefix(limit)),
+                       "each fitted request prioritizes remaining unseen IDs in Today order")
+                store.applyTidy(TidyTabs.plan([], tabCount: selected.count, existingGroups: []), tabIDs: selected, in: space.id)
+                seen.formUnion(selected)
+                expect(store.tidiedTabs[space.id] == seen, "successful fitted prefixes accumulate considered IDs")
+                expect(store.canTidy(space.id) == (seen.count < original.count),
+                       "fitted requests remain offered exactly while an unseen loose tab survives")
+            }
+            expect(seen == Set(original) && !store.canTidy(space.id),
+                   "successful empty requests converge across all 75 tabs with prefix limit \(limit)")
+            let old = original[0]
+            store.archiveTab(old, reason: .manual)
+            let arrival = store.createTab(url: "https://example.org/fitted/new", in: space.id, select: false)
+            let selected = Array(store.tidyCandidates(space.id).prefix(limit).map(\.id))
+            expect(selected.first == arrival.id, "new loose tabs precede previously considered context")
+            store.applyTidy(TidyTabs.plan([], tabCount: selected.count, existingGroups: []), tabIDs: selected, in: space.id)
+            expect(!store.canTidy(space.id) && store.tidiedTabs[space.id] == Set(original.filter { $0 != old } + [arrival.id]),
+                   "completion prunes absent IDs while retaining all surviving considered tabs")
+            expect(store.item(space.todayContainerID)?.children == [arrival.id] + original.filter { $0 != old },
+                   "request prioritization never reorders the visible loose tabs")
+            expect(store.integrityProblems().isEmpty, "fitted request convergence preserves sidebar integrity")
+        }
+    }
+
+    /// Arc's decoded singleton example must survive live filtering, undo and empty-header pruning.
+    @MainActor
+    private static func tidySingletonGroups() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let space = store.createSpace(title: "Singleton tidy", emoji: "🧹")
+        for i in 0..<6 { store.createTab(url: "https://example.org/singleton/\(i)", in: space.id, select: false) }
+        let original = store.looseTodayTabs(space.id).map(\.id)
+        let calendar = TidyTabs.Plan(newGroups: [.init(name: "Calendar", tabs: [0])], joins: [:])
+        store.applyTidy(calendar, tabIDs: original, in: space.id)
+        var groups = store.tabGroups(in: space.id)
+        expect(groups.count == 1 && groups[0].children == [original[0]], "a live singleton assignment creates its named header")
+        expect(store.undoTidy() && store.tabGroups(in: space.id).isEmpty
+               && store.item(space.todayContainerID)?.children == original,
+               "undo restores exact loose order and prunes the new singleton header")
+        let pair = TidyTabs.Plan(newGroups: [.init(name: "Survivor", tabs: [0, 1])], joins: [:])
+        store.archiveTab(original[0], reason: .manual)
+        store.applyTidy(pair, tabIDs: original, in: space.id)
+        groups = store.tabGroups(in: space.id)
+        expect(groups.count == 1 && groups[0].children == [original[1]], "one eligible survivor of a pair still forms a valid group")
+        let groupID = groups[0].id
+        store.archiveTab(original[1], reason: .manual)
+        expect(store.item(groupID) == nil && store.tabGroups(in: space.id).isEmpty, "closing the sole member prunes its empty header")
+        store.applyTidy(pair, tabIDs: original, in: space.id)
+        expect(store.tabGroups(in: space.id).isEmpty, "zero surviving eligible members never create an empty header")
+        store.applyTidy(calendar, tabIDs: [original[2]], in: space.id)
+        let removedHeader = store.tabGroups(in: space.id)[0].id
+        store.removeGroupHeader(removedHeader)
+        expect(store.item(removedHeader) == nil && store.item(original[2])?.parentID == space.todayContainerID,
+               "Remove header leaves a singleton loose and prunes its former header")
+        expect(store.integrityProblems().isEmpty, "singleton application, undo and pruning preserve sidebar integrity")
     }
 
     /// Tidy Tab Titles hears of a tab pinned from elsewhere, once, and only while it has no name.
@@ -1787,6 +2362,187 @@ enum StoreTests {
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
     }
 
+    // promise: #566
+    /// ⇧⌘T after ⌘W on the open pinned tab (Close and Keep Pinned) brings the tab back at the page
+    /// it was on, not at its pinned page (#566), taking turns with archived tabs by when each
+    /// closed. A pinned split comes back with every pane where it was.
+    @MainActor
+    private static func reopenClosedPinnedTabs() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        store.clearArchive()  // what earlier tests archived (and saved) would come back first
+        let sid = store.createSpace(title: "Pinned Undo", emoji: "📌").id
+        let pinned = store.createTab(url: "https://example.com/pinned", title: "Home", in: sid, pinned: true, select: false)
+        let today = store.createTab(url: "https://example.com/today", in: sid)
+
+        store.archiveTab(today.id, reason: .manual)
+        clock.advance(by: 60)
+        store.selectTab(pinned.id)
+        store.updateTab(pinned.id, url: "https://example.com/pinned/video", title: "Video")
+        store.closePinnedTab(pinned.id, wasOpen: true)
+        store.selectTab(nil)
+        expect(store.item(pinned.id)?.tab?.url == "https://example.com/pinned",
+               "⌘W puts the pinned tab back on its pinned page")
+
+        expect(store.reopenLastClosed() != nil && store.selectedTabID == pinned.id
+               && store.item(pinned.id)?.tab?.url == "https://example.com/pinned/video"
+               && store.item(pinned.id)?.tab?.savedTitle == "Video",
+               "⇧⌘T brings back the pinned tab closed last at the page it was on (#566)")
+        expect(store.item(pinned.id)?.tab?.savedURL == "https://example.com/pinned" && store.isPinned(pinned.id),
+               "and its pinned page stays what it was")
+        expect(store.reopenLastClosed() == .archived(today.id) && store.selectedTabID == today.id,
+               "⇧⌘T again brings back the tab archived before it")
+
+        // A pinned tab closed from the background isn't on the stack: only the open one is.
+        store.updateTab(pinned.id, url: "https://example.com/pinned/elsewhere")
+        store.closePinnedTab(pinned.id, wasOpen: false)
+        expect(store.reopenLastClosed() == nil, "a pinned tab closed in the background leaves nothing to reopen")
+
+        // A pinned split closes as one and comes back with each pane on its page.
+        let left = store.createTab(url: "https://example.com/left", in: sid, pinned: true, select: false)
+        let right = store.createTab(url: "https://example.com/right", in: sid, pinned: true, select: false)
+        guard store.createSplit(with: [left.id, right.id], inPlace: true) != nil, store.isPinned(left.id) else { return expect(false, "the split is made") }
+        store.selectTab(right.id)
+        store.updateTab(left.id, url: "https://example.com/left/deep")
+        store.updateTab(right.id, url: "https://example.com/right/deep")
+        let panes = store.closePinnedTab(right.id, wasOpen: true)
+        store.selectTab(nil)
+        expect(Set(panes) == [left.id, right.id] && store.item(left.id)?.tab?.url == "https://example.com/left",
+               "⌘W on a pinned split takes every pane home")
+        store.reopenLastClosed()
+        expect(store.selectedTabID == right.id && store.item(left.id)?.tab?.url == "https://example.com/left/deep"
+               && store.item(right.id)?.tab?.url == "https://example.com/right/deep",
+               "⇧⌘T brings the split back with both panes where they were")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    // promise: #601
+    /// Settings ▸ Tabs ▸ "Reopen tabs from this Space only" (#601, not in Arc). The issue's steps:
+    /// Tab 1 closed in Space A, Tab 2 in Space B, then ⇧⌘T back in Space A. Arc switches to Space B
+    /// for Tab 2, and so does Cra by default; with the switch on, Tab 1 comes back in Space A.
+    @MainActor
+    private static func reopenClosedTabInThisSpaceOnly() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        store.clearArchive()
+        let a = store.createSpace(title: "Reopen A", emoji: "A", focus: true).id
+        let b = store.createSpace(title: "Reopen B", emoji: "B", focus: false).id
+        let pinnedA = store.createTab(url: "https://example.com/a-pinned", in: a, pinned: true, select: false)
+        let tab1 = store.createTab(url: "https://example.com/tab1", in: a)
+        store.archiveTab(tab1.id, reason: .manual)
+        clock.advance(by: 60)
+        store.focusSpace(b)
+        let tab2 = store.createTab(url: "https://example.com/tab2", in: b)
+        store.archiveTab(tab2.id, reason: .manual)
+        clock.advance(by: 60)
+        store.focusSpace(a)
+
+        expect(store.reopenLastClosed() == .archived(tab2.id) && store.focusedSpaceID == b,
+               "by default ⇧⌘T brings back the tab closed last, in its own Space, as in Arc")
+        store.archiveTab(tab2.id, reason: .manual)
+        clock.advance(by: 60)
+        store.focusSpace(a)
+
+        store.settings.reopenClosedTabCurrentSpaceOnly = true
+        expect(store.reopenLastClosed() == .archived(tab1.id) && store.focusedSpaceID == a && store.selectedTabID == tab1.id,
+               "with the switch on, ⇧⌘T brings back the tab closed in this Space and stays in it")
+
+        // A pinned tab closed in B waits for B; A's own comes back first.
+        store.selectTab(pinnedA.id)
+        store.updateTab(pinnedA.id, url: "https://example.com/a-pinned/deep")
+        store.closePinnedTab(pinnedA.id, wasOpen: true)
+        clock.advance(by: 60)
+        store.selectTab(nil)
+        let reopened = store.reopenLastClosed()
+        expect(reopened?.tabID == pinnedA.id && store.item(pinnedA.id)?.tab?.url == "https://example.com/a-pinned/deep"
+               && store.focusedSpaceID == a,
+               "a pinned tab closed in this Space comes back in it")
+        expect(store.reopenLastClosed() == nil && store.focusedSpaceID == a,
+               "with nothing left closed in this Space, ⇧⌘T stays put though Space B has a closed tab")
+        store.focusSpace(b)
+        expect(store.reopenLastClosed() == .archived(tab2.id) && store.focusedSpaceID == b,
+               "and Space B's tab is still there for Space B")
+        store.settings.reopenClosedTabCurrentSpaceOnly = false
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    // promise: #600
+    /// Arc's Duplicate on a tab's, a favorite's and a split's menu (#600), checked in Arc 1.173.1:
+    /// the copy goes right after the original, in the same list (a pinned tab's copy is pinned), and
+    /// stays in the background. A favorite's copy is a Today tab where new tabs go, not a favorite. A
+    /// split comes back whole: each pane's page in order, its orientation and sizes. Duplicate on one
+    /// pane of a split puts a copy of that page below the split, not a pane more inside it. `select`
+    /// opens the copy (the folder preview's Duplicate).
+    @MainActor
+    private static func duplicateFavoritesAndSplits() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Duplicates", emoji: "🐑").id
+        guard let space = store.space(sid) else { return expect(false, "the space is made") }
+        let mail = store.createTab(url: "https://example.com/mail", title: "Mail", in: sid, select: false)
+        let other = store.createTab(url: "https://example.com/other", title: "Other", in: sid, select: false)
+        store.addToFavorites(mail.id, in: sid)
+        store.addToFavorites(other.id, in: sid)
+        let open = store.createTab(url: "https://example.com/open", title: "Open", in: sid)
+        guard let copy = store.duplicateTab(mail.id) else { return expect(false, "a favorite duplicates") }
+        expect(store.children(of: space.favoritesContainerID).map(\.id) == [mail.id, other.id],
+               "a favorite's copy is no favorite (#600)")
+        expect(store.children(of: space.todayContainerID).first?.id == copy.id && copy.tab?.url == "https://example.com/mail",
+               "it is a Today tab of the same page, where new tabs go, as in Arc")
+        expect(store.selectedTabID == open.id, "and it stays in the background")
+        expect(store.item(copy.id)?.isUnread == false && store.item(copy.id)?.tab?.timeLastActiveAt == nil,
+               "saved read, with no unread dot, and not among ⌃Tab's recent tabs, as Arc saves its copies")
+
+        guard let tabCopy = store.duplicateTab(open.id) else { return expect(false, "a tab duplicates") }
+        let today = store.children(of: space.todayContainerID).map(\.id)
+        expect(today.firstIndex(of: tabCopy.id) == today.firstIndex(of: open.id).map { $0 + 1 } && store.selectedTabID == open.id,
+               "a Today tab's copy is right after it, and the open tab stays open")
+        expect(store.item(tabCopy.id)?.isUnread == false, "with no unread dot")
+        let pinned = store.createTab(url: "https://example.com/pinned", in: sid, pinned: true, select: false)
+        guard let pinnedCopy = store.duplicateTab(pinned.id) else { return expect(false, "a pinned tab duplicates") }
+        expect(store.children(of: space.pinnedContainerID).map(\.id).suffix(2) == [pinned.id, pinnedCopy.id] && store.isPinned(pinnedCopy.id),
+               "a pinned tab's copy is pinned, right after it")
+        guard let opened = store.duplicateTab(open.id, select: true) else { return expect(false, "Duplicate Tab duplicates") }
+        expect(store.selectedTabID == opened.id, "select opens the copy (the folder preview's Duplicate)")
+
+        let left = store.createTab(url: "https://example.com/left", title: "Left", in: sid)
+        let right = store.createTab(url: "https://example.com/right", title: "Right", in: sid)
+        guard let split = store.createSplit(with: [left.id, right.id]) else { return expect(false, "the split is made") }
+        store.flipSplitOrientation(split.id)
+        store.setSplitWidthFactors(split.id, [left.id: 0.7, right.id: 0.3])
+        store.selectTab(right.id)
+        guard let twin = store.duplicateSplit(split.id), let twinData = twin.split else { return expect(false, "a split duplicates (#600)") }
+        let rows = store.children(of: space.todayContainerID).map(\.id)
+        expect(rows.firstIndex(of: twin.id) == rows.firstIndex(of: split.id).map { $0 + 1 }, "the split's copy goes right after it")
+        let panes = twin.children.compactMap { store.item($0)?.tab?.url }
+        expect(panes == ["https://example.com/left", "https://example.com/right"] && Set(twin.children).isDisjoint(with: [left.id, right.id]),
+               "with a new tab for each pane's page, in order")
+        expect(twinData.orientation == .vertical && twinData.widthFactors[twin.children[0]] == 0.7 && twinData.widthFactors[twin.children[1]] == 0.3,
+               "the split's orientation and sizes come along")
+        expect(store.selectedTabID == right.id && store.item(split.id)?.children == [left.id, right.id],
+               "the original split stays open with its panes")
+        expect(twin.children.allSatisfy { store.item($0)?.isUnread == false && store.item($0)?.tab?.timeLastActiveAt == nil },
+               "its panes are saved read too")
+
+        guard let paneCopy = store.duplicateTab(left.id) else { return expect(false, "a pane duplicates") }
+        let after = store.children(of: space.todayContainerID).map(\.id)
+        expect(store.item(split.id)?.children == [left.id, right.id] && store.splitContaining(paneCopy.id) == nil
+               && after.firstIndex(of: paneCopy.id) == after.firstIndex(of: split.id).map { $0 + 1 },
+               "Duplicate on a split's pane leaves the split as it was and puts the page's copy right below it")
+
+        let pinnedLeft = store.createTab(url: "https://example.com/pl", in: sid, pinned: true, select: false)
+        let pinnedRight = store.createTab(url: "https://example.com/pr", in: sid, pinned: true, select: false)
+        guard let pinnedSplit = store.createSplit(with: [pinnedLeft.id, pinnedRight.id], inPlace: true),
+              let pinnedTwin = store.duplicateSplit(pinnedSplit.id) else { return expect(false, "a pinned split duplicates") }
+        expect(store.children(of: space.pinnedContainerID).map(\.id).suffix(2) == [pinnedSplit.id, pinnedTwin.id]
+               && pinnedTwin.children.allSatisfy(store.isPinned), "a pinned split's copy is pinned, right after it")
+
+        store.addToFavorites(pinnedSplit.id, in: sid)
+        guard store.isFavorite(pinnedSplit.id), let favoriteTwin = store.duplicateSplit(pinnedSplit.id) else { return expect(false, "a favorite split duplicates") }
+        expect(store.children(of: space.todayContainerID).first?.id == favoriteTwin.id && !store.isFavorite(favoriteTwin.id),
+               "a favorite split's copy is a Today split, as a favorite tab's is")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
     // promise: #2 #4
     /// ⌘N (#2): a new window opens on the space in use, every window lists the same tabs, and
     /// each window shows a space of its own. A tab open in two windows stays selected in both (#4).
@@ -1812,6 +2568,34 @@ enum StoreTests {
         store.removeWindow(second)
         expect(store.item(tab.id) != nil && store.item(made.id) != nil, "closing a window keeps the tabs")
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
+    // promise: #614
+    /// Clear Today, auto-archive, deleting a space and Archive Tabs Above/Below archived tab by tab, each
+    /// with a full touch() (the document copied, empty groups pruned, a save): quadratic at 5,000 tabs.
+    /// A batch is one change, with the archive in the order one-by-one archiving gave.
+    @MainActor
+    private static func clearTodayArchivesInOnePass() {
+        let store = SidebarStore(clock: ManualScheduler())
+        let sid = store.focusedSpaceID
+        let ids = (0..<50).map { store.createTab(url: "https://example.com/batch/\($0)", select: false).id }
+        let shown = store.createTab(url: "https://example.com/shown").id
+        let before = store.revision
+        store.clearToday(sid, playing: [])
+        expect(store.revision == before + 1, "Clear Today on 50 tabs is one change to the sidebar (#614), was \(store.revision - before)")
+        // (The store may have loaded tabs an earlier test saved; they're archived too.)
+        expect(Set(store.archive.map(\.id)).isSuperset(of: ids) && ids.allSatisfy { store.item($0) == nil } && store.item(shown) != nil,
+               "the 50 tabs are archived, the one on screen stays")
+        // The order sequential archiving gave: each went in at the top.
+        let sequential = SidebarStore(clock: ManualScheduler())
+        let again = (0..<3).map { sequential.createTab(url: "https://example.com/one/\($0)", select: false).id }
+        for id in again { sequential.archiveTab(id, reason: .manual) }
+        let batch = SidebarStore(clock: ManualScheduler())
+        let lot = (0..<3).map { batch.createTab(url: "https://example.com/lot/\($0)", select: false).id }
+        batch.archiveTabs(lot, reason: .manual)
+        let one = sequential.archive.prefix(3).map { again.firstIndex(of: $0.id) ?? -1 }
+        let many = batch.archive.prefix(3).map { lot.firstIndex(of: $0.id) ?? -1 }
+        expect(one == many && one == [2, 1, 0], "a batch archives in the order one-by-one archiving did (\(one) vs \(many))")
     }
 
     /// Two Macs on one sync folder: the second takes the first's sidebar, a change on either reaches
@@ -1908,17 +2692,123 @@ enum StoreTests {
         doc.profiles = nil
         let gone = UUID()
         doc.spaces[0].profileID = gone
+        var replacedTold = 0
+        let replacedObserver = NotificationCenter.default.addObserver(forName: SidebarStore.documentReplaced, object: b, queue: nil) { _ in replacedTold += 1 }
         b.replace(document: doc)
+        NotificationCenter.default.removeObserver(replacedObserver)
         expect(b.orderedSpaces[0].profileID == nil && b.integrityProblems().isEmpty, "a space on a missing profile falls back to Default")
+        expect(replacedTold == 1, "a replaced document is told once, for the pages to put their own addresses back")
     
         // Stopped before the tests below: every service here saves the one sync.json, and this
         // one's debounced save must not land in the middle of theirs.
         syncA.disable()
         iCloudSync(first: a, firstClock: clockA)
         syncGoesOnWithoutAsking()
+        syncWritesSoonAfterAChange()
+        syncLooksWithoutEncodingWhatDidNotChange()
         syncPutsAMixedBundleRight()
         syncPutsAFileThatNeverArrivesRight()
         syncLeavesAMixToItsWriterOnANewMac()
+        syncKeepsAClosedTabClosed()
+        syncKeepsAClosedTabClosedAfterTwoWritesThere()
+    }
+
+    /// A tab closed on one Mac came back (reported by a user, 13 Nov 2026). The other Mac still
+    /// had it and wrote its own bundle (a page there changed its title) from the bundle before
+    /// the close, and the first Mac took that whole sidebar. A bundle now says which bundle it was
+    /// written from, and a Mac that has that one merges the two: what changed on either Mac
+    /// since then is kept, and a tab closed on either stays closed.
+    @MainActor
+    private static func syncKeepsAClosedTabClosed() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-sync-closed-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clockA = ManualScheduler(), clockB = ManualScheduler(now: clockA.now)
+        let a = SidebarStore(clock: clockA), b = SidebarStore(clock: clockB)
+        let doomed = a.createTab(url: "https://example.com/doomed", title: "Doomed")
+        let kept = a.createTab(url: "https://example.com/kept", title: "Kept")
+        let syncA = SettingsSyncService(store: a, clock: clockA, device: "Studio", deviceID: "studio")
+        expect(syncA.enable(folder: folder) == .synced, "the first Mac writes its bundle")
+        let syncB = SettingsSyncService(store: b, clock: clockB, device: "MacBook", deviceID: "macbook")
+        guard case .bundleFound = syncB.enable(folder: folder) else { return expect(false, "the second Mac is asked once") }
+        syncB.useRemote()
+        expect(b.item(doomed.id) != nil && b.item(kept.id) != nil, "both Macs have both tabs")
+
+        // The first Mac closes a tab and writes. The provider is slow: the second Mac still sees the
+        // bundle before the close when a page there changes its title and a tab opens, and it writes.
+        let bundle = folder.appendingPathComponent(SettingsSync.folderName)
+        let names = [SettingsSync.manifestName] + SettingsSync.fileNames
+        let before = Dictionary(uniqueKeysWithValues: names.map { ($0, try? Data(contentsOf: bundle.appendingPathComponent($0))) })
+        clockA.advance(by: 10); clockB.advance(by: 10)
+        a.archiveTab(doomed.id, reason: .manual)
+        syncA.poll()
+        for name in names { try? before[name]??.write(to: bundle.appendingPathComponent(name)) }
+        clockB.advance(by: 5)
+        b.updateTab(kept.id, title: "Kept, renamed")
+        let opened = b.createTab(url: "https://example.com/opened-on-macbook", title: "Opened")
+        syncB.poll()
+        expect(b.item(doomed.id) != nil, "the second Mac has not seen the close yet")
+
+        // The second Mac's bundle is what the provider keeps. The first Mac merges it with its close.
+        clockA.advance(by: 10)
+        syncA.poll()
+        expect(a.item(doomed.id) == nil, "a tab closed on the first Mac stays closed when the second wrote before it saw the close")
+        expect(a.item(kept.id)?.displayTitle == "Kept, renamed", "the title changed on the second Mac reaches the first")
+        expect(a.item(opened.id) != nil, "and so does the tab opened there")
+        expect(a.integrityProblems().isEmpty, "the merged sidebar is sound")
+
+        // And the second Mac takes the merge: the closed tab goes there too.
+        clockB.advance(by: 10)
+        syncB.poll()
+        expect(b.item(doomed.id) == nil, "the close reaches the second Mac")
+        expect(b.item(kept.id)?.displayTitle == "Kept, renamed" && b.item(opened.id) != nil, "and its own changes stay")
+        expect(b.integrityProblems().isEmpty, "its sidebar is sound")
+        syncA.disable(); syncB.disable()
+    }
+
+    /// The same close, but the second Mac wrote twice before the first looked (it writes on each
+    /// look that finds a change, and iCloud hands over only the later bundle). That bundle was
+    /// written from the second Mac's own earlier one, which never reached the first Mac; it also
+    /// names the bundle before that, which the first Mac has, and the merge is against that one.
+    @MainActor
+    private static func syncKeepsAClosedTabClosedAfterTwoWritesThere() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-sync-twice-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clockA = ManualScheduler(), clockB = ManualScheduler(now: clockA.now)
+        let a = SidebarStore(clock: clockA), b = SidebarStore(clock: clockB)
+        let doomed = a.createTab(url: "https://example.com/doomed", title: "Doomed")
+        let kept = a.createTab(url: "https://example.com/kept", title: "Kept")
+        let syncA = SettingsSyncService(store: a, clock: clockA, device: "Studio", deviceID: "studio")
+        expect(syncA.enable(folder: folder) == .synced, "the first Mac writes its bundle")
+        let syncB = SettingsSyncService(store: b, clock: clockB, device: "MacBook", deviceID: "macbook")
+        guard case .bundleFound = syncB.enable(folder: folder) else { return expect(false, "the second Mac is asked once") }
+        syncB.useRemote()
+
+        let bundle = folder.appendingPathComponent(SettingsSync.folderName)
+        let names = [SettingsSync.manifestName] + SettingsSync.fileNames
+        let before = Dictionary(uniqueKeysWithValues: names.map { ($0, try? Data(contentsOf: bundle.appendingPathComponent($0))) })
+        clockA.advance(by: 10); clockB.advance(by: 10)
+        a.archiveTab(doomed.id, reason: .manual)
+        syncA.poll()
+        for name in names { try? before[name]??.write(to: bundle.appendingPathComponent(name)) }
+        clockB.advance(by: 5)
+        b.updateTab(kept.id, title: "Kept, renamed")
+        syncB.poll()
+        clockB.advance(by: 30)
+        let opened = b.createTab(url: "https://example.com/opened-on-macbook", title: "Opened")
+        syncB.poll()
+        expect(b.item(doomed.id) != nil, "the second Mac has not seen the close yet")
+
+        clockA.advance(by: 60)
+        syncA.poll()
+        expect(a.item(doomed.id) == nil, "a tab closed on the first Mac stays closed when the second wrote twice before it looked")
+        expect(a.item(kept.id)?.displayTitle == "Kept, renamed" && a.item(opened.id) != nil, "both of the second Mac's writes reach the first")
+        expect(a.integrityProblems().isEmpty, "the merged sidebar is sound")
+        clockB.advance(by: 60)
+        syncB.poll()
+        expect(b.item(doomed.id) == nil && b.item(opened.id) != nil, "the close reaches the second Mac and its tab stays")
+        syncA.disable(); syncB.disable()
     }
 
     /// iCloud is the same bundle in the app's container, with two differences a test folder can
@@ -1976,6 +2866,117 @@ enum StoreTests {
         syncA.disable()
     }
 
+    // promise: #598
+    /// A change made here was written only at the next 30-second look. It goes up 3 s after the last
+    /// change; a tab switch alone (last-active times) waits for the look, as before.
+    @MainActor
+    private static func syncWritesSoonAfterAChange() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-sync-soon-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clock = ManualScheduler()
+        let a = SidebarStore(clock: clock)
+        let first = a.createTab(url: "https://example.com/one").id
+        let second = a.createTab(url: "https://example.com/two").id
+        let sync = SettingsSyncService(store: a, clock: clock, device: "Studio", deviceID: "studio")
+        expect(sync.enable(folder: folder) == .synced, "sync is on, with this Mac's bundle written")
+        let manifest = folder.appendingPathComponent(SettingsSync.folderName).appendingPathComponent(SettingsSync.manifestName)
+        let written = try? Data(contentsOf: manifest)
+
+        // A tab switch: only last-active times change. Nothing goes up before the look.
+        clock.advance(by: 5)
+        a.selectTab(first)
+        a.selectTab(second)
+        clock.advance(by: SettingsSync.writeSoonDelay + 1)
+        expect((try? Data(contentsOf: manifest)) == written, "a tab switch alone waits for the 30-second look")
+
+        // A rename: written 3 s after the last change, well before the look.
+        a.rename(second, to: "Renamed here")
+        clock.advance(by: 1)
+        a.rename(second, to: "Renamed here, twice")
+        clock.advance(by: SettingsSync.writeSoonDelay - 1)
+        expect((try? Data(contentsOf: manifest)) == written, "not while changes keep coming")
+        clock.advance(by: 1)
+        let soon = try? Data(contentsOf: manifest)
+        expect(soon != written, "the bundle is written 3 s after the last change (#598)")
+        let sidebar = (try? Data(contentsOf: folder.appendingPathComponent(SettingsSync.folderName).appendingPathComponent(SettingsSync.sidebarName))) ?? Data()
+        expect(String(decoding: sidebar, as: UTF8.self).contains("Renamed here, twice"), "with the change in it")
+        sync.disable()
+    }
+
+    // promise: #615
+    /// A look every 30 seconds sorted, encoded and hashed the whole sidebar and decoded the folder's,
+    /// also when nothing had changed: with thousands of tabs, a stall on the main thread twice a
+    /// minute (#615). An idle look now does neither. A title, a favicon, a setting or a shortcut
+    /// changed here still goes up at the next look, encoded once and to the same bytes as before.
+    @MainActor
+    private static func syncLooksWithoutEncodingWhatDidNotChange() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cra-sync-idle-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let shortcuts = AppPaths.file(SettingsSync.keybindingsName)
+        let shortcutsBefore = try? Data(contentsOf: shortcuts)
+        defer {
+            if let shortcutsBefore { try? shortcutsBefore.write(to: shortcuts) } else { try? FileManager.default.removeItem(at: shortcuts) }
+        }
+        let clock = ManualScheduler()
+        let a = SidebarStore(clock: clock)
+        let tabs = (0..<1_500).map { a.createTab(url: "https://example.com/\($0)").id }
+        let sync = SettingsSyncService(store: a, clock: clock, device: "Studio", deviceID: "studio")
+        expect(sync.enable(folder: folder) == .synced, "sync is on, with this Mac's bundle written")
+        let bundle = folder.appendingPathComponent(SettingsSync.folderName)
+        func files() -> [String: Data] {
+            Dictionary(uniqueKeysWithValues: ([SettingsSync.manifestName] + SettingsSync.fileNames).map {
+                ($0, (try? Data(contentsOf: bundle.appendingPathComponent($0))) ?? Data())
+            })
+        }
+        func sidebarText() -> String { String(decoding: files()[SettingsSync.sidebarName] ?? Data(), as: UTF8.self) }
+
+        // Idle: the first look reads the bundle written; later looks encode and decode nothing.
+        sync.poll()
+        let written = files()
+        let (encodes, decodes) = (sync.localEncodes, sync.folderDecodes)
+        for _ in 0..<3 {
+            clock.advance(by: 30)
+            sync.poll()
+        }
+        expect(sync.localEncodes == encodes, "an idle look encodes nothing (\(sync.localEncodes - encodes) times)")
+        expect(sync.folderDecodes == decodes, "an idle look decodes nothing (\(sync.folderDecodes - decodes) times)")
+        expect(files() == written, "and writes nothing")
+
+        // A title (updateTab moves no revision): written at the next look, encoded once, in the
+        // bytes the bundle always had: pretty-printed, sorted keys, items by id string.
+        a.updateTab(tabs[3], title: "Retitled here")
+        sync.poll()
+        expect(sync.localEncodes == encodes + 1, "one change, one encode (\(sync.localEncodes - encodes))")
+        expect(sidebarText().contains("Retitled here"), "the title goes up")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        var expected = a.document.forSync()
+        expected.items.sort { $0.id.uuidString < $1.id.uuidString }
+        expect(files()[SettingsSync.sidebarName] == (try? encoder.encode(expected)), "the same bytes as before #615")
+        let afterTitle = files()
+        sync.poll()
+        expect(sync.localEncodes == encodes + 1 && files() == afterTitle, "and the look after it is idle again")
+
+        // A favicon, a setting and a shortcut each go up too.
+        a.setFaviconKey(tabs[5], "favicon.example")
+        sync.poll()
+        expect(sidebarText().contains("favicon.example"), "a favicon goes up")
+        a.settings.httpsOnly.toggle()
+        sync.poll()
+        let settingsText = String(decoding: files()[SettingsSync.settingsName] ?? Data(), as: UTF8.self)
+        expect(settingsText.contains("\"httpsOnly\" : \(a.settings.httpsOnly)"), "a setting goes up")
+        try? Data(#"{"shortcuts":{"newTab":[{"key":"y","modifiers":1048576}]}}"#.utf8).write(to: shortcuts)
+        sync.poll()
+        expect(String(decoding: files()[SettingsSync.keybindingsName] ?? Data(), as: UTF8.self).contains("newTab"), "a shortcut goes up")
+        let settled = sync.localEncodes
+        sync.poll()
+        expect(sync.localEncodes == settled, "idle again")
+        sync.disable()
+    }
+
     /// The question comes once, when sync is turned on. After the answer a bundle from the other
     /// Mac is applied by itself, also when iCloud delivers it in parts. Cra 0.1.38 took every
     /// later download for the first one: it asked again (only seen in Settings) and synced
@@ -1987,6 +2988,13 @@ enum StoreTests {
         defer { try? FileManager.default.removeItem(at: container) }
         setenv("CRA_SYNC_ICLOUD_DIR", container.path, 1)
         defer { unsetenv("CRA_SYNC_ICLOUD_DIR") }
+        // Every store here loads settings.json from the one data folder, as the test before this one
+        // left it once its 0.4 s save landed: with HTTPS-Only on. Under load it had landed, the second
+        // Mac's change below changed nothing, and the third Mac was offered the first Mac's bundle
+        // (18 Nov 2026). It is on disk every time now.
+        let earlier = SidebarStore(clock: ManualScheduler())
+        earlier.settings.httpsOnly = true
+        earlier.saveAll()
         let clockA = ManualScheduler(), clockB = ManualScheduler(now: clockA.now)
         let a = SidebarStore(clock: clockA), b = SidebarStore(clock: clockB)
         let syncA = SettingsSyncService(store: a, clock: clockA, device: "Studio", deviceID: "studio")
@@ -2011,22 +3019,30 @@ enum StoreTests {
 
         // And back, with no question on the first Mac either.
         clockB.advance(by: 20)
-        b.settings.httpsOnly = true
+        // A change whatever the loaded settings held: the second Mac turns HTTPS-Only the other way.
+        let httpsOnly = !b.settings.httpsOnly
+        b.settings.httpsOnly = httpsOnly
         syncB.poll()
         downloaded = false
         syncA.downloadStatus = { url in url.lastPathComponent == SettingsSync.settingsName && !downloaded ? .notDownloaded : nil }
         syncA.poll()
         downloaded = true
         syncA.poll()
-        expect(syncA.pendingChoice == nil && a.settings.httpsOnly, "a setting changed on the second Mac reaches the first without a question")
+        expect(syncA.pendingChoice == nil && a.settings.httpsOnly == httpsOnly, "a setting changed on the second Mac reaches the first without a question")
 
         // The first two Macs stop here, so that neither's debounced save of sync.json lands between
         // the third Mac's save and its relaunch.
         syncA.disable(); syncB.disable()
 
         // Cra quit while the first download was still coming in: the question is still asked.
+        // The third Mac shares the first two's data folder here, and their 0.4 s saves of a sidebar
+        // with the tab could land before it loads (under load, 18 Nov 2026): they are on disk now,
+        // and the third Mac starts from a sidebar of its own, as it would on its own disk.
+        a.saveAll(); b.saveAll()
         let clockC = ManualScheduler(now: clockB.now)
         let c = SidebarStore(clock: clockC)
+        c.replace(document: .fresh())
+        expect(!c.document.items.contains { $0.id == tab.id }, "the third Mac hasn't seen the tab")
         let syncC = SettingsSyncService(store: c, clock: clockC, device: "Mini", deviceID: "mini")
         syncC.downloadStatus = { url in url.lastPathComponent == SettingsSync.sidebarName ? .notDownloaded : nil }
         expect(syncC.enableICloud() == .downloading, "a third Mac turns iCloud on while the bundle downloads")
@@ -2482,6 +3498,38 @@ enum StoreTests {
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
     }
 
+    // promise: #498
+    /// A split holds Arc's four panes on every path (#498): a tab let go on a full split's sidebar
+    /// row stays where it was, and a pinned tab leaves no copy behind; a split with room still
+    /// takes it.
+    @MainActor
+    private static func fullSplitTakesNoMorePanes() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Full Split", emoji: "🪟").id
+        let main = store.activeWindowID
+        let today = store.space(sid)!.todayContainerID
+        let tabs = (1...4).map { store.createTab(url: "https://example.com/pane-\($0)", in: sid, window: main) }
+        guard let split = store.createSplit(with: tabs.map(\.id)) else { return expect(false, "four tabs make a split") }
+        let panes = store.children(of: split.id).map(\.id)
+        expect(panes.count == SplitDropProposal.maximumPanes, "a split of four panes")
+
+        let fifth = store.createTab(url: "https://example.com/fifth", in: sid, window: main)
+        store.moveItem(fifth.id, to: split.id, index: nil)
+        expect(store.children(of: split.id).map(\.id) == panes, "a fifth tab dropped on the split's row adds no pane")
+        expect(store.item(fifth.id)?.parentID == today, "and stays in Today")
+
+        let pinned = store.createTab(url: "https://example.com/pinned", in: sid, pinned: true, window: main)
+        let count = store.children(of: split.id).count
+        store.addToSplit(split.id, tabID: pinned.id, at: 0)
+        expect(store.children(of: split.id).count == count && store.isPinned(pinned.id),
+               "a pinned tab adds no copy of itself to a full split")
+
+        store.archiveTab(panes[3], reason: .manual)
+        store.moveItem(fifth.id, to: split.id, index: nil)
+        expect(store.children(of: split.id).map(\.id) == Array(panes.prefix(3)) + [fifth.id], "with room again the split takes it")
+        expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
+    }
+
     // promise: #273
     /// Back on a tab a link opened (#273): once its page has nothing behind it, the tab closes to
     /// the archive and the tab the link was clicked in shows again, as in Arc. Pages it went on to
@@ -2529,6 +3577,28 @@ enum StoreTests {
         expect(store.integrityProblems().isEmpty, "and the sidebar stays sound")
     }
 
+    /// ⌘1…⌘9 go to sidebar items, not tabs (Arc: "Go to Sidebar Item N", X 17 Nov): a split
+    /// favorite is one number and opens on the pane focused last, as a click on it does.
+    @MainActor
+    private static func numberedSidebarItems() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Numbers", emoji: "🔢").id
+        let space = store.space(sid)!
+        let x = store.createTab(url: "https://x.example/", in: sid, pinned: true, select: false, parent: space.favoritesContainerID, index: 0)
+        let fb = store.createTab(url: "https://fb.example/", in: sid, pinned: true, select: false, parent: space.favoritesContainerID, index: 1)
+        let tg = store.createTab(url: "https://tg.example/", in: sid, pinned: true, select: false, parent: space.favoritesContainerID, index: 2)
+        let yt = store.createTab(url: "https://yt.example/", in: sid, pinned: true, select: false, parent: space.favoritesContainerID, index: 3)
+        let favSplit = store.createSplit(with: [fb.id, tg.id], inPlace: true)!
+        let a = store.createTab(url: "https://a.example/", in: sid, select: false, parent: space.todayContainerID, index: 0)
+        let b = store.createTab(url: "https://b.example/", in: sid, select: false, parent: space.todayContainerID, index: 1)
+        let c = store.createTab(url: "https://c.example/", in: sid, select: false, parent: space.todayContainerID, index: 2)
+        _ = store.createSplit(with: [a.id, b.id])
+        expect(store.children(of: space.favoritesContainerID).map(\.id) == [x.id, favSplit.id, yt.id], "set up: X, a split favorite, YouTube")
+        expect(store.numberedTabs(in: sid) == [x.id, fb.id, yt.id, a.id, c.id], "a split takes one number, opening its first pane")
+        store.selectTab(tg.id)
+        expect(store.numberedTabs(in: sid) == [x.id, tg.id, yt.id, a.id, c.id], "and then the pane focused last")
+    }
+
     /// Arc's Today tab menu: "Archive Tabs Below" archives every Today row under the one clicked.
     @MainActor
     private static func archiveTabsBelow() {
@@ -2551,6 +3621,61 @@ enum StoreTests {
         expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
     }
 
+    // promise: #600
+    /// Arc 1.173.1's Today tab menu has two ⌥ rows: Archive Tabs Above (under Archive Tabs Below)
+    /// archives every Today row over the one clicked, Archive Other Tabs (under Archive Tab) every
+    /// Today row but it. Pinned tabs and favorites stay.
+    @MainActor
+    private static func archiveTabsAboveAndOthers() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Above", emoji: "⬆️").id
+        let today = store.space(sid)!.todayContainerID
+        let a = store.createTab(url: "https://a.example/", in: sid, select: false, parent: today, index: 0)
+        let b = store.createTab(url: "https://b.example/", in: sid, select: false, parent: today, index: 1)
+        let c = store.createTab(url: "https://c.example/", in: sid, select: false, parent: today, index: 2)
+        let d = store.createTab(url: "https://d.example/", in: sid, select: false, parent: today, index: 3)
+        let e = store.createTab(url: "https://e.example/", in: sid, select: false, parent: today, index: 4)
+        let split = store.createSplit(with: [a.id, b.id])!
+        let pinned = store.createTab(url: "https://p.example/", in: sid, pinned: true, select: false)
+        expect(store.children(of: today).map(\.id) == [split.id, c.id, d.id, e.id], "set up: a split and three tabs in Today")
+        expect(store.hasTodayTabs(above: c.id) && !store.hasTodayTabs(above: split.id), "the split counts as a row above c, and nothing is above the split")
+        store.archiveTabsAbove(d.id)
+        expect(store.children(of: today).map(\.id) == [d.id, e.id], "Archive Tabs Above archives the split and the tab over it")
+        expect(!store.hasTodayTabs(above: d.id) && store.hasTodayTabs(below: d.id), "nothing is above it now, one tab is below")
+        store.archiveOtherTabs(e.id)
+        expect(store.children(of: today).map(\.id) == [e.id] && store.item(pinned.id) != nil,
+               "Archive Other Tabs leaves only it in Today, and the pinned tab")
+        store.archiveTabsAbove(pinned.id)
+        store.archiveOtherTabs(pinned.id)
+        expect(store.item(pinned.id) != nil && store.children(of: today).map(\.id) == [e.id], "a pinned tab archives nothing")
+        expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    // promise: #600
+    /// Arc 1.173.1's split menu: Change Icon… gives the split an emoji or a glyph, Reset Name and
+    /// Icon takes the name and the icon away, and Duplicate keeps both.
+    @MainActor
+    private static func splitIconAndReset() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Icons", emoji: "🧩").id
+        let a = store.createTab(url: "https://a.example/", in: sid, select: false)
+        let b = store.createTab(url: "https://b.example/", in: sid, select: false)
+        guard let split = store.createSplit(with: [a.id, b.id]) else { return expect(false, "the split is made") }
+        store.setSplitIcon(split.id, .emoji("😀"))
+        expect(store.item(split.id)?.split?.icon == .emoji("😀") && store.item(split.id)?.title == nil, "the split takes an emoji")
+        store.rename(split.id, to: "Work")
+        guard let twin = store.duplicateSplit(split.id) else { return expect(false, "the split duplicates") }
+        expect(twin.split?.icon == .emoji("😀") && twin.title == "Work", "its copy keeps the icon and the name")
+        store.setSplitIcon(split.id, .symbol("star.fill"))
+        expect(store.item(split.id)?.split?.icon == .symbol("star.fill"), "a glyph replaces the emoji")
+        store.resetSplitNameAndIcon(split.id)
+        expect(store.item(split.id)?.split?.icon == SpaceIcon.none && store.item(split.id)?.title == nil,
+               "Reset Name and Icon takes both away")
+        store.setSplitIcon(a.id, .emoji("🙃"))
+        expect(store.item(a.id)?.split == nil, "a tab takes no split icon")
+        expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
     /// An incognito window's pages all load in one off-the-record context, whatever profile its
     /// space would name, so the space takes no profile; and Export into Folder can't carry its
     /// tabs into a saved space (#413).
@@ -2568,6 +3693,25 @@ enum StoreTests {
         expect(store.exportSpace(sid, intoFolderIn: home) == nil, "an incognito space doesn't export into a saved space")
         expect(store.isIncognito(item: secret.id) && store.spaceID(ofItem: secret.id) == sid, "its tab stays in the incognito window")
         expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    /// A new window, normal, incognito or Blank, opens with the sidebar as it was last hidden or shown,
+    /// in any window (Arc's sidebarViewPreferences.sidebarMode, #644). The windows already open keep theirs.
+    // promise: #644
+    @MainActor
+    private static func newWindowsTakeTheLastSidebarChoice() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let first = store.prefs.windows[0].id
+        expect(store.addIncognitoWindow(frame: nil).sidebarVisible, "with no choice made, a new window shows its sidebar")
+        store.chooseSidebar(visible: false, window: first)
+        expect(!store.window(first).sidebarVisible, "the window hides its sidebar")
+        let incognito = store.addIncognitoWindow(frame: nil)
+        let normal = store.addWindow(spaceID: store.focusedSpaceID(window: first), frame: nil)
+        let blank = store.addBlankWindow(frame: nil)
+        expect([incognito, normal, blank].allSatisfy { !$0.sidebarVisible }, "new windows open with the sidebar hidden too")
+        store.chooseSidebar(visible: true, window: normal.id)
+        expect(store.addIncognitoWindow(frame: nil).sidebarVisible, "the choice made last counts, in whichever window")
+        expect(!store.window(first).sidebarVisible && !store.window(incognito.id).sidebarVisible, "open windows keep their own")
     }
 
     /// Arc's Clear on Today ("Clear unselected Today tabs"): the tab on screen and a tab playing
@@ -2597,6 +3741,40 @@ enum StoreTests {
         store.clearToday(sid, playing: [])
         expect(store.children(of: today).map(\.id) == [paneSplit.id], "a split with the selected pane stays whole")
         expect(store.integrityProblems().isEmpty, "the sidebar stays sound")
+    }
+
+    /// The Tabs menu's facts (#622) count tabs only up to what its rules need and stop at the first
+    /// clearable Today row; each answer has to agree with the full lists they stand in for.
+    // promise: #622
+    @MainActor
+    private static func tabsMenuCountsStopEarly() {
+        let store = AppComposition(clock: ManualScheduler()).store
+        let sid = store.createSpace(title: "Counts", emoji: "🔢").id
+        let space = store.space(sid)!
+        func agrees(_ label: String, playing: Set<UUID> = []) {
+            let all = store.visibleTabs(in: sid).count
+            for limit in 0...4 {
+                expect(store.visibleTabCount(in: sid, upTo: limit) == min(all, limit), "\(label): \(limit) of \(all) tabs counted")
+            }
+            expect(store.todayHasClearable(sid, playing: playing) == !store.todayClearing(sid, playing: playing).isEmpty,
+                   "\(label): Clear Today's answer is the full list's")
+        }
+        agrees("an empty space")
+        let folder = store.createFolder(named: "Empty", in: space.todayContainerID, index: 0)
+        agrees("a folder with no tabs")
+        let pinned = store.createTab(url: "https://pinned.example/", in: sid, select: false, parent: folder.id, index: 0)
+        agrees("one tab in a folder")
+        let a = store.createTab(url: "https://a.example/", in: sid, select: false, parent: space.todayContainerID, index: 1)
+        let b = store.createTab(url: "https://b.example/", in: sid, select: false, parent: space.todayContainerID, index: 2)
+        let split = store.createSplit(with: [a.id, b.id])!
+        agrees("a split after the folder")
+        store.selectTab(b.id)
+        agrees("the split's pane on screen")
+        agrees("the folder's tab playing", playing: [pinned.id])
+        let shown = store.createTab(url: "https://shown.example/", in: sid, parent: space.todayContainerID, index: 3)
+        agrees("another tab on screen", playing: [pinned.id])
+        expect(store.item(split.id) != nil && store.selectedTabID == shown.id, "set up: the split stays, the last tab is on screen")
+        expect(store.visibleTabCount(in: UUID(), upTo: 2) == 0 && !store.todayHasClearable(UUID(), playing: []), "an unknown space has none")
     }
 
     /// Arc's Shortcuts list: Collapse All Folders / Expand All Folders, nested folders included.
@@ -2706,6 +3884,100 @@ enum StoreTests {
         clock.advance(by: 1)
         store.selectTab(link.id)
         expect(store.recentTabs(in: sid, limit: .max) == [link.id, source.id, older.id], "on it, the next tab is the one it came from")
+    }
+
+    // promise: #554
+    /// ⌃Tab with a split (#554): the split is one card with its panes in order, not a card per
+    /// pane, and picking it goes back to the pane used last.
+    @MainActor
+    private static func recentCardsKeepSplitsWhole() {
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        let sid = store.createSpace(title: "Splits", emoji: "🪟").id
+        let left = store.createTab(url: "https://example.com/left", in: sid)
+        clock.advance(by: 1)
+        let right = store.createTab(url: "https://example.com/right", in: sid)
+        clock.advance(by: 1)
+        guard let split = store.createSplit(with: [left.id, right.id]) else { return expect(false, "two tabs make a split") }
+        clock.advance(by: 1)
+        store.selectTab(right.id)
+        clock.advance(by: 1)
+        let solo = store.createTab(url: "https://example.com/solo", in: sid)
+        clock.advance(by: 1)
+        store.selectTab(solo.id)
+        let cards = store.recentCards(in: sid, limit: .max)
+        expect(cards.map(\.id) == [solo.id, split.id], "the split is one card after the tab on screen")
+        expect(cards.last?.panes == [left.id, right.id] && cards.last?.isSplit == true, "holding both panes in pane order")
+        expect(store.recentTabs(in: sid, limit: .max) == [solo.id, right.id], "a tap goes to the pane used last")
+        clock.advance(by: 1)
+        store.selectTab(right.id)
+        expect(store.recentCards(in: sid, limit: .max).map(\.id) == [split.id, solo.id], "on the split, the next card is the tab it came from")
+    }
+
+    /// Every store in this process loads what earlier tests' stores saved to the one data folder, with
+    /// their clocks' times, and some ran hours ahead. A test that ranks tabs it didn't make (⌃⌥Tab lists
+    /// every space) moves its clock past all of them first, so its own tabs are the newest.
+    @MainActor
+    private static func startAfterLoadedTabs(_ store: SidebarStore, _ clock: ManualScheduler) {
+        guard let latest = store.document.items.compactMap({ $0.tab?.timeLastActiveAt }).max(), latest >= clock.now else { return }
+        clock.advance(by: latest.timeIntervalSince(clock.now) + 1)
+    }
+
+    /// ⌃⌥Tab (#467): every space's recent tabs, the window's own first. Picking another space's tab
+    /// goes to that space, and the next tap comes back to the tab it left.
+    ///
+    /// It lists every space, so it also sees the ones the store loaded from what earlier tests saved,
+    /// some on clocks hours ahead of this one. Whether that save had landed was a race that failed this
+    /// test under load (20 of 24 parallel runs, 18 Nov 2026); a newer tab is now always on disk.
+    @MainActor
+    private static func recentTabsInAllSpacesGoBack() {
+        let earlierClock = ManualScheduler()
+        let earlier = AppComposition(clock: earlierClock).store
+        let leftover = earlier.createTab(url: "https://example.com/leftover", in: earlier.focusedSpaceID)
+        earlierClock.advance(by: 3600)
+        earlier.selectTab(leftover.id)
+        earlier.saveAll()
+
+        let clock = ManualScheduler()
+        let store = AppComposition(clock: clock).store
+        expect(store.item(leftover.id)?.tab?.timeLastActiveAt.map { $0 > clock.now } == true,
+               "the store loaded a tab last active after this test's clock starts")
+        startAfterLoadedTabs(store, clock)
+        let work = store.createSpace(title: "Work", emoji: "💼").id
+        let workTab = store.createTab(url: "https://example.com/work", in: work)
+        clock.advance(by: 1)
+        let home = store.createSpace(title: "Home", emoji: "🏠").id
+        let homeOld = store.createTab(url: "https://example.com/home-old", in: home)
+        clock.advance(by: 1)
+        let homeTab = store.createTab(url: "https://example.com/home", in: home)
+        clock.advance(by: 1)
+        store.selectTab(homeTab.id)
+        expect(store.recentTabs(in: home, limit: .max) == [homeTab.id, homeOld.id], "⌃Tab stays in the space")
+        let all = store.recentTabsInAllSpaces(limit: .max)
+        expect(all.prefix(3) == [homeTab.id, homeOld.id, workTab.id][...], "⌃⌥Tab lists the other space's tabs too")
+        clock.advance(by: 1)
+        store.selectTab(workTab.id)
+        expect(store.focusedSpaceID == work, "picking another space's tab goes to its space")
+        expect(store.recentTabsInAllSpaces(limit: 2) == [workTab.id, homeTab.id], "and the next tap comes back")
+        store.archiveTab(leftover.id, reason: .manual)
+        store.saveAll()
+    }
+
+    // promise: crash-zen-favicon-size
+    /// Zen's favicons come from Firefox's favicons.sqlite, where the widest icon is often an SVG,
+    /// and an SVG can say it is any size. Drawn at that size it ran a 0.1.43 import out of memory
+    /// (two crash reports in tiffRepresentation under ZenImporter.plan); each icon is written small.
+    private static func zenFaviconSize() {
+        let svg = #"<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="2000"><rect width="3000" height="2000" fill="orange"/></svg>"#
+        guard let huge = NSImage(data: Data(svg.utf8)) else { return expect(false, "an SVG favicon loads") }
+        let png = ZenImporter.faviconPNG(huge).flatMap(NSBitmapImageRep.init(data:))
+        expect(png != nil, "a huge SVG favicon is written")
+        expect((png?.pixelsWide ?? .max) <= 64 && (png?.pixelsHigh ?? .max) <= 64, "at favicon size, not the size the SVG declares")
+        expect(png.map { $0.pixelsWide > $0.pixelsHigh } == true, "keeping its shape")
+
+        let small = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { r in NSColor.red.setFill(); r.fill(); return true }
+        let smallPNG = ZenImporter.faviconPNG(small).flatMap(NSBitmapImageRep.init(data:))
+        expect(smallPNG?.pixelsWide == 16, "a 16 px favicon stays 16 px")
     }
 
     private static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

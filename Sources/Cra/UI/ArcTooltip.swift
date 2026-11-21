@@ -53,7 +53,7 @@ final class ArcTooltipController {
         let mouse = NSEvent.mouseLocation
         hovered.removeAll { a in
             guard let v = a.view, v.hostWindow != nil else { return true }
-            return !v.screenFrame.contains(mouse)
+            return !Self.pointerArea(of: v).contains(mouse)
         }
         guard let target = hovered.compactMap(\.view).min(by: { $0.screenFrame.width * $0.screenFrame.height < $1.screenFrame.width * $1.screenFrame.height }),
               !target.text.isEmpty else {
@@ -76,9 +76,20 @@ final class ArcTooltipController {
         timer = Timer.scheduledTimer(withTimeInterval: view.idleDelay, repeats: false) { [weak self, weak view] _ in
             Task { @MainActor in
                 guard let self, let view, self.pendingFor === view, !self.paused else { return }
+                // Its control went from under a resting pointer without an exit: no tip by the pointer (#527).
+                guard Self.pointerArea(of: view).contains(NSEvent.mouseLocation) else { self.cancelPending(); return }
                 self.show(for: view)
             }
         }
+    }
+
+    /// Where the pointer is on `view`: its frame on screen, for an AppKit control only the part of
+    /// it that can be on screen. A tracking area covers a visible rect that its superviews don't cut
+    /// (`NSView.shownRect`): another space's tab beside the sidebar, under the page, had its name
+    /// come up by a pointer resting on the page (#527).
+    static func pointerArea(of view: any ArcTooltipTarget) -> NSRect {
+        guard let v = view as? NSView, let w = v.window else { return view.screenFrame }
+        return view.screenFrame.intersection(w.convertToScreen(v.convert(v.shownRect, to: nil)))
     }
 
     func mouseExited(_ view: any ArcTooltipTarget) {
@@ -101,6 +112,15 @@ final class ArcTooltipController {
         timer?.invalidate()
         timer = nil
         pendingFor = nil
+    }
+
+    /// Testing: whether a tip is on screen.
+    var debugShown: Bool { panel != nil }
+
+    /// Testing: `target`'s own tip, without a pointer, and its size once shown.
+    func debugShow(for target: any ArcTooltipTarget) -> NSSize {
+        show(for: target)
+        return panel?.frame.size ?? .zero
     }
 
     /// Testing: the tip for `help` over a rect of `view`, without a pointer.
@@ -129,6 +149,7 @@ final class ArcTooltipController {
         cancelPending()
         guard let window = view.hostWindow, !view.text.isEmpty else { return }
         removePanel()
+        guard !Self.blockedBySheet(window) else { return }
         let p = LittleTooltipPanel()
         let option = NSEvent.modifierFlags.contains(.option) ? view.optionText : nil
         let colors = tones(window).map(ArcTooltipLabel.Colors.init) ?? .little
@@ -161,6 +182,22 @@ final class ArcTooltipController {
         panel = p
         shownFor = view
         view.onShow?()
+    }
+
+    /// Whether a sheet that `window` isn't part of is open on it or a window it is docked in. Such
+    /// a window takes no input, and adding a tip to its group orders the sheet again: a Save
+    /// panel's remote view threw from that on macOS 27.0 and quit Cra (0.1.45 crash report).
+    private static func blockedBySheet(_ window: NSWindow) -> Bool {
+        var chain: [NSWindow] = []
+        var next: NSWindow? = window
+        while let w = next {
+            chain.append(w)
+            next = w.parent ?? w.sheetParent
+        }
+        return chain.contains { w in
+            guard let sheet = w.attachedSheet else { return false }
+            return !chain.contains { $0 === sheet }
+        }
     }
 
     private func hide() {
@@ -229,6 +266,10 @@ final class ArcTooltipAnchorView: NSView, ArcTooltipTarget {
     var subtitle: String?
     /// Shown instead while ⌥ is held (the split close button un-splits on ⌥-click).
     var optionText: String?
+    /// How long the pointer rests before the tip shows, when it isn't the usual wait: the (i) on
+    /// Arc's Create a Space page shows its tip as the pointer arrives.
+    var delay: TimeInterval?
+    var idleDelay: TimeInterval { delay ?? ArcTooltipController.idleDelay }
     var onShow: (() -> Void)?
     var placement = ArcTooltipPlacement.corner
 

@@ -16,6 +16,7 @@ public enum Sharing {
 
     public static func statsURL(base: String?) -> URL { url(base, "api/stats") }
     public static func crashURL(base: String?) -> URL { url(base, "api/crash") }
+    public static func checkInURL(base: String?) -> URL { url(base, "api/checkin") }
 
     private static func url(_ base: String?, _ path: String) -> URL {
         var b = base ?? Self.base
@@ -24,15 +25,55 @@ public enum Sharing {
     }
 }
 
-/// sharing.json in the data folder: when the last usage report went out and how far the crash
-/// reports have been looked at. In the data folder rather than UserDefaults, so a CRA_DATA_DIR
-/// test copy keeps its own.
+/// sharing.json in the data folder: when the last usage report went out, how far the crash
+/// reports have been looked at, and the install id with its last check-in. In the data folder
+/// rather than UserDefaults, so a CRA_DATA_DIR test copy keeps its own.
 public struct SharingState: Codable, Equatable, Sendable {
     public var statsSentAt: Date?
     public var crashesSeenUntil: Date?
-    public init(statsSentAt: Date? = nil, crashesSeenUntil: Date? = nil) {
+    public var installID: String?
+    public var checkInSentAt: Date?
+    public init(statsSentAt: Date? = nil, crashesSeenUntil: Date? = nil, installID: String? = nil, checkInSentAt: Date? = nil) {
         self.statsSentAt = statsSentAt
         self.crashesSeenUntil = crashesSeenUntil
+        self.installID = installID
+        self.checkInSentAt = checkInSentAt
+    }
+}
+
+// MARK: - Install count
+
+/// The daily check-in that counts Cra's users (Victor, 18 Nov 2026): every released Cra sends a
+/// random install id, made once and kept in sharing.json, with its version and chip, once per UTC
+/// day it runs. crabrowser.app counts each id once, so a day's check-ins are that day's users, and
+/// the same id across days gives weekly and monthly users. It is not a sharing setting and holds
+/// nothing about the Mac, its user or how Cra is used (docs/sharing.md, crabrowser.app/privacy).
+public struct InstallCheckIn: Codable, Equatable, Sendable {
+    public var id: String
+    public var version: String
+    public var arch: String
+
+    public init(id: String, version: String, arch: String) {
+        self.id = id
+        self.version = version
+        self.arch = arch
+    }
+
+    /// The Mac's install id: the one in sharing.json, or a new random one kept there from now on.
+    public static func installID(in state: inout SharingState, make: () -> UUID = UUID.init) -> String {
+        if let id = state.installID { return id }
+        let id = make().uuidString
+        state.installID = id
+        return id
+    }
+
+    /// Once per UTC day, as the usage stats.
+    public static func isDue(lastSent: Date?, now: Date) -> Bool { UsageStats.isDue(lastSent: lastSent, now: now) }
+
+    public func json() -> Data {
+        let e = JSONEncoder()
+        e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return (try? e.encode(self)) ?? Data()
     }
 }
 
@@ -126,26 +167,27 @@ public struct UsageStats: Codable, Equatable, Sendable {
 
     /// On/off, choice and number settings: the ones a report may name when they differ from the default.
     public static let reportedSettings: Set<String> = [
-        "askOnPage", "autoArchive", "autoArchiveEnabled", "autoPictureInPicture", "blockAdsAndTrackers", "blockCookieBanners",
+        "askOnPage", "autoArchive", "autoArchiveEnabled", "autoPictureInPicture", "backgroundTabsBelowCurrent", "blockAdsAndTrackers", "blockCookieBanners",
         "boostsEnabled", "calendarHoverPreview", "commandBarCurrentSpaceOnly", "calendarMeetingLink", "calendarTimeToNextMeeting", "chromeEngine",
         "crashReports", "defaultLinkDestination", "edgeToEdgeContent", "editAddressInPlace", "favoriteLogoOutline", "favoritePreviews", "fingerprintingProtection", "fiveSecondPreviews",
         "folderPreviews", "hapticFeedbackOnReorder", "httpsOnly", "instantLinks", "keepInMenuBar", "littleWindowArchiveAfter",
         "littleWindowOnOptionCommandClick", "notionCalendarPreviews", "outlookCalendarPreviews", "outlookMailPreviews", "littleWindowShortcutEverywhere", "liveCalendar", "mediaLibraryEnabled", "newTabButtonAtTop", "newTabsAtTop",
         "openLinksInForeground", "pageTopWindowDrag", "peekExpandInSourceTab", "peekInEveryTab", "peekLinksToOtherSites", "peekOnShiftClick",
-        "perfRecording", "recentPagesPreviews", "restoreWindows", "searchEngine", "searchSuggestions", "shareThemeWithWebsites",
-        "sharedFavorites", "showSpaceHeaderOnSingleSpace", "showStatusBar", "showToolbar", "soundEffects",
+        "perfRecording", "recentPagesPreviews", "reopenClosedTabCurrentSpaceOnly", "restoreWindows", "searchEngine", "searchSuggestions", "shareThemeWithWebsites",
+        "sharedFavorites", "showSpaceHeaderOnSingleSpace", "showStatusBar", "showToolbar", "soundEffects", "splitMiddleClickAddsPane", "splitMorePanes",
         "startOnNewTab", "tabSleepAfter", "tabSleepOnMemoryPressure", "tabSleepTimerEnabled", "tidyDownloads",
         "tidyTabTitles", "tidyTabs", "toolbarShowsFullURL", "warnBeforeQuitting", "websiteAppearance",
         "allowAppleEventsJavaScript", "perfHidesSiteNames",
     ]
 
     /// Lists, folders, sites and one-time marks: never in a report. Sharing itself is always on
-    /// when a report goes out. `autoHideToolbar` is here because a feature Arc never had adds
-    /// nothing to what a report says (CONTRIBUTING.md).
+    /// when a report goes out. `autoHideToolbar`, `autoHideLittleWindowToolbar`, `autoHidePeekToolbar`,
+    /// `commandBarSiteColor` and `sidebarSide` are here because a feature Arc never had adds nothing to what a report says (CONTRIBUTING.md).
     public static let unreportedSettings: Set<String> = [
-        "developerHosts", "disabledDefaultDeveloperHosts", "autoPictureInPictureSites", "linkRoutes", "mediaFolders", "mediaHidden",
+        "developerHosts", "disabledDefaultDeveloperHosts", "autoPictureInPictureSites", "keepActiveSites", "linkRoutes", "mediaFolders", "mediaHidden",
         "downloadLocations", "newDocumentApps", "hasSeenImportPrompt", "toolbarDefaultMigrated", "newTabButtonDefaultMigrated",
-        "autoArchiveDays", "shareUsageStats", "askedToShare", "autoHideToolbar",
+        "autoArchiveDays", "shareUsageStats", "askedToShare", "autoHideToolbar", "autoHideLittleWindowToolbar", "autoHidePeekToolbar",
+        "commandBarSiteColor", "sidebarSide", "customBlocklists",
     ]
 
     public static func changedSettings(_ settings: AppSettings) -> [String: String] {

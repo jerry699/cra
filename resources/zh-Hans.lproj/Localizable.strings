@@ -425,8 +425,6 @@
 "Force tabs out of memory after:" = "在此时间后将标签页移出内存：";
 "Force tabs out of memory when the Mac is short of memory" = "Mac 内存不足时将标签页移出内存";
 "A tab forced out of memory reloads when you open it. Tabs playing sound, recording or holding text you typed stay." = "被移出内存的标签页在再次打开时重新加载。正在播放声音、录制或保存了你输入内容的标签页不受影响。";
-"So do the 10 tabs you used last, unless the Mac is short of memory." = "最近使用的 10 个标签页同样保留，除非 Mac 内存不足。";
-"So do the 10 tabs you used last." = "最近使用的 10 个标签页同样保留。";
 "1 route" = "1 条规则";
 "%d routes" = "%d 条规则";
 
@@ -932,7 +930,6 @@
 "Chrome engine for pages" = "页面使用 Chrome 引擎";
 "Clear browsing data" = "清除浏览数据";
 "Clear…" = "清除…";
-"Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. %@ still opens the command bar." = "点击侧栏顶部的地址可直接就地编辑，无需打开命令栏。%@ 仍会打开命令栏。";
 "Colorful favorite outline" = "彩色收藏描边";
 "Command bar" = "命令栏";
 "Cookie banners from the common consent tools are hidden. Pages load again with the change." = "来自常见同意工具的 Cookie 横幅会被隐藏。更改后页面会重新加载。";
@@ -942,7 +939,6 @@
 "Cra downloads new versions in the background and installs them the next time it opens (General)." = "司南 在后台下载新版本，并在下次打开时安装（通用）。";
 "Crash reports" = "崩溃报告";
 "Edge to edge" = "内容铺满窗口";
-"Edit the address in the sidebar" = "在侧栏中编辑地址";
 "Export spaces and pinned tabs" = "导出空间和固定标签页";
 "Favorites" = "收藏";
 "Fingerprinting protection" = "指纹保护";
@@ -982,7 +978,6 @@
 "Spaces on the same profile show the same Favorites, as in Arc. Turning it on combines their Favorites; turning it off gives each Space its own copy." = "同一 Profile 下的空间显示相同收藏（如 Arc）。开启后合并收藏；关闭后各空间独立。";
 "Start on a new tab" = "启动时新建标签页";
 "Tabs and Favorites" = "标签页与收藏";
-"Tabs playing sound, recording or holding text you typed stay in memory." = "正在播放声音、录制或持有未提交文本的标签页保留在内存中。";
 "The + New Tab row sits at the top of the tab list, where you can always reach it." = "「+ 新建标签页」固定在标签列表顶部，随手可及。";
 "The command bar finds open tabs in the space you’re in, not in all your spaces." = "命令栏只搜索当前空间打开的标签页，而非所有空间。";
 "The open favorite gets a rim in its logo’s colors instead of a plain one." = "打开的收藏会显示其标志色描边，而非普通样式。";
@@ -1319,3 +1314,18 @@
 "Share usage stats" = "分享使用统计";
 "What’s sent" = "发送的内容";
 "Thanks! Usage stats are on" = "谢谢！使用统计已开启";
+
+/* ═══ 上游 513-commit 同步新键（2026-11-21）═══ */
+"Update channel" = "更新通道";
+"New gets each version of Cra the day it comes out. Stable gets a version once it has held up on New." = "New 通道每天获取司南新版本；Stable 通道只发布在新通道稳定运行后的版本。";
+"Stable is Cra %@. This Mac stays on 司南 %@ until Stable passes it, or you can install Stable now." = "Stable 版为司南 %@。本 Mac 将继续使用司南 %@，直到 Stable 追上它；你也可以现在安装 Stable。";
+"Download 司南 %@" = "下载司南 %@";
+"Copy the Cra version" = "复制司南版本号";
+"Pages load over HTTPS. Before opening a public site that doesn’t support it, Cra warns you first. Addresses on your own network, such as 192.168… or a .local name, load as they are." = "页面一律通过 HTTPS 加载。打开不支持的站点前，司南会先警告你。你自己的网络地址（如 192.168… 或 .local 名称）按原样加载。";
+"Switch to the %d. item in the sidebar. A split counts as one." = "切换到侧栏的第 %d 个条目。一个分屏算一个。";
+"Sites you keep active are the last to go when the Mac is short of memory." = "内存不足时，你保持活跃的站点会最后被清理。";
+"Edit the address in the sidebar" = "在侧栏中编辑地址";
+"Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. %@ still opens the command bar." = "点击侧栏顶部的地址可直接就地编辑，无需打开命令栏。%@ 仍会打开命令栏。";
+"So do the 10 tabs you used last, unless the Mac is short of memory." = "内存不足时，最近使用的 10 个标签页也会被清理。";
+"So do the 10 tabs you used last." = "内存充足时最近使用的 10 个标签页也会保留。";
+"Tabs playing sound, recording or holding text you typed stay in memory." = "正在播放声音、录制或持有未提交文本的标签页保留在内存中。";

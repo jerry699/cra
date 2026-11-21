@@ -102,6 +102,13 @@ enum FloatingSidebarTests {
         thePanelsStayInsideTheWindow(window: window, sidebar: sidebar, panel: panel)
         noStandInLightsInFullScreen(sidebar: sidebar, panel: panel)
         staysInsideTheWindowsCorners(window: window, sidebar: sidebar, panel: panel)
+        theShadowStaysUnderTheSidebar(window: window, sidebar: sidebar, panel: panel)
+        anEmptyWindowKeepsItOut(window: window, sidebar: sidebar)
+        heldOpenComesOutInPlace(window: window, sidebar: sidebar, panel: panel)
+        dockingFromHeldOpenHasOneOwner(window: window, sidebar: sidebar, panel: panel)
+        dockingARevealedSidebarCanBeSuperseded(window: window, sidebar: sidebar, panel: panel)
+        comesOutOnTheRight(window: window, sidebar: sidebar, shell: shell)
+        aStillPointerWaitsToMove(window: window, sidebar: sidebar)
 
         // #136: the pointer is sampled only while Cra is the active app.
         sidebar.install()
@@ -110,8 +117,72 @@ enum FloatingSidebarTests {
         expect(sidebar.isPolling, "becoming active starts the pointer timer")
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
         expect(!sidebar.isPolling, "leaving the app stops it")
+
+        // With the sidebar anchored there is nothing to float: no timer, so an idle Cra in front
+        // doesn't wake 30 times a second for it.
+        var hidden = false
+        sidebar.sidebarHidden = { hidden }
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
+        expect(!sidebar.isPolling, "an anchored sidebar installs no pointer timer")
+        hidden = true
+        sidebar.sidebarVisibilityChanged()
+        expect(sidebar.isPolling, "hiding the sidebar starts the pointer timer")
+        hidden = false
+        sidebar.sidebarVisibilityChanged()
+        expect(!sidebar.isPolling, "showing it again stops it")
+        NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: NSApp)
         window.close()
         print("Floating sidebar: \(checks) checks passed")
+    }
+
+    /// GitHub #464: with the sidebar on the right, its panel stands on the window's right edge, the
+    /// sidebar rests Arc's 5 pt in from it, and its resize strip is the edge beside the page, its left.
+    // promise: #635
+    /// A swipe out of the Library (or ⇧⌘L / Esc out of one a hidden sidebar opened) hides the sidebar with
+    /// the pointer resting where it was, in the edge strip in the report: the strip's wait brought the
+    /// floating sidebar straight back out over the page. As in Arc, it waits for the pointer to move.
+    @MainActor
+    private static func aStillPointerWaitsToMove(window: NSWindow, sidebar: FloatingSidebarController) {
+        var clock: TimeInterval = 900
+        sidebar.now = { clock }
+        sidebar.keyWindow = { window }
+        sidebar.hide(animated: false)
+        let edge = CGPoint(x: 4, y: sidebar.shell.bounds.midY)
+        func sample(_ p: CGPoint, at t: TimeInterval) {
+            clock = t
+            sidebar.pointerSample(at: p)
+        }
+        sidebar.waitForPointerToMove(from: edge)
+        for t in [900.0, 900.2, 900.5, 901.5] { sample(edge, at: t) }
+        expect(!sidebar.isShown && !sidebar.staged, "a pointer resting in the strip as the sidebar goes brings nothing out")
+        sample(CGPoint(x: edge.x + 0.4, y: edge.y), at: 902)
+        expect(!sidebar.isShown && sidebar.stillPointer != nil, "less than a point is the same place")
+        sample(CGPoint(x: edge.x, y: edge.y + 3), at: 903)
+        sample(CGPoint(x: edge.x, y: edge.y + 3), at: 903.2)
+        expect(sidebar.isShown && sidebar.stillPointer == nil, "moved inside the strip, it comes out after the usual wait")
+        sidebar.hide(animated: false)
+        sidebar.now = { ProcessInfo.processInfo.systemUptime }
+    }
+
+    // promise: #464
+    @MainActor
+    private static func comesOutOnTheRight(window: NSWindow, sidebar: FloatingSidebarController, shell: ShellView) {
+        shell.sidebarSide = .right
+        sidebar.show()
+        drainAnimations()
+        let panel = window.childWindows!.first { $0 is FloatingSidebarPanel }!
+        let w = window.frame
+        let body = panel.convertToScreen(shell.sidebarHost.convert(shell.sidebarHost.bounds, to: nil))
+        expect(abs(panel.frame.maxX - w.maxX) < 0.5 && panel.frame.minX > w.midX, "on the right the panel stands on the window's right edge")
+        expect(abs(w.maxX - body.maxX - FloatingSidebarGeometry.margin) < 0.5, "and the sidebar rests 5 pt in from it")
+        expect(sidebar.edgeReadout == "right 5", "the readout says so (\(sidebar.edgeReadout))")
+        let edge = shell.sidebarHost.superview?.subviews.compactMap { $0 as? ResizeHandleView }.first
+        expect(edge.map { abs($0.frame.minX - shell.sidebarHost.frame.minX) < 0.5 && $0.side == .right } == true,
+               "its resize strip is its left edge, and a drag leftward widens it")
+        sidebar.hide(animated: true)
+        drainAnimations()
+        expect(!sidebar.isShown && !shell.sidebarDetached, "it goes home from the right as from the left")
+        shell.sidebarSide = .left
     }
 
     /// GitHub #82: like Arc, only the key window's hidden sidebar comes out on hover, so a window
@@ -487,6 +558,148 @@ enum FloatingSidebarTests {
         sidebar.windowFullScreen = { false }
     }
 
+    // promise: #550
+    /// GitHub #550 (macOS 27.2, full screen): a translucent halo round the floating sidebar's top, the page's
+    /// colour. AppKit's constraint keeps a window clear of the menu bar: it moves a borderless panel 5 pt in
+    /// from the screen's bottom and 10 pt shorter than it (the sidebar's panel in full screen) down 5 pt,
+    /// while the shadow's full-height panel stays. The shadow then sat 5 pt above the sidebar and the page
+    /// showed between them. Both panels stay where they are put, and the shadow follows the sidebar's
+    /// panel wherever it is.
+    @MainActor
+    private static func theShadowStaysUnderTheSidebar(window: NSWindow, sidebar: FloatingSidebarController, panel: NSWindow) {
+        sidebar.hide(animated: false)
+        sidebar.show()
+        drainAnimations()
+        let shadow = window.childWindows!.first { $0 !== panel && $0.ignoresMouseEvents }!
+        if let screen = NSScreen.screens.first {
+            let s = screen.frame
+            let fullScreenSidebar = NSRect(x: s.minX, y: s.minY + 5, width: 305, height: s.height - 10)
+            for (name, p) in [("sidebar", panel), ("shadow", shadow)] {
+                for r in [fullScreenSidebar, s, NSRect(x: s.minX, y: s.maxY - 300, width: 305, height: 600)] {
+                    expect(p.constrainFrameRect(r, to: screen) == r, "the \(name) panel stays where it is put, clear of the menu bar or not: \(r)")
+                }
+            }
+        }
+        let slider = shell_slider(panel)!, carrier = shadow.contentView!.subviews.first!
+        func under() -> Bool {
+            let body = panel.convertToScreen(slider.convert(slider.bounds, to: nil))
+            let cast = shadow.convertToScreen(carrier.convert(carrier.bounds, to: nil))
+            return abs(body.minX - cast.minX) < 0.01 && abs(body.minY - cast.minY) < 0.01 && body.size == cast.size
+        }
+        expect(under(), "out, the shadow lies under the sidebar")
+        panel.setFrame(panel.frame.offsetBy(dx: 0, dy: -5), display: false)
+        expect(under(), "the sidebar's panel moved 5 pt down by someone else: the shadow follows it")
+        shadow.setFrame(shadow.frame.offsetBy(dx: 0, dy: 5).insetBy(dx: 0, dy: 2), display: false)
+        expect(under(), "the shadow's panel moved or resized: the shadow still lies under the sidebar")
+        sidebar.reposition()
+        expect(under(), "and after the window puts both panels back")
+        sidebar.hide(animated: false)
+    }
+
+    // promise: #483
+    /// GitHub #483: in a window with no tab the floating sidebar went in whenever the pointer left it, so
+    /// the next tab meant bringing it out again; Arc keeps it out. The poll, the shell's own tracking and
+    /// another app coming to the front all ask the window's SidebarPresentation; an explicit hide doesn't,
+    /// and with a tab it goes as it always did.
+    @MainActor
+    private static func anEmptyWindowKeepsItOut(window: NSWindow, sidebar: FloatingSidebarController) {
+        var hasSelectedTab = false
+        sidebar.staysShown = { !SidebarPresentation(sidebarVisible: false, hasSelectedTab: hasSelectedTab).mayRetract }
+        sidebar.keyWindow = { window }
+        let mid = sidebar.shell.bounds.midY
+        sidebar.hide(animated: false)
+        sidebar.show()
+        sidebar.pointerSample(at: CGPoint(x: 700, y: mid))
+        expect(sidebar.isShown, "with no tab, the pointer moving off over the window leaves the sidebar out")
+        sidebar.edgeLeft()
+        expect(sidebar.isShown, "with no tab, the shell's own tracking leaves it out too")
+        sidebar.resignedActive(pointerAt: CGPoint(x: -400, y: mid))
+        expect(sidebar.isShown, "with no tab, another app coming to the front leaves it out")
+        sidebar.hide(animated: false)
+        expect(!sidebar.isShown, "an explicit hide still sends it away")
+        hasSelectedTab = true
+        sidebar.show()
+        sidebar.edgeLeft()
+        expect(!sidebar.isShown, "with a tab, the shell's tracking sends it in as before")
+        sidebar.hide(animated: false)
+        sidebar.show()
+        sidebar.pointerSample(at: CGPoint(x: 700, y: mid))
+        expect(!sidebar.isShown, "with a tab, so does the poll")
+        sidebar.hide(animated: false)
+        sidebar.staysShown = { false }
+    }
+
+    // promise: #483
+    /// GitHub #483: an empty window's hidden sidebar comes out by itself, at once rather than with the edge
+    /// reveal's spring, and sits in its panel the way the shell expects of a floating sidebar.
+    @MainActor
+    private static func heldOpenComesOutInPlace(window: NSWindow, sidebar: FloatingSidebarController, panel: NSWindow) {
+        sidebar.hide(animated: false)
+        sidebar.showInPlace()
+        expect(sidebar.isShown && sidebar.shell.sidebarDetached && sidebar.shell.floatingSidebar,
+               "held open, the sidebar is out in its panel at once")
+        expect(shell_slider(panel)?.layer?.animation(forKey: "slide") == nil, "without the edge reveal's spring")
+        expect(panel.parent === window && panel.isVisible, "its panel rides on the browser window")
+        sidebar.showInPlace()
+        expect(sidebar.isShown, "asking again while it is out changes nothing")
+        // A tab opens and the sidebar starts to go, then the window is empty again before it has gone.
+        sidebar.hide(animated: true)
+        sidebar.showInPlace()
+        let shadow = window.childWindows?.first { $0 !== panel && $0.ignoresMouseEvents }?.contentView?.subviews.first?.layer
+        expect(shell_slider(panel)?.layer?.animation(forKey: "slide") == nil && shadow?.animation(forKey: "slide") == nil,
+               "held open again mid-hide, the hide's slide stops at once")
+        drainAnimations()
+        expect(sidebar.isShown && sidebar.shell.sidebarDetached && sidebar.shell.floatingSidebar && panel.parent === window,
+               "and it stays out, floating, in its panel on the browser window")
+        sidebar.hide(animated: false)
+        expect(!sidebar.isShown && !sidebar.shell.floatingSidebar, "an explicit hide still puts it away")
+    }
+
+    // promise: #483
+    /// GitHub #483: the sidebar button docks a held-open sidebar in place. Its panel grows to the docked
+    /// place while its corners square and its shadow fades, driven frame by frame by the window's own
+    /// slide, and only at the end is the sidebar handed back to the window, once.
+    @MainActor
+    private static func dockingFromHeldOpenHasOneOwner(window: NSWindow, sidebar: FloatingSidebarController, panel: NSWindow) {
+        let slider = shell_slider(panel)!
+        sidebar.hide(animated: false)
+        expect(!sidebar.beginDock(), "a sidebar that isn't out has nothing to dock in place")
+        sidebar.showInPlace()
+        let shadowPanel = window.childWindows!.first { $0 !== panel && $0.ignoresMouseEvents }!
+        expect(sidebar.beginDock(), "a held-open sidebar docks in place")
+        expect(!sidebar.isShown && sidebar.shell.sidebarDetached && panel.parent === window,
+               "while it docks the sidebar stays in its panel, no longer out")
+        sidebar.dockProgress(0.5)
+        expect(slider.layer!.cornerRadius > 0 && slider.layer!.cornerRadius < 12 && abs(shadowPanel.alphaValue - 0.5) < 0.01,
+               "halfway, its corners are half square and its shadow half gone")
+        sidebar.dockProgress(1)
+        expect(sidebar.finishDock(), "the dock hands the sidebar back once")
+        expect(!sidebar.shell.sidebarDetached && !sidebar.shell.floatingSidebar && panel.parent == nil && !panel.isVisible,
+               "at the end the window has the sidebar back, docked, and the panel is gone")
+        expect(slider.layer!.cornerRadius == 12 && shadowPanel.alphaValue == 1,
+               "the panel is ready for the next reveal: round corners, its shadow back")
+        expect(!sidebar.finishDock(), "finishing the same dock twice has no second owner")
+        expect(!sidebar.shell.sidebarDetached && sidebar.shell.sidebarHost.superview === sidebar.shell,
+               "finishing twice changes nothing")
+    }
+
+    // promise: #483
+    /// A hover-revealed sidebar uses the same dock, and a newer reveal owns the panel if it arrives
+    /// before that dock finishes.
+    @MainActor
+    private static func dockingARevealedSidebarCanBeSuperseded(window: NSWindow, sidebar: FloatingSidebarController, panel: NSWindow) {
+        sidebar.hide(animated: false)
+        sidebar.show()
+        drainAnimations()
+        expect(sidebar.beginDock(), "a hover-revealed sidebar docks in place too")
+        sidebar.show()
+        expect(!sidebar.finishDock(), "a newer reveal supersedes the dock")
+        drainAnimations()
+        expect(sidebar.isShown && sidebar.shell.sidebarDetached && panel.parent === window && panel.isVisible,
+               "the newer reveal keeps the sidebar in its panel")
+        sidebar.hide(animated: false)
+    }
+
     /// Whether a mask layer with a rounded rect (circular corners, as near as matters) lets a point through.
     private static func shows(_ p: NSPoint, through mask: CALayer) -> Bool {
         let f = mask.frame, r = mask.cornerRadius
@@ -545,6 +758,7 @@ final class ResizeHandleView: NSView {
     var onBegin: (() -> Void)?
     var onResize: ((_ translation: CGFloat, _ speed: CGFloat) -> Void)?
     var onEnd: (() -> Void)?
+    var side: SidebarSide = .left
 }
 
 final class ShellView: NSView {
@@ -558,6 +772,7 @@ final class ShellView: NSView {
     var fillsWindow: Bool { edgeToEdge }
     var sidebarDetached = false
     var floatingSidebar = false
+    var sidebarSide: SidebarSide = .left
     struct Frames { let sidebar: NSRect }
 
     override init(frame: NSRect) {
@@ -570,6 +785,7 @@ final class ShellView: NSView {
 
     func frames(sidebarVisible: Bool, floating: Bool, fullscreen: Bool, width: CGFloat) -> Frames {
         let margin = FloatingSidebarGeometry.margin
-        return Frames(sidebar: NSRect(x: margin, y: margin, width: width, height: bounds.height - 2 * margin))
+        let left = NSRect(x: margin, y: margin, width: width, height: bounds.height - 2 * margin)
+        return Frames(sidebar: sidebarSide.place(left, in: bounds))
     }
 }

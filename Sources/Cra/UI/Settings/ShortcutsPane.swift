@@ -284,7 +284,7 @@ enum ShortcutDescriptions {
     static func text(for a: KeyAction) -> String {
         if let description = LiveFolderPluginStore.shared.entry(forCommand: a.id)?.package.manifest.command?.description { return description }
         if let t = table[a.id] { return L10n.tr(t) }
-        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return L10n.tr("Switch to the %d. tab in the sidebar.", Int(String(n)) ?? 0) }
+        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return L10n.tr("Switch to the %d. item in the sidebar. A split counts as one.", Int(String(n)) ?? 0) }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return L10n.tr("Switch to the %d. space.", Int(String(n)) ?? 0) }
         if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return L10n.tr("Move the current tab, or a Little Window's page, to the %d. space and switch to it.", Int(String(n)) ?? 0) }
         return L10n.tr(a.name + ".")
@@ -305,6 +305,7 @@ enum ShortcutDescriptions {
         "print": "Print the page.",
         "copyURL": "Copy the page’s URL.",
         "copyURLMarkdown": "Copy the page’s title and URL as a Markdown link.",
+        "pasteAndGo": "Open the copied link as a new tab, or search the copied text. In a text field it just pastes.",
         "find": "Search for text on the page.",
         "findNext": "Jump to the next match.",
         "findPrevious": "Jump to the previous match.",
@@ -342,15 +343,18 @@ enum ShortcutDescriptions {
         "previousTab": "Switch to the previous tab.",
         "recentTab": "Open the tab switcher and cycle through recent tabs, like ⌘Tab for apps.",
         "recentTabBackward": "Cycle backwards through recent tabs in the tab switcher.",
+        "recentTabAllSpaces": "Open the tab switcher on recent tabs from every space. Picking one goes to its space; a quick tap goes back.",
+        "recentTabAllSpacesBackward": "Cycle backwards through recent tabs from every space.",
         "clearToday": "Archive today’s tabs, except the one on screen and any playing sound.",
         "favoriteTab": "Add the tab to the favorites grid.",
         "renameTab": "Give the tab a name of your own.",
         "duplicateTab": "Open a copy of the tab.",
         "resetTab": "Return a pinned tab to its original URL.",
         "muteTab": "Mute or unmute the tab.",
+        "pauseAllMedia": "Pause the audio and video playing in every window, space and profile. Sleeping tabs stay asleep, and nothing starts playing again by itself.",
         "goBack": "Go back a page.",
         "goForward": "Go forward a page.",
-        "viewArchive": "Open the archive of closed tabs.",
+        "viewArchive": "Open the browsing history of this space’s profile.",
         "openLibrary": "Open the Library.",
         "viewDownloads": "Show your downloads.",
         "promoteLittleWindow": "Move the Little Window’s or Peek’s page into the space its Open in button names.",
