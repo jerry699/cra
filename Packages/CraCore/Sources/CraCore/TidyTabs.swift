@@ -44,6 +44,16 @@ public enum TidyTabs {
     }
 
     /// A destination captured before the model runs; its name may change while its identity stays.
+    /// 一条 P5 偏好：标题 → 用户归入的组名（司南运行时个性化，不进权重）。
+    public struct TitleGroup: Equatable, Sendable {
+        public var title: String
+        public var group: String
+        public init(title: String, group: String) {
+            self.title = title
+            self.group = group
+        }
+    }
+
     public struct ExistingGroup: Equatable, Sendable {
         public var id: UUID
         public var name: String
@@ -125,7 +135,7 @@ public enum TidyTabs {
         public let tabs: [Tab]
         /// P5 记忆（司南）：用户此前手动归档的 标题→组名 偏好，注入 prompt 作为 few-shot。
         /// 运行时个性化：模型保持偏好中性，个人记忆留在本地文件。
-        public var preferences: [(title: String, group: String)] = []
+        public var preferences: [TitleGroup] = []
         /// Today's groups when the run started. They stay out of the prompt (listed, the on-device
         /// model filed almost every tab into them); a name the model gives that matches one joins it.
         public let existingGroups: [ExistingGroup]
