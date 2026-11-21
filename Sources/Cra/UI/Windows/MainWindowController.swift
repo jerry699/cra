@@ -1738,19 +1738,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
         // slid out at the edge: that one is the sidebar, whose rows stay in reach of a Peek (#242, #295).
         // The command bar ⌘T opened from a Peek stays above the Peek (#379).
         let bar: [NSWindow] = commandBar.isOpen && commandPanel.parent === window ? [commandPanel] : []
-<<<<<<< HEAD
-        // Local patch (Intel Swift 6.2): the six-way concatenation type-checks too slowly
-        // inline — built in stages.
-        var wanted: [NSWindow] = panels.compactMap { $0 }
-        wanted += peeks.flatMap(\.peekWindows)
-        wanted += floatingSidebar?.attachedPanels ?? []
-        wanted += ChromiumDialogs.dialogs(over: window)
-        wanted += PermissionPopover.panels(over: window)
-        wanted += bar
-=======
         let wanted = panels.compactMap { $0 } + peeks.flatMap(\.peekWindows) + (floatingSidebar?.attachedPanels ?? [])
             + AgentCursor.panels(over: window) + AgentPill.panels(over: window) + ChromiumDialogs.dialogs(over: window) + PermissionPopover.panels(over: window) + bar
->>>>>>> origin/main
         // Already the last children, in order, and showing: re-adding each one rebuilt the
         // window's ordering group, a window server round trip, on every tab switch.
         let children = window.childWindows ?? []
@@ -4635,14 +4624,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
                                         protectedMedia: self.browsers.visibleTabID.flatMap { self.sidebarUI.navState(for: $0).protectedMedia },
                                         safariEngine: safariEngine, toggleChecked: true, store: self.store, actions: actions)
         }
-<<<<<<< HEAD
-        // The Safari's Engine switch: the fork always offers it on http(s) pages. Upstream gated
-        // it on a Widevine ask (a page that never asks got no switch), but China's payment sites
-        // need the other engine too — and a switch hidden until a DRM ask is a switch the user
-        // cannot find at a cashier (found paying for a domain at aliyun).
-        guard let b = currentBrowser, url.hasPrefix("http") else { return show(nil) }
-        show(b is WebKitBrowser)
-=======
         // The Safari's Engine row (ProtectedVideoPages.row): on for a WebKit page, or what moved it
         // there for one video; for a mixed site's Chromium page what Cra saw it ask and what was
         // chosen for the site; for any other Chromium page only once it asked for Widevine
@@ -4658,7 +4639,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, BrowserM
             DispatchQueue.main.async { once(drm) }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { once(false) }
->>>>>>> origin/main
     }
 
     func debugChooseSafariEngine(_ on: Bool) {

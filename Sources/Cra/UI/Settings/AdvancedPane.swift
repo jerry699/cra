@@ -58,10 +58,6 @@ struct AdvancedPane: View {
                     }
                 }
                 SettingsCardDivider()
-<<<<<<< HEAD
-                SettingsToggleRow(L10n.tr("Chrome engine for pages"),
-                                  detail: L10n.tr("Pages run on Chromium, with Chrome extensions and Chrome DevTools. Takes effect when Cra restarts."),
-=======
                 // GitHub #476, not in Arc: a version that breaks something stays on New until it's fixed.
                 SettingsPlainRow("Update channel",
                                  detail: "New gets each version of Cra the day it comes out. Stable gets a version once it has held up on New.",
@@ -83,9 +79,8 @@ struct AdvancedPane: View {
                 }
                 .onAppear { updater.lookUpStable() }
                 SettingsCardDivider()
-                SettingsToggleRow("Chrome engine for pages",
+                SettingsToggleRow(L10n.tr("Chrome engine for pages"),
                                   detail: "Pages run on Chromium, with Chrome extensions and Chrome DevTools. Takes effect when Cra restarts.",
->>>>>>> origin/main
                                   isOn: $store.settings.chromeEngine)
             }
 
@@ -193,10 +188,6 @@ struct AdvancedPane: View {
                 HStack(spacing: 14) {
                     BrandMark(size: 48)
                     VStack(alignment: .leading, spacing: 3) {
-<<<<<<< HEAD
-                        Text(L10n.tr("Cra %@", Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"))
-                            .font(.system(size: 14, weight: .semibold))
-=======
                         // A click copies the version with its build and engine, for a bug report (GitHub #461).
                         Button(action: actions.copyVersion) {
                             Text("Cra \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
@@ -205,7 +196,6 @@ struct AdvancedPane: View {
                         .buttonStyle(.plain)
                         .help("Copy the Cra version")
                         .editorPointer(.link)
->>>>>>> origin/main
                         Text(EngineVersion.label(chromium: CraCEFRuntime.chromiumVersion(), cef: CraCEFRuntime.cefVersion()))
                             .font(.system(size: 12)).foregroundStyle(.secondary)
                         Text(AppPaths.supportDir.path).font(.system(size: 11)).foregroundStyle(.secondary)

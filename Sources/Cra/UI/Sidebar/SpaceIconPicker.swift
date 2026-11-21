@@ -28,15 +28,9 @@ struct SpaceIconPicker: View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
                 Picker("", selection: $tab) {
-<<<<<<< HEAD
                     Text(L10n.tr("Emoji")).tag(0)
                     Text(L10n.tr("Icon")).tag(1)
-                    Text(L10n.tr("Image")).tag(2)
-=======
-                    Text("Emoji").tag(0)
-                    Text("Icon").tag(1)
-                    if showsImage { Text("Image").tag(2) }
->>>>>>> origin/main
+                    if showsImage { Text(L10n.tr("Image")).tag(2) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()

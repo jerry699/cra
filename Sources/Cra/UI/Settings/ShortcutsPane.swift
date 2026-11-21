@@ -283,19 +283,11 @@ struct ShortcutRecorder: View {
 enum ShortcutDescriptions {
     static func text(for a: KeyAction) -> String {
         if let description = LiveFolderPluginStore.shared.entry(forCommand: a.id)?.package.manifest.command?.description { return description }
-<<<<<<< HEAD
-        if let t = table[a.id] { return L10n.tr(t) }
-        if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return L10n.tr("Switch to the %d. tab in the sidebar.", Int(String(n)) ?? 0) }
-        if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return L10n.tr("Switch to the %d. space.", Int(String(n)) ?? 0) }
-        if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return L10n.tr("Move the current tab, or a Little Window's page, to the %d. space and switch to it.", Int(String(n)) ?? 0) }
-        return L10n.tr(a.name + ".")
-=======
         if let t = table[a.id] { return t }
         if a.id.hasPrefix("item"), let n = a.id.dropFirst(4).first { return "Switch to the \(n). item in the sidebar. A split counts as one." }
         if a.id.hasPrefix("space"), let n = a.id.dropFirst(5).first { return "Switch to the \(n). space." }
         if a.id.hasPrefix("moveTabToSpace"), let n = a.id.dropFirst(14).first { return "Move the current tab, or a Little Window's page, to the \(n). space and switch to it." }
         return a.name + "."
->>>>>>> origin/main
     }
 
     private static let table: [String: String] = [

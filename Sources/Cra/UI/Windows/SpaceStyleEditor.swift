@@ -230,15 +230,10 @@ private struct ColorPad: View {
                     Spacer()
                     HStack(spacing: 16) {
                         // − takes the last colour too: an empty pad is Arc's colourless theme (#300).
-<<<<<<< HEAD
-                        padButton("minus", label: L10n.tr("Remove a color"), enabled: SpaceColorWheel.canRemove(pad.key.count)) { pad.key.removeLast() }
-                        padButton("plus", label: L10n.tr("Add a color"), enabled: SpaceColorWheel.canAdd(pad.key.count)) { addColor() }
-=======
                         padButton("minus", label: "Remove a color", enabled: SpaceColorWheel.canRemove(pad.key.count)) {
                             pad.key = SpaceColorWheel.removing(from: pad.key, wheel: pad.wheel)
                         }
                         padButton("plus", label: "Add a color", enabled: SpaceColorWheel.canAdd(pad.key)) { addColor() }
->>>>>>> origin/main
                     }
                     .padding(.bottom, 20)
                 }

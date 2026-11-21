@@ -1837,7 +1837,6 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate, WebKit
         openLinkTab(url, from: tabID(of: browser), inBackground: background)
     }
 
-<<<<<<< HEAD
     func browser(_ browser: CraBrowser, requestsTranslationOfSelectedText text: String, at point: NSPoint) {
         guard let id = tabID(of: browser) else { return }
         delegate?.browserManagerTranslateSelection(text, tabID: id, atPoint: point)
@@ -1846,7 +1845,8 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate, WebKit
     func browserDidRequestDistillation(ofPageMedia browser: CraBrowser) {
         guard let id = tabID(of: browser) else { return }
         delegate?.browserManagerDistillPageMedia(tabID: id)
-=======
+    }
+
     /// A link middle-clicked in a split's pane opens as a pane beside it, with Settings ▸ Links ▸
     /// "Middle-click a link in a split adds a pane" on (GitHub #498, not in Arc). Chromium asks for
     /// a tab behind the page, as for a ⌘-click; the page's last middle click tells them apart.
@@ -1867,7 +1867,6 @@ final class BrowserManager: NSObject, @preconcurrency CraBrowserDelegate, WebKit
         PageMiddleClick.taken()
         CraLog.note("middle click: pane for a link in a split")
         return true
->>>>>>> origin/main
     }
 
     func browser(_ browser: CraBrowser, requestsCaptureOfImageAt point: NSPoint) {

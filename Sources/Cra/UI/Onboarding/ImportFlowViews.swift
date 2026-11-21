@@ -221,22 +221,13 @@ private struct SourceStep: View {
             if model.firstRun {
                 // Dia's onboarding offers "skip the importing process" beside Continue.
                 HStack(spacing: 6) {
-<<<<<<< HEAD
                     SecondaryButton(title: L10n.tr("Skip"), c: c) { model.skipImport() }.frame(width: 146)
-                    PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: model.canContinueFromSource, width: 290) { model.continueFromSource() }
-=======
-                    SecondaryButton(title: "Skip", c: c) { model.skipImport() }.frame(width: 146)
                     PrimaryButton(title: title, c: c, enabled: enabled, width: 290, action: action)
->>>>>>> origin/main
                 }
                 .frame(width: ImportMetrics.columnWidth + 2)
                 .offset(x: -1, y: ImportMetrics.buttonTop)
             } else {
-<<<<<<< HEAD
-                PrimaryButton(title: L10n.tr("Continue"), c: c, enabled: model.canContinueFromSource) { model.continueFromSource() }
-=======
                 PrimaryButton(title: title, c: c, enabled: enabled, action: action)
->>>>>>> origin/main
                     .offset(x: -1, y: ImportMetrics.buttonTop)
             }
         }
@@ -259,10 +250,6 @@ private struct SpacesStep: View {
                         SelectableRow(c: c, checked: model.selectedSpaces.contains(i),
                                       onHover: { if $0 { model.previewSpace = i } },
                                       toggle: { model.toggleSpace(i) }) {
-<<<<<<< HEAD
-                            Text(sp.emoji).font(.system(size: 18)).frame(width: 24)
-                            RowTitle(title: sp.title, caption: L10n.tr(sp.itemCount == 1 ? "%d tab" : "%d tabs", sp.itemCount), c: c)
-=======
                             // An Icon-tab glyph (Arc, Ardia, Yab) shows as its symbol, else the emoji.
                             Group {
                                 if let symbol = sp.symbol { Image(systemName: symbol).font(.system(size: 15)).foregroundStyle(c.body) }
@@ -270,7 +257,6 @@ private struct SpacesStep: View {
                             }
                             .frame(width: 24)
                             RowTitle(title: sp.title, caption: "\(sp.itemCount) tab\(sp.itemCount == 1 ? "" : "s")", c: c)
->>>>>>> origin/main
                         }
                     }
                     if let plan, !plan.favorites.isEmpty || !plan.archive.isEmpty || model.includeSettings {

@@ -306,11 +306,7 @@ struct AskOnPageView: View {
                 }
             findControls
             if !state.inConversation {
-<<<<<<< HEAD
-                iconButton("xmark", label: L10n.tr("Close")) { controller.onClose() }
-=======
-                iconButton("xmark", label: "Close") { controller?.onClose() }
->>>>>>> origin/main
+                iconButton("xmark", label: L10n.tr("Close")) { controller?.onClose() }
             }
         }
         .padding(12).padding(.leading, 6)
@@ -324,38 +320,23 @@ struct AskOnPageView: View {
 
     @ViewBuilder private var findControls: some View {
             if !state.inConversation, !overlay.findQuery.isEmpty, let matches = overlay.findMatchCount {
-<<<<<<< HEAD
-                Text(matches == 0 ? L10n.tr("No matches") : "\(overlay.findActiveMatch)/\(matches)")
-                    .font(.system(size: 13, weight: .medium)).monospacedDigit()
-=======
-                let countLabel = matches == 0 ? "No matches" : "\(overlay.findActiveMatch)/\(matches)"
+                let countLabel = matches == 0 ? L10n.tr("No matches") : "\(overlay.findActiveMatch)/\(matches)"
                 Text(countLabel)
                     .font(.system(size: 13, weight: .medium, design: .rounded)).monospacedDigit()
->>>>>>> origin/main
                     .foregroundStyle(.primary.opacity(0.5))
                     .lineLimit(1).truncationMode(.middle)
                     .help(countLabel).accessibilityLabel(countLabel)
                 if matches > 0 {
-<<<<<<< HEAD
-                    iconButton("arrow.up", label: L10n.tr("Previous")) { controller.onFind(overlay.findQuery, false) }
-                    iconButton("arrow.down", label: L10n.tr("Next")) { controller.onFind(overlay.findQuery, true) }
-=======
-                    iconButton("arrow.up", label: "Previous") { controller?.onFind(overlay.findQuery, false) }
-                    iconButton("arrow.down", label: "Next") { controller?.onFind(overlay.findQuery, true) }
->>>>>>> origin/main
+                    iconButton("arrow.up", label: L10n.tr("Previous")) { controller?.onFind(overlay.findQuery, false) }
+                    iconButton("arrow.down", label: L10n.tr("Next")) { controller?.onFind(overlay.findQuery, true) }
                 }
             }
             // Arc shows Ask with the field still empty (the reporter's capture); it asks once there is text.
             if state.canAsk {
                 let ready = AskOnPagePolicy.showsAskButton(query: overlay.findQuery, canAsk: state.canAsk)
-<<<<<<< HEAD
-                Button { if ready { controller.ask(overlay.findQuery) } } label: {
-                    Text(L10n.tr("Ask")).font(.callout.weight(.semibold)).foregroundStyle(.white)
-=======
                 Button { if ready { controller?.ask(overlay.findQuery) } } label: {
                     Text("Ask").font(.callout.weight(.semibold)).foregroundStyle(.white)
                         .fixedSize()
->>>>>>> origin/main
                         .padding(.vertical, 5).padding(.horizontal, 12)
                         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color(state.tone.button)))
                 }
@@ -457,16 +438,8 @@ private struct AskOnPageMessageView: View {
             } else if message.isPartialPage {
                 Text("This page was long, so I read part of it.").font(.subheadline.bold()).foregroundStyle(.primary.opacity(0.5))
             }
-<<<<<<< HEAD
-            let parts = AskOnPageReply.parts(message.reply, question: message.question)
-            if parts.isEmpty, !message.finished {
-                Text(L10n.tr("Loading Content")).font(.body).redacted(reason: .placeholder)
-                    .opacity(pulse ? 0.4 : 1)
-                    .onAppear { withAnimation(.easeInOut(duration: 0.8).repeatForever()) { pulse = true } }
-=======
             if message.olderMessagesHidden {
                 Text("[Older messages hidden]").font(.subheadline).foregroundStyle(.secondary)
->>>>>>> origin/main
             }
             if let answer = message.answer {
                 ForEach(Array(answer.quotes.enumerated()), id: \.offset) { index, quote in
@@ -544,14 +517,9 @@ private struct AskOnPageQuote: View {
                     } else if quote.state == .verified {
                         Button(action: find) {
                             HStack(spacing: 4) {
-<<<<<<< HEAD
-                                Text(L10n.tr("Find on Page"))
-                                Image(systemName: "arrow.forward")
-=======
                                 if status == .loading { ProgressView().controlSize(.mini) }
                                 Text("Find on Page")
                                 Image(systemName: "arrow.forward").offset(x: hovered && !reduceMotion ? 4 : 0)
->>>>>>> origin/main
                             }
                             .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(.primary.opacity(hovered ? 0.8 : 0.5))

@@ -208,18 +208,11 @@ final class SiteControlCenterView: NSView {
         ]
         // Chromium's blocker doesn't see a WebKit page: no switch that does nothing there.
         if protectedMedia != nil { rowsSpec.remove(at: 1) }
-<<<<<<< HEAD
-        // A page that plays DRM, or one in WebKit: which engine plays this site (docs/protected-media.md).
-        if let on = safariEngine {
-            let choose = actions.chooseSafariEngine
-            rowsSpec.append(("safari", L10n.tr("Safari’s Engine"), L10n.tr(on ? "On" : "Off"), on, { choose(!on) }))
-=======
         // A page that plays DRM, or one in WebKit: which engine plays this site, or for a mixed
         // site (YouTube) its protected videos or just this one (docs/protected-media.md).
         if let row = safariEngine {
             let press = actions.pressSafariEngine
-            rowsSpec.append(("safari", "Safari’s Engine", row.state, row.isOn, { press(row) }))
->>>>>>> origin/main
+            rowsSpec.append(("safari", L10n.tr("Safari’s Engine"), row.state, row.isOn, { press(row) }))
         }
         for (i, r) in rowsSpec.enumerated() {
             let row = SiteSettingRow(symbol: r.0, title: r.1, subtitle: r.2, active: r.3, colors: colors, action: r.4)

@@ -25,15 +25,9 @@ struct TabsPane: View {
             }
             SettingsFootnote(L10n.tr("%@ in any window, or the View menu’s Show Toolbar, switches it too.", KeyBindingRegistry.shared.action("toggleToolbar")?.primary?.display ?? "⇧⌘D"))
             SettingsFeatureCard {
-<<<<<<< HEAD
-                // GitHub #344, not in Arc: Arc's sidebar address opens the command bar on a click.
-                SettingsToggleRow(L10n.tr("Edit the address in the sidebar"),
-                                  detail: L10n.tr("Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. %@ still opens the command bar.", KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L"),
-=======
                 // GitHub #344, not in Arc: Arc's sidebar address opens its address panel on a click (#663).
                 SettingsToggleRow("Edit the address in the sidebar",
                                   detail: "Clicking the address at the top of the sidebar lets you edit it right there instead of opening the command bar. \(KeyBindingRegistry.shared.action("editURL")?.primary?.display ?? "⌘L") still opens the command bar.",
->>>>>>> origin/main
                                   isOn: $store.settings.editAddressInPlace,
                                   enabled: store.settings.addressBarPlacement == .sidebar)
             }
@@ -132,13 +126,6 @@ struct TabsPane: View {
     /// Says which tabs stay in memory, before the user finds out.
     private var tabSleepNote: String {
         let s = store.settings
-<<<<<<< HEAD
-        let note = L10n.tr("Tabs playing sound, recording or holding text you typed stay in memory.")
-        guard s.tabSleepTimerEnabled, TabSleepPolicy.timer(s.tabSleepAfter).keepsRecentTabs else { return note }
-        return note + (s.tabSleepOnMemoryPressure
-                       ? " " + L10n.tr("So do the 10 tabs you used last, unless the Mac is short of memory.")
-                       : " " + L10n.tr("So do the 10 tabs you used last."))
-=======
         var note = "Tabs playing sound, recording or holding text you typed stay in memory."
         if s.tabSleepTimerEnabled, TabSleepPolicy.timer(s.tabSleepAfter).keepsRecentTabs {
             note += s.tabSleepOnMemoryPressure ? " So do the 10 tabs you used last, unless the Mac is short of memory." : " So do the 10 tabs you used last."
@@ -148,7 +135,6 @@ struct TabsPane: View {
             note += " Sites you keep active are the last to go when the Mac is short of memory."
         }
         return note
->>>>>>> origin/main
     }
 }
 

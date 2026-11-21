@@ -38,13 +38,8 @@ struct PrivacyPane: View {
 
             SettingsHeader(L10n.tr("Connections")).padding(.top, 20)
             SettingsFeatureCard {
-<<<<<<< HEAD
                 SettingsToggleRow(L10n.tr("Always use secure connections"),
-                                  detail: L10n.tr("Pages load over HTTPS. Before opening a site that doesn’t support it, Cra warns you first."),
-=======
-                SettingsToggleRow("Always use secure connections",
                                   detail: "Pages load over HTTPS. Before opening a public site that doesn’t support it, Cra warns you first. Addresses on your own network, such as 192.168… or a .local name, load as they are.",
->>>>>>> origin/main
                                   isOn: $store.settings.httpsOnly)
                 SettingsCardDivider()
                 SecureDNSRows(error: $dnsError, footnote: dnsFootnote)

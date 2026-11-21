@@ -353,17 +353,10 @@ private struct BoostEditorView: View {
             .frame(width: 147, height: 147)
             .padding(.top, 18)
             HStack(spacing: 10) {
-<<<<<<< HEAD
                 square("lightbulb", on: model.boost.invert, help: L10n.tr("Invert lightness")) { model.change { $0.invert.toggle() } }
-                square("slider.horizontal.3", on: showColors, help: L10n.tr("Advanced color controls")) { showColors.toggle() }
-                    .popover(isPresented: $showColors, arrowEdge: .leading) { advanced }
-                square("nosign", on: false, help: L10n.tr("Reset to original colors")) {
-=======
-                square("lightbulb", on: model.boost.invert, help: "Invert lightness") { model.change { $0.invert.toggle() } }
-                square("slider.horizontal.3", on: model.showingColors, help: "Advanced color controls") { model.showingColors.toggle() }
+                square("slider.horizontal.3", on: model.showingColors, help: L10n.tr("Advanced color controls")) { model.showingColors.toggle() }
                     .popover(isPresented: $model.showingColors, arrowEdge: .bottom) { advanced }
-                square("nosign", on: false, help: "Reset to original colors") {
->>>>>>> origin/main
+                square("nosign", on: false, help: L10n.tr("Reset to original colors")) {
                     model.change { $0.hue = 0; $0.strength = 0; $0.invert = false; $0.contrast = 50; $0.brightness = 50; $0.saturation = 50 }
                 }
                 .opacity(model.boost.colorsUntouched ? 0.45 : 1)
@@ -397,17 +390,10 @@ private struct BoostEditorView: View {
     /// Arc's popover hangs under the button and is light like the editor, in Dark Mode too: the
     /// system's dark popover left the editor's light controls on a dark grey (#478).
     private var advanced: some View {
-<<<<<<< HEAD
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 18) {
             slider(L10n.tr("Contrast"), \.contrast)
             slider(L10n.tr("Brightness"), \.brightness)
             slider(L10n.tr("Original Saturation"), \.saturation)
-=======
-        VStack(alignment: .leading, spacing: 18) {
-            slider("Contrast", \.contrast)
-            slider("Brightness", \.brightness)
-            slider("Original Saturation", \.saturation)
->>>>>>> origin/main
         }
         .padding(.horizontal, 19).padding(.vertical, 20)
         .frame(width: 224)
@@ -594,16 +580,10 @@ private struct ColorWheel: View {
 
     var body: some View {
         GeometryReader { geo in
-<<<<<<< HEAD
-            let size = geo.size.width, inner = size - 14, c = size / 2
-            let angle = hue * 2 * .pi, r = CGFloat(strength) * (inner / 2 - 18)
-            let handle = CGPoint(x: c + cos(angle) * r, y: c - sin(angle) * r)
-=======
             let c = geo.size.width / 2
             let h = BoostWheel.handles(hue: hue, strength: strength)
             let big = CGPoint(x: c + h.big.x, y: c + h.big.y), small = CGPoint(x: c + h.small.x, y: c + h.small.y)
             let accent = color(BoostWheel.accent(hue: hue, strength: strength))
->>>>>>> origin/main
             ZStack {
                 if strength > 0 {
                     RoundedRectangle(cornerRadius: 26, style: .continuous)

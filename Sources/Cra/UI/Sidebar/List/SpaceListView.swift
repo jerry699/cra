@@ -345,13 +345,8 @@ final class SpaceListView: NSView, NSDraggingSource {
             var row = Row(key: .item(item.id), kind: .newTab, decor: decor(item.id), itemID: item.id, parent: parent, index: index, depth: depth)
             if item.isTabGroup {
                 // Arc lists a group's tabs under its header without an indent.
-<<<<<<< HEAD
-                row.content = .groupHeader(GroupHeaderRowModel(id: item.id, title: item.title ?? "Untitled",
-                                                               editing: ui.renamingID == item.id))
-=======
                 row.eager = .groupHeader(GroupHeaderRowModel(id: item.id, title: item.title ?? "Untitled"))
                 row.kind = .groupHeader
->>>>>>> origin/main
                 out.append(row)
                 for (index, c) in SidebarChildOrder.listed(item.children, lookup: store.item) {
                     add(c, depth: depth, pinned: pinned, parent: item.id, index: index)
@@ -481,27 +476,9 @@ final class SpaceListView: NSView, NSDraggingSource {
         }
         let pinnedCount = out.count
         let todayKids = store.item(space.todayContainerID)?.children ?? []
-<<<<<<< HEAD
-        // A pause only means something where Tidy would otherwise show: the feature on, enough
-        // loose tabs today.
-        let canTidy = !blank && store.settings.tidyTabs && store.canTidy(spaceID)
-        let tidy: DividerTidy
-        if blank {
-            tidy = .none
-        } else if store.tidyingSpaces.contains(spaceID) {
-            tidy = .running(store.tidyStages[spaceID])
-        } else if canTidy, let notice = store.tidyNotices[spaceID] {
-            tidy = .paused(notice)
-        } else if canTidy, let pause = TidyTabsService.shared.pauseReason {
-            tidy = .paused(pause)
-        } else {
-            tidy = TidyTabsService.shared.offers(spaceID, store: store) ? .offered : .none
-        }
-=======
         out.reserveCapacity(out.count + todayKids.count + 4)
         let tidy: DividerTidy = blank ? .none : store.tidyingSpaces.contains(spaceID) ? .running
             : TidyTabsService.shared.offers(spaceID, store: store) ? .offered : .none
->>>>>>> origin/main
         out.append(Row(key: .divider, content: .divider(hasToday: !todayKids.isEmpty && !blank, tidy: tidy)))
         let atTop = store.settings.newTabButtonAtTop
         if atTop && showsNewTab { out.append(Row(key: .newTab, content: .newTab(active: placeholder))) }
