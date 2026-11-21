@@ -6,8 +6,8 @@ Baseline harness for every retrieval change (plan P3-R2 评测集)."""
 import json, struct, subprocess, math, os, sys, re
 
 HELPER = os.path.expanduser("~/Projects/cra/.build/release/CraInferenceHelper")
-MODEL = os.path.expanduser("~/Library/Application Support/Cra/Models/Qwen3-Embedding-0.6B-Q8_0.gguf")
-C = os.path.expanduser("~/Library/Application Support/Cra")
+MODEL = os.path.expanduser("~/Library/Application Support/司南/Models/Qwen3-Embedding-0.6B-Q8_0.gguf")
+C = os.path.expanduser("~/Library/Application Support/司南")
 index = json.load(open(os.path.join(C, "semantic-index.json")))
 history = {e["url"]: e for e in json.load(open(os.path.join(C, "history.json")))}
 
